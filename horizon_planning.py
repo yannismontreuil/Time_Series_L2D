@@ -5,6 +5,7 @@ from typing import Callable, List, Sequence, Tuple, Optional
 from router_model import SLDSIMMRouter
 from synthetic_env import SyntheticTimeSeriesEnv
 from l2d_baseline import LearningToDeferBaseline
+from plot_utils import get_expert_color, get_model_color
 
 
 def warm_start_router_to_time(
@@ -253,7 +254,13 @@ def evaluate_horizon_planning(
     # --- Top subplot: full history up to end of horizon ---
     all_times = np.arange(0, t0_int + 1 + H_eff, dtype=int)
     all_y = env.y[: t0_int + 1 + H_eff]
-    ax_h_full.plot(all_times, all_y, label="True $y_t$", color="black", linewidth=2)
+    ax_h_full.plot(
+        all_times,
+        all_y,
+        label="True $y_t$",
+        color=get_model_color("true"),
+        linewidth=2,
+    )
 
     # Anchor all forecast curves at t0 with the ground-truth value y_{t0}
     y_t0 = env.y[t0_int]
@@ -267,20 +274,34 @@ def evaluate_horizon_planning(
         times_forecast,
         preds_oracle_plot,
         label="Oracle (truth)",
-        linestyle="--",
-        color="tab:gray",
+        linestyle="-",
+        color=get_model_color("oracle"),
     )
     # Do not plot a dedicated best-constant curve; individual const experts are shown below.
-    ax_h_full.plot(times_forecast, preds_partial_plot, label="H-plan partial", alpha=0.8)
-    ax_h_full.plot(times_forecast, preds_full_plot, label="H-plan full", alpha=0.8)
+    ax_h_full.plot(
+        times_forecast,
+        preds_partial_plot,
+        label="H-plan partial",
+        color=get_model_color("partial"),
+        alpha=0.8,
+    )
+    ax_h_full.plot(
+        times_forecast,
+        preds_full_plot,
+        label="H-plan full",
+        color=get_model_color("full"),
+        alpha=0.8,
+    )
     # Plot constant-expert baselines (line + '*' markers for clarity)
     for j in range(env.num_experts):
         preds_j_plot = np.concatenate(([y_t0], const_preds[j]))
         ax_h_full.plot(
             times_forecast,
             preds_j_plot,
-            linestyle=":",
-            marker="*",
+            color=get_expert_color(j),
+            linestyle="--",
+            marker="o",
+            markerfacecolor="none",
             markersize=6,
             alpha=0.7,
             label=f"Const expert {j}",
@@ -292,6 +313,7 @@ def evaluate_horizon_planning(
             times_forecast,
             preds_l2d_plot,
             label="L2D baseline (horizon)",
+            color=get_model_color("l2d"),
             alpha=0.9,
         )
     ax_h_full.axvline(t0_int, linestyle=":", color="k", alpha=0.5)
@@ -303,24 +325,44 @@ def evaluate_horizon_planning(
     # --- Middle subplot: zoomed view t in [t0, t0+H_eff] ---
     zoom_times = np.arange(t0_int, t0_int + 1 + H_eff, dtype=int)
     zoom_y = env.y[t0_int : t0_int + 1 + H_eff]
-    ax_h_zoom.plot(zoom_times, zoom_y, label="True $y_t$", color="black", linewidth=2)
+    ax_h_zoom.plot(
+        zoom_times,
+        zoom_y,
+        label="True $y_t$",
+        color=get_model_color("true"),
+        linewidth=2,
+    )
     ax_h_zoom.plot(
         times_forecast,
         preds_oracle_plot,
         label="Oracle (truth)",
-        linestyle="--",
-        color="tab:gray",
+        linestyle="-",
+        color=get_model_color("oracle"),
     )
     # Do not plot a dedicated best-constant curve in the zoom either.
-    ax_h_zoom.plot(times_forecast, preds_partial_plot, label="H-plan partial", alpha=0.8)
-    ax_h_zoom.plot(times_forecast, preds_full_plot, label="H-plan full", alpha=0.8)
+    ax_h_zoom.plot(
+        times_forecast,
+        preds_partial_plot,
+        label="H-plan partial",
+        color=get_model_color("partial"),
+        alpha=0.8,
+    )
+    ax_h_zoom.plot(
+        times_forecast,
+        preds_full_plot,
+        label="H-plan full",
+        color=get_model_color("full"),
+        alpha=0.8,
+    )
     for j in range(env.num_experts):
         preds_j_plot = np.concatenate(([y_t0], const_preds[j]))
         ax_h_zoom.plot(
             times_forecast,
             preds_j_plot,
-            linestyle=":",
-            marker="*",
+            color=get_expert_color(j),
+            linestyle="--",
+            marker="o",
+            markerfacecolor="none",
             markersize=6,
             alpha=0.7,
             label=f"Const expert {j}",
@@ -331,6 +373,7 @@ def evaluate_horizon_planning(
             times_forecast,
             preds_l2d_plot,
             label="L2D baseline (horizon)",
+            color=get_model_color("l2d"),
             alpha=0.9,
         )
     ax_h_zoom.axvline(t0_int, linestyle=":", color="k", alpha=0.5)
@@ -341,13 +384,27 @@ def evaluate_horizon_planning(
     ax_h_zoom.legend(loc="upper left")
 
     # --- Bottom subplot: expert scheduling over the horizon ---
-    ax_h_sched.step(times, sched_oracle, where="post", label="Oracle", color="tab:gray")
+    ax_h_sched.step(
+        times,
+        sched_oracle,
+        where="post",
+        label="Oracle",
+        color=get_model_color("oracle"),
+    )
     # Do not plot a separate schedule for the best constant expert; const schedules per expert follow.
     ax_h_sched.step(
-        times, sched_partial, where="post", label="H-plan partial", color="tab:orange"
+        times,
+        sched_partial,
+        where="post",
+        label="H-plan partial",
+        color=get_model_color("partial"),
     )
     ax_h_sched.step(
-        times, sched_full, where="post", label="H-plan full", color="tab:green"
+        times,
+        sched_full,
+        where="post",
+        label="H-plan full",
+        color=get_model_color("full"),
     )
     # Constant-expert schedules
     for j in range(env.num_experts):
@@ -356,7 +413,8 @@ def evaluate_horizon_planning(
             times,
             sched_j,
             where="post",
-            linestyle=":",
+            color=get_expert_color(j),
+            linestyle="--",
             alpha=0.5,
             label=f"Const {j}",
         )
@@ -367,7 +425,7 @@ def evaluate_horizon_planning(
             sched_l2d,
             where="post",
             label="L2D baseline",
-            color="tab:red",
+            color=get_model_color("l2d"),
         )
     ax_h_sched.set_xlabel("Time $t$")
     ax_h_sched.set_ylabel("Expert")

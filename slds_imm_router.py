@@ -12,7 +12,7 @@ if __name__ == "__main__":
     M = 2          # regimes
     N = 3          # experts
     d = 2          # state dimension (= dim φ(x))
-    lambda_risk = 0.0
+    lambda_risk = -0.2
 
     # SLDS parameters (simple example)
     A = np.stack([np.eye(d), np.eye(d)], axis=0)         # identity dynamics
@@ -51,14 +51,15 @@ if __name__ == "__main__":
         feedback_mode="full",
     )
 
-    # Environment (expert 1 unavailable on [T/4, 2T/4) by default)
+    # Environment (expert 1 unavailable on specified intervals)
     env = SyntheticTimeSeriesEnv(
         num_experts=N,
         num_regimes=M,
         T=300,
         seed=42,
         unavailable_expert_idx=1,
-        unavailable_start_t=None,
+        # expert 1 unavailable on [10, 20] and [150, 200] (inclusive)
+        unavailable_intervals=[[10, 20], [150, 200]],
     )
 
     # Plot the true series and expert predictions

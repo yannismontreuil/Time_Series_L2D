@@ -24,6 +24,7 @@ class SyntheticTimeSeriesEnv:
         seed: int = 0,
         unavailable_expert_idx: int | None = 1,
         unavailable_start_t: int | None = None,
+        unavailable_intervals: list[tuple[int, int]] | None = None,
     ):
         rng = np.random.default_rng(seed)
         self.num_experts = num_experts
@@ -74,21 +75,37 @@ class SyntheticTimeSeriesEnv:
             self.expert_biases = np.concatenate([base_biases, extra_b])
 
         # Expert availability over time: all experts available by default.
-        # Optionally make one expert unavailable on an interval [t_off, t_on).
+        # Optionally make one expert unavailable on one or more intervals.
+        #   - If `unavailable_intervals` is provided, it should be a list of
+        #     [start, end] (or (start, end)) pairs, where both bounds are
+        #     integer time indices and `end` is treated as inclusive.
+        #   - Otherwise, fall back to a single interval [t_off, 2 * t_off)
+        #     determined by `unavailable_start_t` (or T//4 if None).
         self.availability = np.ones((T, self.num_experts), dtype=int)
         if (
             unavailable_expert_idx is not None
             and 0 <= unavailable_expert_idx < self.num_experts
-            and T > 2
         ):
-            if unavailable_start_t is None:
-                t_off = T // 4
-            else:
-                t_off = int(unavailable_start_t)
-            if 0 <= t_off < T - 1:
-                t_on = min(2 * t_off, T - 1)
-                if t_on > t_off:
-                    self.availability[t_off:t_on, unavailable_expert_idx] = 0
+            # New: explicit list of unavailable intervals for this expert
+            if unavailable_intervals is not None:
+                for start, end in unavailable_intervals:
+                    t_start = max(int(start), 0)
+                    # `end` is inclusive in the user-facing API
+                    t_end = min(int(end) + 1, T)
+                    if t_start >= T or t_end <= 0:
+                        continue
+                    if t_start < t_end:
+                        self.availability[t_start:t_end, unavailable_expert_idx] = 0
+            # Backwards-compatible: single interval with heuristic end time.
+            elif T > 2:
+                if unavailable_start_t is None:
+                    t_off = T // 4
+                else:
+                    t_off = int(unavailable_start_t)
+                if 0 <= t_off < T - 1:
+                    t_on = min(2 * t_off, T - 1)
+                    if t_on > t_off:
+                        self.availability[t_off:t_on, unavailable_expert_idx] = 0
 
     def get_context(self, t: int) -> np.ndarray:
         return np.array([self.x[t]], dtype=float)
@@ -119,4 +136,3 @@ class SyntheticTimeSeriesEnv:
         """
         mask = self.availability[t].astype(bool)
         return np.where(mask)[0]
-

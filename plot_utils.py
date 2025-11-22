@@ -11,6 +11,131 @@ from router_eval import (
     compute_predictions_from_choices,
 )
 
+# ---------------------------------------------------------------------
+# Global plotting style (scienceplots + IEEE, Times New Roman, etc.)
+# ---------------------------------------------------------------------
+try:
+    import scienceplots  # type: ignore  # noqa: F401
+
+    plt.style.use(["science", "ieee"])
+except Exception:
+    # If scienceplots is not installed, fall back silently; font settings
+    # below still apply.
+    pass
+
+plt.rcParams.update(
+    {
+        "font.family": "serif",
+        "font.serif": ["Times New Roman"],
+        "font.size": 13,
+        "figure.dpi": 100,
+    }
+)
+
+
+def get_expert_color(j: int) -> str:
+    """
+    Deterministic color for expert index j, shared across plots.
+
+    Uses matplotlib's default color cycle (C0, C1, ...) so that
+    expert j always has the same color in every figure.
+    """
+    return f"C{int(j) % 10}"
+
+
+def get_model_color(name: str) -> str:
+    """
+    Consistent colors for different models across all plots.
+    """
+    name = str(name).lower()
+    mapping = {
+        "true": "black",
+        "oracle": "tab:gray",
+        "partial": "tab:blue",
+        "full": "tab:orange",
+        "l2d": "tab:red",
+    }
+    return mapping.get(name, "tab:purple")
+
+
+def add_unavailability_regions(ax: plt.Axes, env: SyntheticTimeSeriesEnv) -> None:
+    """
+    Shade time intervals where experts are unavailable in a given axis.
+
+    For each expert j, we draw light-colored vertical bands over times
+    t where env.availability[t, j] == 0, and annotate them with
+    \"j unavailable\" near the bottom of the plot.
+    """
+    avail = getattr(env, "availability", None)
+    if avail is None:
+        return
+    T = env.T
+    if T <= 1 or env.num_experts <= 0:
+        return
+
+    # Work on t = 1,...,T-1 to match the prediction plots.
+    avail_sub = avail[1:T, :]
+    y_min, y_max = ax.get_ylim()
+    height = y_max - y_min if y_max > y_min else 1.0
+
+    for j in range(env.num_experts):
+        series = avail_sub[:, j]
+        in_block = False
+        start_t = None
+        for idx, val in enumerate(series):
+            t = idx + 1  # actual time index
+            if not in_block and val == 0:
+                in_block = True
+                start_t = t
+            elif in_block and val == 1:
+                end_t = t
+                color = get_expert_color(j)
+                ax.axvspan(
+                    start_t,
+                    end_t,
+                    facecolor=color,
+                    alpha=0.08,
+                    zorder=0,
+                )
+                mid = 0.5 * (start_t + end_t)
+                ax.text(
+                    mid,
+                    y_min + 0.05 * height,
+                    f"{j} unavailable",
+                    color=color,
+                    alpha=0.8,
+                    ha="center",
+                    va="bottom",
+                    fontsize=9,
+                    zorder=1,
+                )
+                in_block = False
+        if in_block and start_t is not None:
+            end_t = T - 1
+            color = get_expert_color(j)
+            ax.axvspan(
+                start_t,
+                end_t,
+                facecolor=color,
+                alpha=0.08,
+                zorder=0,
+            )
+            mid = 0.5 * (start_t + end_t)
+            ax.text(
+                mid,
+                y_min + 0.05 * height,
+                f"{j} unavailable",
+                color=color,
+                alpha=0.8,
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                zorder=1,
+            )
+
+    # Keep original y-limits
+    ax.set_ylim(y_min, y_max)
+
 
 def plot_time_series(
     env: SyntheticTimeSeriesEnv,
@@ -36,12 +161,20 @@ def plot_time_series(
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(10, 6))
 
     # Top: true series and expert predictions
-    ax1.plot(t_grid, y, label="True $y_t$", color="black", linewidth=2)
+    ax1.plot(
+        t_grid,
+        y,
+        label="True $y_t$",
+        color=get_model_color("true"),
+        linewidth=2,
+    )
     for j in range(env.num_experts):
         ax1.plot(
             t_grid,
             preds[:, j],
             label=f"Expert {j} prediction",
+            color=get_expert_color(j),
+            linestyle="--",
             alpha=0.7,
         )
     ax1.set_ylabel("Value")
@@ -72,6 +205,8 @@ def plot_time_series(
                 avail_sub[:, j],
                 where="post",
                 label=f"Expert {j}",
+                color=get_expert_color(j),
+                linestyle="--",
             )
         ax3.set_xlabel("Time $t$")
         ax3.set_ylabel("Availability")
@@ -149,11 +284,42 @@ def evaluate_routers_and_baselines(
 
     # Plot true series vs router-based prediction series
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(t_grid, y_true, label="True $y_t$", color="black", linewidth=2)
-    ax.plot(t_grid, preds_partial, label="Router (partial)", alpha=0.8)
-    ax.plot(t_grid, preds_full, label="Router (full)", alpha=0.8)
+    ax.plot(
+        t_grid,
+        y_true,
+        label="True $y_t$",
+        color=get_model_color("true"),
+        linewidth=2,
+        linestyle="-",
+    )
+    ax.plot(
+        t_grid,
+        preds_partial,
+        label="Router (partial)",
+        color=get_model_color("partial"),
+        linestyle="-",
+        alpha=0.8,
+    )
+    ax.plot(
+        t_grid,
+        preds_full,
+        label="Router (full)",
+        color=get_model_color("full"),
+        linestyle="-",
+        alpha=0.8,
+    )
     if preds_l2d is not None:
-        ax.plot(t_grid, preds_l2d, label="L2D baseline", alpha=0.8)
+        ax.plot(
+            t_grid,
+            preds_l2d,
+            label="L2D baseline",
+            color=get_model_color("l2d"),
+            linestyle="-",
+            alpha=0.8,
+        )
+
+    # Shade intervals where experts are unavailable
+    add_unavailability_regions(ax, env)
     ax.set_xlabel("Time $t$")
     ax.set_ylabel("Value")
     ax.set_title("True series vs router-induced predictions")
@@ -172,21 +338,36 @@ def evaluate_routers_and_baselines(
 
     idx = 0
     ax_p = axes[idx]
-    ax_p.step(t_grid, choices_partial, where="post")
+    ax_p.step(
+        t_grid,
+        choices_partial,
+        where="post",
+        color=get_model_color("partial"),
+    )
     ax_p.set_ylabel("Expert\n(partial)")
     ax_p.set_yticks(np.arange(env.num_experts))
     ax_p.set_title("Selections and availability over time")
     idx += 1
 
     ax_f = axes[idx]
-    ax_f.step(t_grid, choices_full, where="post", color="tab:orange")
+    ax_f.step(
+        t_grid,
+        choices_full,
+        where="post",
+        color=get_model_color("full"),
+    )
     ax_f.set_ylabel("Expert\n(full)")
     ax_f.set_yticks(np.arange(env.num_experts))
     idx += 1
 
     if has_l2d:
         ax_l2d = axes[idx]
-        ax_l2d.step(t_grid, choices_l2d, where="post", color="tab:green")
+        ax_l2d.step(
+            t_grid,
+            choices_l2d,
+            where="post",
+            color=get_model_color("l2d"),
+        )
         ax_l2d.set_ylabel("Expert\n(L2D)")
         ax_l2d.set_yticks(np.arange(env.num_experts))
         idx += 1
@@ -201,6 +382,7 @@ def evaluate_routers_and_baselines(
                 avail_sub[:, j],
                 where="post",
                 label=f"Expert {j}",
+                color=get_expert_color(j),
             )
         ax_avail.set_ylabel("Avail.")
         ax_avail.set_yticks([0, 1])
@@ -211,4 +393,3 @@ def evaluate_routers_and_baselines(
 
     plt.tight_layout()
     plt.show()
-
