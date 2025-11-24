@@ -9,18 +9,21 @@ from horizon_planning import evaluate_horizon_planning
 
 if __name__ == "__main__":
     # Model dimensions
-    M = 2          # regimes
-    N = 3          # experts
+    # We consider a universe of 5 experts indexed j=0,...,4.
+    # Expert 4 (index 4) will be dynamically added after t=100
+    # and removed again at t=150 via the environment availability.
+    N = 5          # experts
     d = 2          # state dimension (= dim φ(x))
-    lambda_risk = -0.2
+    lambda_risk = - 0.2
 
+    M = 2          # regimes
     # SLDS parameters (simple example)
     A = np.stack([np.eye(d), np.eye(d)], axis=0)         # identity dynamics
     Q = np.stack([0.01 * np.eye(d), 0.1 * np.eye(d)], axis=0)  # different drift scales
     R = np.ones((M, N), dtype=float) * 0.5              # observation noise
     Pi = np.array([[0.9, 0.1],
                    [0.2, 0.8]], dtype=float)            # regime transitions
-    beta = np.array([0.0, 0.0, 0.0], dtype=float)       # consultation costs
+    beta = np.zeros(N, dtype=float)                     # consultation costs
 
     # Routers for partial and full feedback
     router_partial = SLDSIMMRouter(
@@ -51,15 +54,19 @@ if __name__ == "__main__":
         feedback_mode="full",
     )
 
-    # Environment (expert 1 unavailable on specified intervals)
+    # Environment with dynamic expert availability.
+    # - Expert 1: unavailable on [10, 50] and [200, 250] (inclusive).
+    # - Expert 4: arrives after t=100 and leaves at t=150, i.e.
+    #   available on [101, 150] and unavailable outside that window.
     env = SyntheticTimeSeriesEnv(
         num_experts=N,
         num_regimes=M,
         T=300,
         seed=42,
         unavailable_expert_idx=1,
-        # expert 1 unavailable on [10, 20] and [150, 200] (inclusive)
-        unavailable_intervals=[[10, 20], [150, 200]],
+        unavailable_intervals=[[10, 50], [200, 250]],
+        arrival_expert_idx=4,
+        arrival_intervals=[[101, 150]],
     )
 
     # Plot the true series and expert predictions
@@ -95,7 +102,7 @@ if __name__ == "__main__":
         return np.array([y_hat], dtype=float)
 
     # Take current context at t0 and plan H steps ahead, and evaluate.
-    t0 = 100
+    t0 = 175
     H = 5
     # Separate L2D baseline instance for horizon-only evaluation (trained up to t0)
     l2d_baseline_horizon = LearningToDeferBaseline(

@@ -103,6 +103,11 @@ class SLDSIMMRouter:
 
         self.eps = float(eps)
 
+        # Track which experts have ever been available (dynamic addition).
+        # An expert that appears for the first time in the availability set
+        # is initialized from the population prior at that time.
+        self._has_joined = np.zeros(self.N, dtype=bool)
+
         self.reset_beliefs()
 
     # --------------------------------------------------------
@@ -121,6 +126,9 @@ class SLDSIMMRouter:
             s = b0.sum()
             assert s > 0
             self.b = b0 / s
+
+        # When resetting beliefs, forget which experts have joined so far.
+        self._has_joined[:] = False
 
         self.m = np.zeros((self.M, self.N, self.d), dtype=float)
         self.P = np.zeros((self.M, self.N, self.d, self.d), dtype=float)
@@ -205,6 +213,46 @@ class SLDSIMMRouter:
         return b_pred, m_pred, P_pred
 
     # --------------------------------------------------------
+    # Dynamic expert availability: prior for newly added experts
+    # --------------------------------------------------------
+
+    def _apply_new_expert_prior(
+        self,
+        available_experts: np.ndarray,
+        m_pred: np.ndarray,
+        P_pred: np.ndarray,
+        mark_joined: bool = True,
+    ) -> None:
+        """
+        Apply the population prior to experts that become available for
+        the first time at the current step.
+
+        For any j with j in available_experts and _has_joined[j] == False,
+        set for all regimes k:
+            m_pred[k, j] = pop_mean
+            P_pred[k, j] = pop_cov.
+
+        This matches the "Expert Addition (New Expert Joins)" rule in the
+        dynamic availability section of the theory document.
+        """
+        available_experts = np.asarray(available_experts, dtype=int)
+        if available_experts.size == 0:
+            return
+
+        mask_new = ~self._has_joined[available_experts]
+        if not np.any(mask_new):
+            return
+
+        new_indices = available_experts[mask_new]
+        for j in new_indices:
+            for k in range(self.M):
+                m_pred[k, j] = self.pop_mean
+                P_pred[k, j] = self.pop_cov
+
+        if mark_joined:
+            self._has_joined[new_indices] = True
+
+    # --------------------------------------------------------
     # Predictive loss distribution (per expert)
     # --------------------------------------------------------
 
@@ -262,6 +310,16 @@ class SLDSIMMRouter:
         # IMM prediction (b_{t+1|t}, m_{t+1|t}, P_{t+1|t})
         b_pred, m_pred, P_pred = self._interaction_and_time_update()
 
+        # Dynamic expert availability: if an expert becomes available for the
+        # first time at this step, initialize its predicted state from the
+        # population prior before computing predictive losses.
+        self._apply_new_expert_prior(
+            available_experts=available_experts,
+            m_pred=m_pred,
+            P_pred=P_pred,
+            mark_joined=True,
+        )
+
         # Predictive distribution of losses at time t+1
         mean_ell, var_ell, mu_kj, S_kj = self._predict_loss_distribution(
             phi_t, b_pred, m_pred, P_pred
@@ -315,6 +373,17 @@ class SLDSIMMRouter:
         I_d = np.eye(d, dtype=float)
 
         available_experts = np.asarray(list(available_experts), dtype=int)
+
+        # Safety: ensure that any expert that becomes available for the first
+        # time (e.g., if update_beliefs is called in a custom loop) starts
+        # from the population prior. In the standard online loop this is
+        # already handled in select_expert, so we do not mark_joined here.
+        self._apply_new_expert_prior(
+            available_experts=available_experts,
+            m_pred=m_pred,
+            P_pred=P_pred,
+            mark_joined=False,
+        )
 
         # Expert-level state update (Kalman correction)
         if self.feedback_mode == "partial":
@@ -439,6 +508,11 @@ class SLDSIMMRouter:
         # Precompute open-loop latent states (no observation updates)
         b_list, m_list, P_list = self.precompute_horizon_states(H)
 
+        # Local copy of which experts have joined so far. This allows the
+        # planner to apply the population prior to experts that first appear
+        # in the provided availability sets at some future step.
+        seen_future = self._has_joined.copy()
+
         x_curr = x_t
         schedule: List[int] = []
         contexts: List[np.ndarray] = []
@@ -446,10 +520,24 @@ class SLDSIMMRouter:
 
         for h in range(1, H + 1):
             b_h = b_list[h - 1]
-            m_h = m_list[h - 1]
-            P_h = P_list[h - 1]
+            m_h = m_list[h - 1].copy()
+            P_h = P_list[h - 1].copy()
 
             avail = np.asarray(list(available_experts_per_h[h - 1]), dtype=int)
+
+            # Apply population prior to experts that become available for the
+            # first time on this future step (planning analogue of online
+            # dynamic addition). We use a local mask so the router's live
+            # state is not mutated by planning.
+            if avail.size > 0:
+                mask_new = ~seen_future[avail]
+                if np.any(mask_new):
+                    new_indices = avail[mask_new]
+                    for j in new_indices:
+                        for k in range(self.M):
+                            m_h[k, j] = self.pop_mean
+                            P_h[k, j] = self.pop_cov
+                    seen_future[new_indices] = True
             best_score: Optional[float] = None
             best_j: Optional[int] = None
             best_x_next: Optional[np.ndarray] = None
@@ -493,4 +581,3 @@ class SLDSIMMRouter:
             x_curr = best_x_next
 
         return schedule, contexts, scores
-

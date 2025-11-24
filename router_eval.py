@@ -111,6 +111,102 @@ def run_l2d_on_env(
     return np.array(costs), np.array(choices)
 
 
+def run_random_on_env(
+    env: SyntheticTimeSeriesEnv,
+    beta: np.ndarray,
+    seed: int = 0,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Random baseline that selects an available expert uniformly at random
+    at each time step and incurs cost ℓ_{r_t,t} + β_{r_t}.
+
+    Parameters
+    ----------
+    env : SyntheticTimeSeriesEnv
+        Environment providing contexts, expert predictions, and losses.
+    beta : np.ndarray
+        Consultation costs β_j, shape (N,).
+    seed : int
+        Random seed for reproducible choices.
+
+    Returns
+    -------
+    costs : np.ndarray of shape (T-1,)
+        Per-step costs.
+    choices : np.ndarray of shape (T-1,)
+        Selected expert index at each time t.
+    """
+    T = env.T
+    N = env.num_experts
+
+    beta = np.asarray(beta, dtype=float).reshape(N)
+    rng = np.random.default_rng(seed)
+
+    costs = np.zeros(T - 1, dtype=float)
+    choices = np.zeros(T - 1, dtype=int)
+
+    for t in range(1, T):
+        available = env.get_available_experts(t)
+        if available.size == 0:
+            available = np.arange(N, dtype=int)
+
+        r_t = int(rng.choice(available))
+
+        loss_all = env.losses(t)
+        loss_r = float(loss_all[r_t])
+        costs[t - 1] = loss_r + beta[r_t]
+        choices[t - 1] = r_t
+
+    return costs, choices
+
+
+def run_oracle_on_env(
+    env: SyntheticTimeSeriesEnv,
+    beta: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Oracle baseline that, at each time step, selects the available expert
+    with minimum instantaneous cost ℓ_{j,t} + β_j (clairvoyant per-step best).
+
+    Parameters
+    ----------
+    env : SyntheticTimeSeriesEnv
+        Environment providing expert losses.
+    beta : np.ndarray
+        Consultation costs β_j, shape (N,).
+
+    Returns
+    -------
+    costs : np.ndarray of shape (T-1,)
+        Per-step oracle costs.
+    choices : np.ndarray of shape (T-1,)
+        Oracle-selected expert index at each time t.
+    """
+    T = env.T
+    N = env.num_experts
+
+    beta = np.asarray(beta, dtype=float).reshape(N)
+
+    costs = np.zeros(T - 1, dtype=float)
+    choices = np.zeros(T - 1, dtype=int)
+
+    for t in range(1, T):
+        loss_all = env.losses(t)
+        total_costs = loss_all + beta
+
+        available = env.get_available_experts(t)
+        if available.size == 0:
+            available = np.arange(N, dtype=int)
+
+        avail_costs = total_costs[available]
+        r_t = int(available[int(np.argmin(avail_costs))])
+
+        costs[t - 1] = float(total_costs[r_t])
+        choices[t - 1] = r_t
+
+    return costs, choices
+
+
 def compute_predictions_from_choices(
     env: SyntheticTimeSeriesEnv,
     choices: np.ndarray,
@@ -141,4 +237,3 @@ def compute_predictions_from_choices(
         j = int(choices[t - 1])
         preds[t - 1] = env.expert_predict(j, x_t)
     return preds
-

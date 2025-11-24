@@ -8,6 +8,8 @@ from l2d_baseline import LearningToDeferBaseline
 from router_eval import (
     run_router_on_env,
     run_l2d_on_env,
+    run_random_on_env,
+    run_oracle_on_env,
     compute_predictions_from_choices,
 )
 
@@ -54,6 +56,7 @@ def get_model_color(name: str) -> str:
         "partial": "tab:blue",
         "full": "tab:orange",
         "l2d": "tab:red",
+        "random": "tab:green",
     }
     return mapping.get(name, "tab:purple")
 
@@ -195,24 +198,35 @@ def plot_time_series(
     # Plot expert availability over time (1 = available, 0 = not available)
     avail = getattr(env, "availability", None)
     if avail is not None:
-        fig3, ax3 = plt.subplots(figsize=(10, 3))
         # Availability is defined for t=0,...,T-1; align with t=1,...,T-1.
         t_grid_avail = np.arange(1, T)
         avail_sub = avail[1:T, :]
-        for j in range(env.num_experts):
-            ax3.step(
+
+        # One subplot per expert for clarity.
+        n_experts = env.num_experts
+        fig3, axes = plt.subplots(
+            n_experts, 1, sharex=True, figsize=(10, 1.5 * max(n_experts, 1))
+        )
+        if n_experts == 1:
+            axes = [axes]
+
+        for j in range(n_experts):
+            ax_j = axes[j]
+            ax_j.step(
                 t_grid_avail,
                 avail_sub[:, j],
                 where="post",
-                label=f"Expert {j}",
                 color=get_expert_color(j),
                 linestyle="--",
             )
-        ax3.set_xlabel("Time $t$")
-        ax3.set_ylabel("Availability")
-        ax3.set_yticks([0, 1])
-        ax3.set_title("Expert availability over time (1 = available, 0 = not)")
-        ax3.legend(loc="upper right")
+            ax_j.set_ylabel(f"Exp {j}")
+            ax_j.set_yticks([0, 1])
+            if j == 0:
+                ax_j.set_title(
+                    "Expert availability over time (1 = available, 0 = not)"
+                )
+
+        axes[-1].set_xlabel("Time $t$")
         plt.tight_layout()
         plt.show()
 
@@ -238,6 +252,13 @@ def evaluate_routers_and_baselines(
     else:
         costs_l2d, choices_l2d = None, None
 
+    # Common consultation costs (assumed shared across methods)
+    beta = router_partial.beta[: env.num_experts]
+
+    # Random and oracle baselines
+    costs_random, choices_random = run_random_on_env(env, beta, seed=0)
+    costs_oracle, choices_oracle = run_oracle_on_env(env, beta)
+
     # Prediction series induced by router and L2D choices
     preds_partial = compute_predictions_from_choices(env, choices_partial)
     preds_full = compute_predictions_from_choices(env, choices_full)
@@ -246,13 +267,14 @@ def evaluate_routers_and_baselines(
         if choices_l2d is not None
         else None
     )
+    preds_random = compute_predictions_from_choices(env, choices_random)
+    preds_oracle = compute_predictions_from_choices(env, choices_oracle)
 
     T = env.T
     t_grid = np.arange(1, T)
     y_true = env.y[1:T]
 
     # Constant-expert baselines (always pick the same expert)
-    beta = router_partial.beta[: env.num_experts]
     cum_costs = np.zeros(env.num_experts, dtype=float)
     for t in range(1, T):
         loss_all = env.losses(t)
@@ -262,29 +284,41 @@ def evaluate_routers_and_baselines(
     avg_cost_partial = costs_partial.mean()
     avg_cost_full = costs_full.mean()
     avg_cost_l2d = costs_l2d.mean() if costs_l2d is not None else None
+    avg_cost_random = costs_random.mean()
+    avg_cost_oracle = costs_oracle.mean()
 
     print("=== Average costs ===")
     print(f"Router (partial feedback): {avg_cost_partial:.4f}")
     print(f"Router (full feedback):    {avg_cost_full:.4f}")
     if avg_cost_l2d is not None:
         print(f"L2D baseline:              {avg_cost_l2d:.4f}")
+    print(f"Random baseline:           {avg_cost_random:.4f}")
+    print(f"Oracle baseline:           {avg_cost_oracle:.4f}")
     for j in range(env.num_experts):
         print(f"Always using expert {j}:   {avg_cost_experts[j]:.4f}")
 
     # Selection distribution (how often each expert is chosen)
-    entries = [("partial", choices_partial), ("full", choices_full)]
+    entries = [
+        ("partial", choices_partial),
+        ("full", choices_full),
+        ("random", choices_random),
+        ("oracle", choices_oracle),
+    ]
     if choices_l2d is not None:
         entries.append(("l2d", choices_l2d))
     for name, choices in entries:
         values, counts = np.unique(choices, return_counts=True)
         freqs = counts / choices.shape[0]
-        print(f"Selection distribution ({name} router):")
+        print(f"Selection distribution ({name}):")
         for v, c, f in zip(values, counts, freqs):
             print(f"  expert {int(v)}: count={int(c)}, freq={f:.3f}")
 
-    # Plot true series vs router-based prediction series
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(
+    # Plot true series vs router-based prediction series (top)
+    # and cumulative costs over time for each baseline (bottom).
+    fig, (ax_pred, ax_cost) = plt.subplots(2, 1, sharex=True, figsize=(10, 7))
+
+    # Top subplot: predictions
+    ax_pred.plot(
         t_grid,
         y_true,
         label="True $y_t$",
@@ -292,7 +326,7 @@ def evaluate_routers_and_baselines(
         linewidth=2,
         linestyle="-",
     )
-    ax.plot(
+    ax_pred.plot(
         t_grid,
         preds_partial,
         label="Router (partial)",
@@ -300,7 +334,7 @@ def evaluate_routers_and_baselines(
         linestyle="-",
         alpha=0.8,
     )
-    ax.plot(
+    ax_pred.plot(
         t_grid,
         preds_full,
         label="Router (full)",
@@ -309,7 +343,7 @@ def evaluate_routers_and_baselines(
         alpha=0.8,
     )
     if preds_l2d is not None:
-        ax.plot(
+        ax_pred.plot(
             t_grid,
             preds_l2d,
             label="L2D baseline",
@@ -317,13 +351,78 @@ def evaluate_routers_and_baselines(
             linestyle="-",
             alpha=0.8,
         )
+    ax_pred.plot(
+        t_grid,
+        preds_random,
+        label="Random baseline",
+        color=get_model_color("random"),
+        linestyle="-",
+        alpha=0.7,
+    )
+    ax_pred.plot(
+        t_grid,
+        preds_oracle,
+        label="Oracle baseline",
+        color=get_model_color("oracle"),
+        linestyle="-",
+        alpha=0.9,
+    )
 
     # Shade intervals where experts are unavailable
-    add_unavailability_regions(ax, env)
-    ax.set_xlabel("Time $t$")
-    ax.set_ylabel("Value")
-    ax.set_title("True series vs router-induced predictions")
-    ax.legend(loc="upper left")
+    add_unavailability_regions(ax_pred, env)
+    ax_pred.set_ylabel("Value")
+    ax_pred.set_title("True series vs router-induced predictions")
+    ax_pred.legend(loc="upper left")
+
+    # Bottom subplot: cumulative costs for all baselines
+    cum_partial = np.cumsum(costs_partial)
+    cum_full = np.cumsum(costs_full)
+    cum_random = np.cumsum(costs_random)
+    cum_oracle = np.cumsum(costs_oracle)
+    cum_l2d = np.cumsum(costs_l2d) if costs_l2d is not None else None
+
+    ax_cost.plot(
+        t_grid,
+        cum_partial,
+        label="Partial (cumulative cost)",
+        color=get_model_color("partial"),
+        linestyle="-",
+    )
+    ax_cost.plot(
+        t_grid,
+        cum_full,
+        label="Full (cumulative cost)",
+        color=get_model_color("full"),
+        linestyle="-",
+    )
+    if cum_l2d is not None:
+        ax_cost.plot(
+            t_grid,
+            cum_l2d,
+            label="L2D (cumulative cost)",
+            color=get_model_color("l2d"),
+            linestyle="-",
+        )
+    ax_cost.plot(
+        t_grid,
+        cum_random,
+        label="Random (cumulative cost)",
+        color=get_model_color("random"),
+        linestyle="-",
+    )
+    ax_cost.plot(
+        t_grid,
+        cum_oracle,
+        label="Oracle (cumulative cost)",
+        color=get_model_color("oracle"),
+        linestyle="-",
+    )
+
+    ax_cost.set_xlabel("Time $t$")
+    ax_cost.set_ylabel("Cumulative cost")
+    ax_cost.set_title("Cumulative cost over time")
+    ax_cost.legend(loc="upper left")
+
     plt.tight_layout()
     plt.show()
 
@@ -333,7 +432,9 @@ def evaluate_routers_and_baselines(
     has_l2d = choices_l2d is not None
     has_avail = avail is not None
 
-    n_rows = 2 + (1 if has_l2d else 0) + (1 if has_avail else 0)
+    # Rows: partial router, full router, optional L2D baseline,
+    # random baseline, oracle baseline, and optional availability.
+    n_rows = 4 + (1 if has_l2d else 0) + (1 if has_avail else 0)
     fig2, axes = plt.subplots(n_rows, 1, sharex=True, figsize=(10, 2 * n_rows))
 
     idx = 0
@@ -371,6 +472,28 @@ def evaluate_routers_and_baselines(
         ax_l2d.set_ylabel("Expert\n(L2D)")
         ax_l2d.set_yticks(np.arange(env.num_experts))
         idx += 1
+
+    ax_rand = axes[idx]
+    ax_rand.step(
+        t_grid,
+        choices_random,
+        where="post",
+        color=get_model_color("random"),
+    )
+    ax_rand.set_ylabel("Expert\n(random)")
+    ax_rand.set_yticks(np.arange(env.num_experts))
+    idx += 1
+
+    ax_oracle = axes[idx]
+    ax_oracle.step(
+        t_grid,
+        choices_oracle,
+        where="post",
+        color=get_model_color("oracle"),
+    )
+    ax_oracle.set_ylabel("Expert\n(oracle)")
+    ax_oracle.set_yticks(np.arange(env.num_experts))
+    idx += 1
 
     if has_avail:
         ax_avail = axes[idx]

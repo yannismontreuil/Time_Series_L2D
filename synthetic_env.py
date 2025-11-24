@@ -25,6 +25,8 @@ class SyntheticTimeSeriesEnv:
         unavailable_expert_idx: int | None = 1,
         unavailable_start_t: int | None = None,
         unavailable_intervals: list[tuple[int, int]] | None = None,
+        arrival_expert_idx: int | None = None,
+        arrival_intervals: list[tuple[int, int]] | None = None,
     ):
         rng = np.random.default_rng(seed)
         self.num_experts = num_experts
@@ -75,12 +77,13 @@ class SyntheticTimeSeriesEnv:
             self.expert_biases = np.concatenate([base_biases, extra_b])
 
         # Expert availability over time: all experts available by default.
-        # Optionally make one expert unavailable on one or more intervals.
-        #   - If `unavailable_intervals` is provided, it should be a list of
-        #     [start, end] (or (start, end)) pairs, where both bounds are
-        #     integer time indices and `end` is treated as inclusive.
-        #   - Otherwise, fall back to a single interval [t_off, 2 * t_off)
-        #     determined by `unavailable_start_t` (or T//4 if None).
+        # Optionally:
+        #   - make one expert unavailable on one or more intervals
+        #     via `unavailable_expert_idx` / `unavailable_intervals`, and/or
+        #   - specify that one expert is only available on given intervals
+        #     via `arrival_expert_idx` / `arrival_intervals` (dynamic addition).
+        # For both types of intervals, [start, end] is interpreted with `end`
+        # inclusive in the user-facing API.
         self.availability = np.ones((T, self.num_experts), dtype=int)
         if (
             unavailable_expert_idx is not None
@@ -106,6 +109,24 @@ class SyntheticTimeSeriesEnv:
                     t_on = min(2 * t_off, T - 1)
                     if t_on > t_off:
                         self.availability[t_off:t_on, unavailable_expert_idx] = 0
+
+        # Dynamic expert addition: restrict a single expert to be available
+        # only on specified arrival intervals.
+        if (
+            arrival_expert_idx is not None
+            and 0 <= arrival_expert_idx < self.num_experts
+        ):
+            # By default, the expert is unavailable everywhere, then we
+            # turn it on only inside the specified arrival intervals.
+            self.availability[:, arrival_expert_idx] = 0
+            if arrival_intervals is not None:
+                for start, end in arrival_intervals:
+                    t_start = max(int(start), 0)
+                    t_end = min(int(end) + 1, T)  # inclusive end
+                    if t_start >= T or t_end <= 0:
+                        continue
+                    if t_start < t_end:
+                        self.availability[t_start:t_end, arrival_expert_idx] = 1
 
     def get_context(self, t: int) -> np.ndarray:
         return np.array([self.x[t]], dtype=float)
