@@ -3,13 +3,14 @@ import matplotlib.pyplot as plt
 from typing import Callable, List, Sequence, Tuple, Optional
 
 from router_model import SLDSIMMRouter
+from router_model_corr import SLDSIMMRouter_Corr
 from synthetic_env import SyntheticTimeSeriesEnv
 from l2d_baseline import LearningToDeferBaseline
 from plot_utils import get_expert_color, get_model_color
 
 
 def warm_start_router_to_time(
-    router: SLDSIMMRouter,
+    router,
     env: SyntheticTimeSeriesEnv,
     t0: int,
 ) -> None:
@@ -153,6 +154,8 @@ def evaluate_horizon_planning(
     experts_predict: Sequence[Callable[[np.ndarray], float]],
     context_update: Callable[[np.ndarray, float], np.ndarray],
     l2d_baseline: Optional[LearningToDeferBaseline] = None,
+    router_partial_corr: Optional[SLDSIMMRouter_Corr] = None,
+    router_full_corr: Optional[SLDSIMMRouter_Corr] = None,
 ) -> None:
     """
     Compare horizon-H planning from time t0 for:
@@ -167,6 +170,10 @@ def evaluate_horizon_planning(
     # Warm-start routers to time t0 under their feedback modes.
     warm_start_router_to_time(router_partial, env, t0)
     warm_start_router_to_time(router_full, env, t0)
+    if router_partial_corr is not None:
+        warm_start_router_to_time(router_partial_corr, env, t0)
+    if router_full_corr is not None:
+        warm_start_router_to_time(router_full_corr, env, t0)
 
     # Warm-start L2D baseline to time t0 if provided.
     if l2d_baseline is not None:
@@ -198,6 +205,28 @@ def evaluate_horizon_planning(
         available_experts_per_h=[a.tolist() for a in avail_per_h],
     )
 
+    if router_partial_corr is not None:
+        sched_partial_corr, _, _ = router_partial_corr.plan_horizon_schedule(
+            x_t=x_now,
+            H=H_eff,
+            experts_predict=experts_predict,
+            context_update=context_update,
+            available_experts_per_h=[a.tolist() for a in avail_per_h],
+        )
+    else:
+        sched_partial_corr = []
+
+    if router_full_corr is not None:
+        sched_full_corr, _, _ = router_full_corr.plan_horizon_schedule(
+            x_t=x_now,
+            H=H_eff,
+            experts_predict=experts_predict,
+            context_update=context_update,
+            available_experts_per_h=[a.tolist() for a in avail_per_h],
+        )
+    else:
+        sched_full_corr = []
+
     # Evaluate all schedules on the true environment.
     preds_oracle, cost_oracle = eval_schedule_on_env(env, beta, times, sched_oracle)
     preds_baseline, cost_baseline = eval_schedule_on_env(env, beta, times, sched_baseline)
@@ -207,6 +236,22 @@ def evaluate_horizon_planning(
     preds_full_plan, cost_full_plan = eval_schedule_on_env(
         env, beta, times, sched_full
     )
+
+    if sched_partial_corr:
+        preds_partial_corr_plan, cost_partial_corr_plan = eval_schedule_on_env(
+            env, beta, times, sched_partial_corr
+        )
+    else:
+        preds_partial_corr_plan = np.array([], dtype=float)
+        cost_partial_corr_plan = np.array([], dtype=float)
+
+    if sched_full_corr:
+        preds_full_corr_plan, cost_full_corr_plan = eval_schedule_on_env(
+            env, beta, times, sched_full_corr
+        )
+    else:
+        preds_full_corr_plan = np.array([], dtype=float)
+        cost_full_corr_plan = np.array([], dtype=float)
 
     # Constant-expert baselines for all experts (theoretical, ignore availability)
     const_preds = []
@@ -245,6 +290,12 @@ def evaluate_horizon_planning(
         print(f"L2D baseline (horizon):       {cost_l2d_plan.mean():.4f}")
     print(f"H-plan (partial router):       {cost_partial_plan.mean():.4f}")
     print(f"H-plan (full router):          {cost_full_plan.mean():.4f}")
+    if cost_partial_corr_plan.size > 0:
+        print(
+            f"H-plan (partial corr router): {cost_partial_corr_plan.mean():.4f}"
+        )
+    if cost_full_corr_plan.size > 0:
+        print(f"H-plan (full corr router):    {cost_full_corr_plan.mean():.4f}")
 
     # Plot forecasts vs truth and zoomed horizon window + scheduling
     fig_h, (ax_h_full, ax_h_zoom, ax_h_sched) = plt.subplots(
@@ -269,6 +320,16 @@ def evaluate_horizon_planning(
     preds_baseline_plot = np.concatenate(([y_t0], preds_baseline))
     preds_partial_plot = np.concatenate(([y_t0], preds_partial_plan))
     preds_full_plot = np.concatenate(([y_t0], preds_full_plan))
+    preds_partial_corr_plot = (
+        np.concatenate(([y_t0], preds_partial_corr_plan))
+        if preds_partial_corr_plan.size > 0
+        else None
+    )
+    preds_full_corr_plot = (
+        np.concatenate(([y_t0], preds_full_corr_plan))
+        if preds_full_corr_plan.size > 0
+        else None
+    )
 
     ax_h_full.plot(
         times_forecast,
@@ -292,6 +353,22 @@ def evaluate_horizon_planning(
         color=get_model_color("full"),
         alpha=0.8,
     )
+    if preds_partial_corr_plot is not None:
+        ax_h_full.plot(
+            times_forecast,
+            preds_partial_corr_plot,
+            label="H-plan partial corr",
+            color=get_model_color("partial_corr"),
+            alpha=0.8,
+        )
+    if preds_full_corr_plot is not None:
+        ax_h_full.plot(
+            times_forecast,
+            preds_full_corr_plot,
+            label="H-plan full corr",
+            color=get_model_color("full_corr"),
+            alpha=0.8,
+        )
     # Plot constant-expert baselines (line + '*' markers for clarity)
     for j in range(env.num_experts):
         preds_j_plot = np.concatenate(([y_t0], const_preds[j]))
@@ -354,6 +431,22 @@ def evaluate_horizon_planning(
         color=get_model_color("full"),
         alpha=0.8,
     )
+    if preds_partial_corr_plot is not None:
+        ax_h_zoom.plot(
+            times_forecast,
+            preds_partial_corr_plot,
+            label="H-plan partial corr",
+            color=get_model_color("partial_corr"),
+            alpha=0.8,
+        )
+    if preds_full_corr_plot is not None:
+        ax_h_zoom.plot(
+            times_forecast,
+            preds_full_corr_plot,
+            label="H-plan full corr",
+            color=get_model_color("full_corr"),
+            alpha=0.8,
+        )
     for j in range(env.num_experts):
         preds_j_plot = np.concatenate(([y_t0], const_preds[j]))
         ax_h_zoom.plot(
@@ -406,6 +499,22 @@ def evaluate_horizon_planning(
         label="H-plan full",
         color=get_model_color("full"),
     )
+    if sched_partial_corr:
+        ax_h_sched.step(
+            times,
+            sched_partial_corr,
+            where="post",
+            label="H-plan partial corr",
+            color=get_model_color("partial_corr"),
+        )
+    if sched_full_corr:
+        ax_h_sched.step(
+            times,
+            sched_full_corr,
+            where="post",
+            label="H-plan full corr",
+            color=get_model_color("full_corr"),
+        )
     # Constant-expert schedules
     for j in range(env.num_experts):
         sched_j = [j] * H_eff

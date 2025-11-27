@@ -48,7 +48,7 @@ class SLDSIMMRouter:
         R: np.ndarray,
         Pi: np.ndarray,
         beta: Optional[np.ndarray] = None,
-        lambda_risk: float = 0.0,
+        lambda_risk: float | np.ndarray = 0.0,
         pop_mean: Optional[np.ndarray] = None,
         pop_cov: Optional[np.ndarray] = None,
         feedback_mode: str = "partial",
@@ -82,7 +82,19 @@ class SLDSIMMRouter:
             assert beta.shape == (self.N,)
         self.beta = beta
 
-        self.lambda_risk = float(lambda_risk)
+        # Risk aversion parameter:
+        #   - if scalar: regime-independent λ,
+        #   - if array of shape (M,): regime-specific λ^{(k)}, combined as
+        #     \bar λ_t = sum_k b_t(k) λ^{(k)}.
+        lambda_arr = np.asarray(lambda_risk, dtype=float)
+        if lambda_arr.ndim == 0:
+            self.lambda_risk = float(lambda_arr)
+            self.lambda_risk_vec: Optional[np.ndarray] = None
+        else:
+            assert lambda_arr.shape == (self.M,)
+            self.lambda_risk_vec = lambda_arr
+            # Scalar kept for backward-compatibility; not used when vec present.
+            self.lambda_risk = 0.0
 
         if pop_mean is None:
             pop_mean = np.zeros(self.d, dtype=float)
@@ -325,8 +337,14 @@ class SLDSIMMRouter:
             phi_t, b_pred, m_pred, P_pred
         )
 
+        # Effective risk aversion at decision time t
+        if getattr(self, "lambda_risk_vec", None) is not None:
+            lambda_eff = float(self.lambda_risk_vec @ self.b)
+        else:
+            lambda_eff = self.lambda_risk
+
         # Myopic risk-adjusted cost proxy
-        scores = mean_ell + self.beta + self.lambda_risk * np.sqrt(var_ell)
+        scores = mean_ell + self.beta + lambda_eff * np.sqrt(var_ell)
 
         # Restrict to available experts and pick argmin
         avail_scores = scores[available_experts]
@@ -525,6 +543,12 @@ class SLDSIMMRouter:
 
             avail = np.asarray(list(available_experts_per_h[h - 1]), dtype=int)
 
+            # Effective risk aversion at pseudo-time t+h
+            if getattr(self, "lambda_risk_vec", None) is not None:
+                lambda_eff_h = float(self.lambda_risk_vec @ b_h)
+            else:
+                lambda_eff_h = self.lambda_risk
+
             # Apply population prior to experts that become available for the
             # first time on this future step (planning analogue of online
             # dynamic addition). We use a local mask so the router's live
@@ -565,7 +589,7 @@ class SLDSIMMRouter:
                 var_between = float(b_h @ (diff**2))
                 var_ell_j = max(var_within + var_between, self.eps)
 
-                score_j = mean_ell_j + self.beta[j] + self.lambda_risk * np.sqrt(
+                score_j = mean_ell_j + self.beta[j] + lambda_eff_h * np.sqrt(
                     var_ell_j
                 )
 

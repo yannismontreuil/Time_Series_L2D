@@ -4,7 +4,7 @@ from typing import Optional
 
 from router_model import SLDSIMMRouter
 from synthetic_env import SyntheticTimeSeriesEnv
-from l2d_baseline import LearningToDeferBaseline
+from l2d_baseline import LearningToDeferBaseline, L2D_RNN
 from router_eval import (
     run_router_on_env,
     run_l2d_on_env,
@@ -55,7 +55,10 @@ def get_model_color(name: str) -> str:
         "oracle": "tab:gray",
         "partial": "tab:blue",
         "full": "tab:orange",
+        "partial_corr": "tab:cyan",
+        "full_corr": "tab:olive",
         "l2d": "tab:red",
+        "l2d_rnn": "tab:pink",
         "random": "tab:green",
     }
     return mapping.get(name, "tab:purple")
@@ -236,21 +239,44 @@ def evaluate_routers_and_baselines(
     router_partial: SLDSIMMRouter,
     router_full: SLDSIMMRouter,
     l2d_baseline: Optional[LearningToDeferBaseline] = None,
+    router_partial_corr=None,
+    router_full_corr=None,
+    l2d_rnn_baseline: Optional[L2D_RNN] = None,
 ) -> None:
     """
     Evaluate how the partial- and full-feedback routers behave on the
     environment, compare their average cost to constant-expert baselines,
     and plot the induced prediction time series and selections.
     """
-    # Run both routers to obtain costs and choices
+    # Run both base routers to obtain costs and choices
     costs_partial, choices_partial = run_router_on_env(router_partial, env)
     costs_full, choices_full = run_router_on_env(router_full, env)
 
-    # Run learning-to-defer baseline if provided
+    # Correlated routers (if provided)
+    if router_partial_corr is not None:
+        costs_partial_corr, choices_partial_corr = run_router_on_env(
+            router_partial_corr, env
+        )
+    else:
+        costs_partial_corr, choices_partial_corr = None, None
+
+    if router_full_corr is not None:
+        costs_full_corr, choices_full_corr = run_router_on_env(
+            router_full_corr, env
+        )
+    else:
+        costs_full_corr, choices_full_corr = None, None
+
+    # Run learning-to-defer baselines if provided
     if l2d_baseline is not None:
         costs_l2d, choices_l2d = run_l2d_on_env(l2d_baseline, env)
     else:
         costs_l2d, choices_l2d = None, None
+
+    if l2d_rnn_baseline is not None:
+        costs_l2d_rnn, choices_l2d_rnn = run_l2d_on_env(l2d_rnn_baseline, env)
+    else:
+        costs_l2d_rnn, choices_l2d_rnn = None, None
 
     # Common consultation costs (assumed shared across methods)
     beta = router_partial.beta[: env.num_experts]
@@ -262,9 +288,24 @@ def evaluate_routers_and_baselines(
     # Prediction series induced by router and L2D choices
     preds_partial = compute_predictions_from_choices(env, choices_partial)
     preds_full = compute_predictions_from_choices(env, choices_full)
+    preds_partial_corr = (
+        compute_predictions_from_choices(env, choices_partial_corr)
+        if choices_partial_corr is not None
+        else None
+    )
+    preds_full_corr = (
+        compute_predictions_from_choices(env, choices_full_corr)
+        if choices_full_corr is not None
+        else None
+    )
     preds_l2d = (
         compute_predictions_from_choices(env, choices_l2d)
         if choices_l2d is not None
+        else None
+    )
+    preds_l2d_rnn = (
+        compute_predictions_from_choices(env, choices_l2d_rnn)
+        if choices_l2d_rnn is not None
         else None
     )
     preds_random = compute_predictions_from_choices(env, choices_random)
@@ -283,29 +324,54 @@ def evaluate_routers_and_baselines(
 
     avg_cost_partial = costs_partial.mean()
     avg_cost_full = costs_full.mean()
+    avg_cost_partial_corr = (
+        costs_partial_corr.mean() if costs_partial_corr is not None else None
+    )
+    avg_cost_full_corr = (
+        costs_full_corr.mean() if costs_full_corr is not None else None
+    )
     avg_cost_l2d = costs_l2d.mean() if costs_l2d is not None else None
+    avg_cost_l2d_rnn = costs_l2d_rnn.mean() if costs_l2d_rnn is not None else None
     avg_cost_random = costs_random.mean()
     avg_cost_oracle = costs_oracle.mean()
 
     print("=== Average costs ===")
-    print(f"Router (partial feedback): {avg_cost_partial:.4f}")
-    print(f"Router (full feedback):    {avg_cost_full:.4f}")
+    print(f"Router (partial feedback):      {avg_cost_partial:.4f}")
+    print(f"Router (full feedback):         {avg_cost_full:.4f}")
+    if avg_cost_partial_corr is not None:
+        print(
+            f"Router Corr (partial feedback): {avg_cost_partial_corr:.4f}"
+        )
+    if avg_cost_full_corr is not None:
+        print(f"Router Corr (full feedback):    {avg_cost_full_corr:.4f}")
     if avg_cost_l2d is not None:
-        print(f"L2D baseline:              {avg_cost_l2d:.4f}")
-    print(f"Random baseline:           {avg_cost_random:.4f}")
-    print(f"Oracle baseline:           {avg_cost_oracle:.4f}")
+        print(f"L2D baseline:                  {avg_cost_l2d:.4f}")
+    if avg_cost_l2d_rnn is not None:
+        print(f"L2D_RNN baseline:              {avg_cost_l2d_rnn:.4f}")
+    print(f"Random baseline:               {avg_cost_random:.4f}")
+    print(f"Oracle baseline:               {avg_cost_oracle:.4f}")
     for j in range(env.num_experts):
-        print(f"Always using expert {j}:   {avg_cost_experts[j]:.4f}")
+        print(f"Always using expert {j}:       {avg_cost_experts[j]:.4f}")
 
     # Selection distribution (how often each expert is chosen)
     entries = [
         ("partial", choices_partial),
         ("full", choices_full),
-        ("random", choices_random),
-        ("oracle", choices_oracle),
     ]
+    if choices_partial_corr is not None:
+        entries.append(("partial_corr", choices_partial_corr))
+    if choices_full_corr is not None:
+        entries.append(("full_corr", choices_full_corr))
+    entries.extend(
+        [
+            ("random", choices_random),
+            ("oracle", choices_oracle),
+        ]
+    )
     if choices_l2d is not None:
         entries.append(("l2d", choices_l2d))
+    if choices_l2d_rnn is not None:
+        entries.append(("l2d_rnn", choices_l2d_rnn))
     for name, choices in entries:
         values, counts = np.unique(choices, return_counts=True)
         freqs = counts / choices.shape[0]
@@ -351,6 +417,15 @@ def evaluate_routers_and_baselines(
             linestyle="-",
             alpha=0.8,
         )
+    if preds_l2d_rnn is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_l2d_rnn,
+            label="L2D_RNN baseline",
+            color=get_model_color("l2d_rnn"),
+            linestyle="-",
+            alpha=0.8,
+        )
     ax_pred.plot(
         t_grid,
         preds_random,
@@ -377,9 +452,18 @@ def evaluate_routers_and_baselines(
     # Bottom subplot: cumulative costs for all baselines
     cum_partial = np.cumsum(costs_partial)
     cum_full = np.cumsum(costs_full)
+    cum_partial_corr = (
+        np.cumsum(costs_partial_corr)
+        if costs_partial_corr is not None
+        else None
+    )
+    cum_full_corr = (
+        np.cumsum(costs_full_corr) if costs_full_corr is not None else None
+    )
     cum_random = np.cumsum(costs_random)
     cum_oracle = np.cumsum(costs_oracle)
     cum_l2d = np.cumsum(costs_l2d) if costs_l2d is not None else None
+    cum_l2d_rnn = np.cumsum(costs_l2d_rnn) if costs_l2d_rnn is not None else None
 
     ax_cost.plot(
         t_grid,
@@ -395,12 +479,36 @@ def evaluate_routers_and_baselines(
         color=get_model_color("full"),
         linestyle="-",
     )
+    if cum_partial_corr is not None:
+        ax_cost.plot(
+            t_grid,
+            cum_partial_corr,
+            label="Partial Corr (cumulative cost)",
+            color=get_model_color("partial_corr"),
+            linestyle="-",
+        )
+    if cum_full_corr is not None:
+        ax_cost.plot(
+            t_grid,
+            cum_full_corr,
+            label="Full Corr (cumulative cost)",
+            color=get_model_color("full_corr"),
+            linestyle="-",
+        )
     if cum_l2d is not None:
         ax_cost.plot(
             t_grid,
             cum_l2d,
             label="L2D (cumulative cost)",
             color=get_model_color("l2d"),
+            linestyle="-",
+        )
+    if cum_l2d_rnn is not None:
+        ax_cost.plot(
+            t_grid,
+            cum_l2d_rnn,
+            label="L2D_RNN (cumulative cost)",
+            color=get_model_color("l2d_rnn"),
             linestyle="-",
         )
     ax_cost.plot(
@@ -430,11 +538,15 @@ def evaluate_routers_and_baselines(
     # together with expert availability (0 = not available, 1 = available).
     avail = getattr(env, "availability", None)
     has_l2d = choices_l2d is not None
+    has_l2d_rnn = choices_l2d_rnn is not None
     has_avail = avail is not None
+    has_partial_corr = choices_partial_corr is not None
+    has_full_corr = choices_full_corr is not None
 
-    # Rows: partial router, full router, optional L2D baseline,
+    # Rows: base routers, optional correlated routers, optional L2D / L2D_RNN,
     # random baseline, oracle baseline, and optional availability.
-    n_rows = 4 + (1 if has_l2d else 0) + (1 if has_avail else 0)
+    n_rows = 4 + (1 if has_l2d else 0) + (1 if has_l2d_rnn else 0) + (1 if has_avail else 0)
+    n_rows += (1 if has_partial_corr else 0) + (1 if has_full_corr else 0)
     fig2, axes = plt.subplots(n_rows, 1, sharex=True, figsize=(10, 2 * n_rows))
 
     idx = 0
@@ -461,6 +573,30 @@ def evaluate_routers_and_baselines(
     ax_f.set_yticks(np.arange(env.num_experts))
     idx += 1
 
+    if has_partial_corr:
+        ax_pc = axes[idx]
+        ax_pc.step(
+            t_grid,
+            choices_partial_corr,
+            where="post",
+            color=get_model_color("partial_corr"),
+        )
+        ax_pc.set_ylabel("Expert\n(partial corr)")
+        ax_pc.set_yticks(np.arange(env.num_experts))
+        idx += 1
+
+    if has_full_corr:
+        ax_fc = axes[idx]
+        ax_fc.step(
+            t_grid,
+            choices_full_corr,
+            where="post",
+            color=get_model_color("full_corr"),
+        )
+        ax_fc.set_ylabel("Expert\n(full corr)")
+        ax_fc.set_yticks(np.arange(env.num_experts))
+        idx += 1
+
     if has_l2d:
         ax_l2d = axes[idx]
         ax_l2d.step(
@@ -471,6 +607,18 @@ def evaluate_routers_and_baselines(
         )
         ax_l2d.set_ylabel("Expert\n(L2D)")
         ax_l2d.set_yticks(np.arange(env.num_experts))
+        idx += 1
+
+    if has_l2d_rnn:
+        ax_l2d_rnn = axes[idx]
+        ax_l2d_rnn.step(
+            t_grid,
+            choices_l2d_rnn,
+            where="post",
+            color=get_model_color("l2d_rnn"),
+        )
+        ax_l2d_rnn.set_ylabel("Expert\n(L2D_RNN)")
+        ax_l2d_rnn.set_yticks(np.arange(env.num_experts))
         idx += 1
 
     ax_rand = axes[idx]
