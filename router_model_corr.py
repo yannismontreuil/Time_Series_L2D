@@ -57,19 +57,94 @@ class SLDSIMMRouter_Corr:
         beta: Optional[np.ndarray] = None,
         lambda_risk: float | np.ndarray = 0.0,
         staleness_threshold: Optional[int] = None,
+        exploration_mode: str = "greedy",
+        feature_mode: str = "fixed",
+        feature_learning_rate: float = 0.0,
+        feature_freeze_after: Optional[int] = None,
+        feature_log_interval: Optional[int] = None,
         feedback_mode: str = "partial",
         eps: float = 1e-8,
         g_mean0: Optional[np.ndarray] = None,
         g_cov0: Optional[np.ndarray] = None,
         u_mean0: Optional[np.ndarray] = None,
         u_cov0: Optional[np.ndarray] = None,
+        feature_arch: str = "linear",
+        feature_hidden_dim: Optional[int] = None,
+        feature_activation: str = "tanh",
     ):
         self.N = int(num_experts)
         self.M = int(num_regimes)
         self.dg = int(shared_dim)
         self.du = int(idiosyncratic_dim)
         self.d_state = self.dg + self.N * self.du
-        self.feature_fn = feature_fn
+
+        # Feature handling: base feature map (fixed) and optional
+        # learnable linear transform on top.
+        self.base_feature_fn = feature_fn
+        feature_mode = str(feature_mode)
+        assert feature_mode in ("fixed", "learnable")
+        self.feature_mode = feature_mode
+        self.feature_learning_rate = float(feature_learning_rate)
+        self.feature_freeze_after: Optional[int] = (
+            int(feature_freeze_after) if feature_freeze_after is not None else None
+        )
+        self.feature_log_interval: Optional[int] = (
+            int(feature_log_interval)
+            if feature_log_interval is not None and int(feature_log_interval) > 0
+            else None
+        )
+        # History of feature map norms (time index, Frobenius norm)
+        self.feature_W_norm_history: List[Tuple[int, float]] = []
+
+        # Architecture of the learnable feature map:
+        #   - "linear": φ(x) = W φ_base(x)
+        #   - "mlp":    φ(x) = W2 σ(W1 φ_base(x) + b1) + b2
+        feature_arch = str(feature_arch)
+        assert feature_arch in ("linear", "mlp")
+        self.feature_arch = feature_arch
+        if feature_hidden_dim is None:
+            feature_hidden_dim = self.du
+        self.feature_hidden_dim = int(feature_hidden_dim)
+
+        feature_activation = str(feature_activation)
+        assert feature_activation in ("tanh", "relu")
+        self.feature_activation = feature_activation
+
+        # Determine base feature dimension and initialize learnable
+        # projection if needed.
+        try:
+            dummy_x = np.zeros((1,), dtype=float)
+            base_phi = np.asarray(self.base_feature_fn(dummy_x), dtype=float).reshape(-1)
+        except Exception as exc:  # pragma: no cover - defensive
+            raise ValueError("feature_fn must accept a 1D context and return a 1D array") from exc
+        self.d_feat = int(base_phi.shape[0])
+        # When using fixed features, ensure base feature dimension
+        # matches the idiosyncratic dimension used in the SLDS.
+        if self.feature_mode == "fixed":
+            assert (
+                self.d_feat == self.du
+            ), f"Base feature dimension {self.d_feat} must match idiosyncratic_dim {self.du} in fixed feature mode."
+
+        # Initialize learnable parameters depending on architecture.
+        if self.feature_arch == "linear":
+            # Learnable linear map W: φ(x) = W φ_base(x). Start from
+            # identity so that 'learnable' mode initially reproduces the
+            # fixed feature behavior.
+            self.feature_W = np.eye(self.du, self.d_feat, dtype=float)
+            self.feature_W1 = None
+            self.feature_b1 = None
+            self.feature_W2 = None
+            self.feature_b2 = None
+        else:
+            # Two-layer MLP: φ(x) = W2 σ(W1 φ_base(x) + b1) + b2.
+            H = self.feature_hidden_dim
+            rng = np.random.default_rng()
+            scale = 0.01
+            self.feature_W1 = scale * rng.standard_normal((H, self.d_feat))
+            self.feature_b1 = np.zeros(H, dtype=float)
+            self.feature_W2 = scale * rng.standard_normal((self.du, H))
+            self.feature_b2 = np.zeros(self.du, dtype=float)
+            self.feature_W = None
 
         A_g = np.asarray(A_g, dtype=float)
         Q_g = np.asarray(Q_g, dtype=float)
@@ -102,6 +177,12 @@ class SLDSIMMRouter_Corr:
             beta = np.asarray(beta, dtype=float)
             assert beta.shape == (self.N,)
         self.beta = beta
+
+        # Exploration / selection mode:
+        #   - "greedy": risk-adjusted myopic mean-variance rule
+        #   - "ids": Information-Directed Sampling (IDS) on C_{j,t} = ℓ_{j,t}+β_j
+        assert exploration_mode in ("greedy", "ids")
+        self.exploration_mode = exploration_mode
 
         # Risk aversion parameter:
         #   - if scalar: regime-independent λ,
@@ -181,6 +262,52 @@ class SLDSIMMRouter_Corr:
             self.Q_joint[k] = Q_k
 
         self.reset_beliefs()
+
+    # --------------------------------------------------------
+    # Feature computation (fixed vs learnable)
+    # --------------------------------------------------------
+
+    def _feature_activation(self, z: np.ndarray) -> np.ndarray:
+        if self.feature_activation == "tanh":
+            return np.tanh(z)
+        # "relu"
+        return np.maximum(z, 0.0)
+
+    def _feature_activation_deriv(self, z: np.ndarray) -> np.ndarray:
+        if self.feature_activation == "tanh":
+            a = np.tanh(z)
+            return 1.0 - a * a
+        # "relu"
+        return (z > 0).astype(float)
+
+    def _compute_base_feature(self, x: np.ndarray) -> np.ndarray:
+        """
+        Compute the base (fixed) feature vector φ_base(x).
+        """
+        phi = self.base_feature_fn(np.asarray(x, dtype=float))
+        return np.asarray(phi, dtype=float).reshape(self.d_feat)
+
+    def _compute_feature(self, x: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Compute the feature vector used by the SLDS emission.
+
+        Returns (phi_t, phi_base_t), where:
+          - phi_base_t is the fixed base feature,
+          - phi_t is either phi_base_t ("fixed" mode) or a learnable
+            projection of phi_base_t ("learnable" mode), implemented
+            either as a single linear layer or as a two-layer MLP.
+        """
+        phi_base = self._compute_base_feature(x)
+        if self.feature_mode == "learnable":
+            if self.feature_arch == "linear":
+                phi = self.feature_W @ phi_base
+            else:
+                z1 = self.feature_W1 @ phi_base + self.feature_b1
+                h1 = self._feature_activation(z1)
+                phi = self.feature_W2 @ h1 + self.feature_b2
+        else:
+            phi = phi_base
+        return phi, phi_base
 
     # --------------------------------------------------------
     # Index helpers
@@ -481,10 +608,12 @@ class SLDSIMMRouter_Corr:
     ) -> Tuple[int, dict]:
         """
         One decision step: given context x_t and available experts E_t,
-        select r_t ∈ E_t using the myopic risk-adjusted score.
+        select r_t ∈ E_t using the configured exploration mode
+        ("greedy" or "ids").
         """
         available_experts = np.asarray(list(available_experts), dtype=int)
-        phi_t = self.feature_fn(x_t)
+        # Compute features for the current context.
+        phi_t, phi_base_t = self._compute_feature(x_t)
 
         # IMM prediction
         b_pred, m_pred, P_pred = self._interaction_and_time_update()
@@ -501,23 +630,78 @@ class SLDSIMMRouter_Corr:
         mean_ell, var_ell, mu_kj, S_kj = self._predict_loss_distribution(
             phi_t, b_pred, m_pred, P_pred
         )
+        # Keep explicit aliases for regime-conditional means/variances
+        # to avoid shadowing the array names inside loops below.
+        mu_kj_mat = mu_kj
+        S_kj_mat = S_kj
 
-        # Effective risk aversion at decision time t
-        if getattr(self, "lambda_risk_vec", None) is not None:
-            lambda_eff = float(self.lambda_risk_vec @ self.b)
+        # Expert selection rule
+        if self.exploration_mode == "ids":
+            # IDS on one-step cost C_{j,t} = ℓ_{j,t} + β_j, using the
+            # IMM predictive mean and information gain proxy from the
+            # theory document (Section: IDS for active exploration).
+            avail = available_experts
+
+            # Mixture mean cost proxy \widehat m_t(j) ≈ E[ℓ_{j,t} | H_t] + β_j
+            mean_cost = mean_ell + self.beta  # shape (N,)
+            mean_cost_avail = mean_cost[avail]
+            m_min = float(mean_cost_avail.min())
+
+            # Expected regret gap Δ_t(j) = \widehat m_t(j) - min_{j'} \widehat m_t(j')
+            delta = np.zeros(self.N, dtype=float)
+            delta[avail] = mean_cost[avail] - m_min
+
+            # Information gain I_t(j) = Σ_k \bar c_t(k) I_t^{(k)}(j),
+            # with I_t^{(k)}(j) = 0.5 * log( S^{(k)}_{j} / R_{k,j} ),
+            # using S^{(k)}_{j} from the predictive variance and
+            # clipping for numerical robustness.
+            M = self.M
+            info_raw = np.zeros(self.N, dtype=float)
+            for j in avail:
+                info_j = 0.0
+                for k in range(M):
+                    S_kj_val = float(S_kj_mat[k, j])
+                    R_kj = float(self.R[k, j])
+                    R_clipped = max(R_kj, self.eps)
+                    S_clipped = max(S_kj_val, R_clipped)
+                    info_kj = 0.5 * np.log(S_clipped / R_clipped)
+                    info_j += float(b_pred[k]) * info_kj
+                info_raw[j] = info_j
+
+            # If all actions are essentially non-informative, fall back
+            # to greedy w.r.t. mean cost.
+            if np.max(info_raw[avail]) <= self.eps:
+                avail_mean = mean_cost[avail]
+                idx = int(np.argmin(avail_mean))
+                r_t = int(avail[idx])
+            else:
+                info_eff = np.maximum(info_raw, self.eps)
+                psi = np.full(self.N, np.inf, dtype=float)
+                for j in avail:
+                    psi[j] = (delta[j] ** 2) / info_eff[j]
+                avail_psi = psi[avail]
+                idx = int(np.argmin(avail_psi))
+                r_t = int(avail[idx])
         else:
-            lambda_eff = self.lambda_risk
+            # Greedy (risk-adjusted mean-variance) rule from the main
+            # selection policy: J_{j,t} = \hat ℓ_{j,t} + β_j + λ_eff sqrt(Var).
+            # Effective risk aversion at decision time t. When regime-
+            # specific λ^{(k)} are provided, we combine them using the
+            # predicted regime weights b_{t+1|t}.
+            if getattr(self, "lambda_risk_vec", None) is not None:
+                lambda_eff = float(self.lambda_risk_vec @ b_pred)
+            else:
+                lambda_eff = self.lambda_risk
 
-        # Myopic risk-adjusted cost proxy
-        scores = mean_ell + self.beta + lambda_eff * np.sqrt(var_ell)
-
-        # Restrict to available experts and pick argmin
-        avail_scores = scores[available_experts]
-        idx = int(np.argmin(avail_scores))
-        r_t = int(available_experts[idx])
+            scores = mean_ell + self.beta + lambda_eff * np.sqrt(var_ell)
+            avail_scores = scores[available_experts]
+            idx = int(np.argmin(avail_scores))
+            r_t = int(available_experts[idx])
 
         cache = {
+            "x_t": np.asarray(x_t, dtype=float),
             "phi_t": np.asarray(phi_t, dtype=float),
+            "phi_base_t": np.asarray(phi_base_t, dtype=float),
             "b_pred": b_pred,
             "m_pred": m_pred,
             "P_pred": P_pred,
@@ -552,6 +736,7 @@ class SLDSIMMRouter_Corr:
         mu_kj = cache["mu_kj"]
         S_kj = cache["S_kj"]
         phi_t = cache["phi_t"]
+        phi_base_t = cache.get("phi_base_t", None)
 
         M, N = self.M, self.N
         available_experts = np.asarray(list(available_experts), dtype=int)
@@ -569,7 +754,7 @@ class SLDSIMMRouter_Corr:
         )
 
         if self.feedback_mode == "partial":
-            # Single observed loss (bandit feedback)
+            # Single observed loss (bandit feedback) in original loss space.
             j_sel = int(r_t)
             h_sel = self._build_obs_vector(j_sel, phi_t)
 
@@ -599,25 +784,19 @@ class SLDSIMMRouter_Corr:
             losses_full = np.asarray(losses_full, dtype=float)
             assert losses_full.shape == (N,)
 
-            # For regime update, use prior predictive (mu_kj, S_kj)
+            # For regime update, we use the joint Gaussian panel
+            # likelihood under each regime k, based on the prior
+            # predictive state (m_pred[k], P_pred[k]) and the linear
+            # observation model with rows built from _build_obs_vector.
             log_like = np.zeros(M, dtype=float)
-            for k in range(M):
-                acc = 0.0
-                for j in available_experts:
-                    ell_j = losses_full[j]
-                    if not np.isfinite(ell_j):
-                        continue
-                    mu_jk = mu_kj[k, j]
-                    S_jk = S_kj[k, j]
-                    acc += self._gaussian_logpdf(ell_j, mu_jk, S_jk)
-                log_like[k] = acc
-
-            # Measurement assimilation with all available experts jointly
             for k in range(M):
                 avail = available_experts
                 if avail.size == 0:
+                    # No observations for regime update on this step.
                     continue
 
+                # Assemble observation matrix H and vector y for the
+                # currently available experts.
                 H_rows = []
                 y_vals = []
                 for j in avail:
@@ -640,10 +819,22 @@ class SLDSIMMRouter_Corr:
                 except np.linalg.LinAlgError:
                     S_inv = np.linalg.pinv(S)
 
-                K = P_k @ H.T @ S_inv
                 y_pred = H @ m_k
                 innov = y - y_pred
 
+                # Multivariate Gaussian log-likelihood
+                sign, logdet = np.linalg.slogdet(S)
+                if sign <= 0:
+                    # Fallback: treat determinant magnitude robustly
+                    det_val = max(float(np.linalg.det(S)), self.eps)
+                    logdet = float(np.log(det_val))
+                quad = float(innov.T @ (S_inv @ innov))
+                L = float(S.shape[0])
+                log_like[k] = -0.5 * (L * np.log(2.0 * np.pi) + logdet + quad)
+
+                # Measurement assimilation with all available experts
+                # jointly (Kalman batch update).
+                K = P_k @ H.T @ S_inv
                 m_k_new = m_k + K @ innov
                 P_k_new = P_k - K @ S @ K.T
                 P_k_new = (
@@ -652,6 +843,10 @@ class SLDSIMMRouter_Corr:
 
                 m_pred[k] = m_k_new
                 P_pred[k] = P_k_new
+
+            # If there were no available experts, log_like remains zero
+            # and we skip the batch assimilation above.
+            # (The regime update below then reduces to using the prior b_pred.)
 
         # Regime probability update
         log_post = log_like + np.log(np.maximum(b_pred, self.eps))
@@ -674,6 +869,21 @@ class SLDSIMMRouter_Corr:
         self.m = m_pred
         self.P = P_pred
 
+        # Optional online feature-step for learnable features
+        if (
+            self.feature_mode == "learnable"
+            and self.feature_learning_rate > 0.0
+            and phi_base_t is not None
+        ):
+            self._feature_step_learnable(
+                phi_t=np.asarray(phi_t, dtype=float),
+                phi_base_t=np.asarray(phi_base_t, dtype=float),
+                r_t=int(r_t),
+                loss_obs=float(loss_obs),
+                losses_full=losses_full,
+                available_experts=available_experts,
+            )
+
     # --------------------------------------------------------
     # Horizon-H open-loop prediction
     # --------------------------------------------------------
@@ -684,8 +894,8 @@ class SLDSIMMRouter_Corr:
     ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
         """
         Starting from current posterior (b_t, m_t, P_t),
-        apply H times the IMM prediction to obtain:
-            (b_{t+h|t}, m_{t+h|t}, P_{t+h|t}), h=1,...,H.
+        apply H times the IMM prediction to obtain
+        (b_{t+h|t}, m_{t+h|t}, P_{t+h|t}) for h=1,...,H.
         """
         b_curr = self.b.copy()
         m_curr = self.m.copy()
@@ -716,8 +926,8 @@ class SLDSIMMRouter_Corr:
         """
         Horizon-H planning: given current context x_t and belief state,
         compute a greedy open-loop schedule of expert indices
-        (r_{t+1},...,r_{t+H}), assuming that at each future step we update
-        the context according to the chosen expert's forecast.
+        (r_{t+1},...,r_{t+H}), assuming that at each future step we
+        update the context according to the chosen expert's forecast.
 
         This does NOT mutate the internal belief state.
         """
@@ -726,7 +936,7 @@ class SLDSIMMRouter_Corr:
             available_experts_per_h = [list(range(N)) for _ in range(H)]
         assert len(available_experts_per_h) == H
 
-        # Precompute open-loop latent states (no observation updates)
+        # Precompute open-loop latent states (no observation updates).
         b_list, m_list, P_list = self.precompute_horizon_states(H)
 
         x_curr = x_t
@@ -741,22 +951,24 @@ class SLDSIMMRouter_Corr:
 
             avail = np.asarray(list(available_experts_per_h[h - 1]), dtype=int)
 
-            # Effective risk aversion at pseudo-time t+h
+            # Effective risk aversion at pseudo-time t+h.
             if getattr(self, "lambda_risk_vec", None) is not None:
                 lambda_eff_h = float(self.lambda_risk_vec @ b_h)
             else:
                 lambda_eff_h = self.lambda_risk
+
             best_score: Optional[float] = None
             best_j: Optional[int] = None
             best_x_next: Optional[np.ndarray] = None
 
             for j in avail:
-                # Hypothetical forecast and context propagation
+                # Hypothetical forecast and context propagation.
                 y_hat_j = experts_predict[j](x_curr)
                 x_next_j = context_update(x_curr, y_hat_j)
-                phi_next_j = self.feature_fn(x_next_j).reshape(self.du)
+                phi_next_j, _ = self._compute_feature(x_next_j)
+                phi_next_j = phi_next_j.reshape(self.du)
 
-                # Predictive mean/variance for expert j at step t+h
+                # Predictive mean/variance for expert j at step t+h.
                 h_j = self._build_obs_vector(j, phi_next_j)
 
                 mu_k = np.zeros(self.M, dtype=float)
@@ -772,7 +984,9 @@ class SLDSIMMRouter_Corr:
                 var_between = float(b_h @ (diff**2))
                 var_ell_j = max(var_within + var_between, self.eps)
 
-                score_j = mean_ell_j + self.beta[j] + lambda_eff_h * np.sqrt(var_ell_j)
+                score_j = mean_ell_j + self.beta[j] + lambda_eff_h * np.sqrt(
+                    var_ell_j
+                )
 
                 if (best_score is None) or (score_j < best_score):
                     best_score = score_j
@@ -786,3 +1000,154 @@ class SLDSIMMRouter_Corr:
             x_curr = best_x_next
 
         return schedule, contexts, scores
+
+    # --------------------------------------------------------
+    # Feature-step for learnable features (approximate EM-style)
+    # --------------------------------------------------------
+
+    def _feature_step_learnable(
+        self,
+        phi_t: np.ndarray,
+        phi_base_t: np.ndarray,
+        r_t: int,
+        loss_obs: float,
+        losses_full: Optional[np.ndarray],
+        available_experts: np.ndarray,
+    ) -> None:
+        """
+        One stochastic gradient-ascent step on the expected emission
+        log-likelihood Q_em(θ), using the current filtered moments as
+        a proxy for the star smoother statistics (no backprop through
+        inference, as recommended in the paper's feature-step).
+
+        We treat:
+          - (g_t, u_{j,t}) moments from the current joint Gaussian
+            posterior (self.m, self.P),
+          - regime weights self.b as γ_t^{(k)},
+          - and use the closed-form residual expansion from
+            E_{j,t}^{(k)}(θ) to obtain ∂Q/∂φ_t, then map to θ via the
+            linear relation φ_t = W φ_base_t.
+        """
+        if self.feature_learning_rate <= 0.0:
+            return
+
+        # If a freeze-after threshold is specified, stop adapting
+        # features once the internal time counter exceeds it.
+        if self.feature_freeze_after is not None and self._time > self.feature_freeze_after:
+            return
+
+        phi_t = phi_t.reshape(self.du)
+        phi_base_t = phi_base_t.reshape(self.d_feat)
+        M = self.M
+
+        # Observed expert set O_t
+        if self.feedback_mode == "partial":
+            obs_experts = np.array([int(r_t)], dtype=int)
+        else:
+            # Full feedback: use all currently available experts
+            obs_experts = np.asarray(available_experts, dtype=int)
+            if losses_full is None:
+                return
+            losses_full = np.asarray(losses_full, dtype=float)
+
+        grad_phi = np.zeros_like(phi_t)
+
+        # For each observed expert j in O_t, accumulate gradient
+        for j in obs_experts:
+            j_int = int(j)
+            # Observed loss for expert j
+            if self.feedback_mode == "partial":
+                ell_j = float(loss_obs)
+            else:
+                ell_j = float(losses_full[j_int])
+                if not np.isfinite(ell_j):
+                    continue
+
+            B_j = self.B[j_int]  # (du, dg)
+
+            # Regime-weighted contribution
+            for k in range(M):
+                gamma_k = float(self.b[k])
+                if gamma_k <= 0.0:
+                    continue
+
+                R_kj = float(self.R[k, j_int])
+                if R_kj <= 0.0:
+                    continue
+
+                m_k = self.m[k]
+                P_k = self.P[k]
+
+                g_slice = self._g_slice()
+                u_slice = self._u_slice(j_int)
+
+                m_g = m_k[g_slice]
+                m_u = m_k[u_slice]
+                P_g = P_k[g_slice, g_slice]
+                P_u = P_k[u_slice, u_slice]
+                rho = P_k[g_slice, u_slice]
+
+                # a_{j,t}(θ) = B_j^T φ_t
+                a_j = B_j.T @ phi_t
+
+                # Residual r = ℓ_{j,t} - a_j^T m_g - φ_t^T m_u
+                c_vec = B_j @ m_g + m_u  # dimension du
+                residual = float(ell_j - (a_j @ m_g) - (phi_t @ m_u))
+
+                # Quadratic terms in φ_t
+                G_mat = B_j @ (P_g @ B_j.T)  # du x du
+                G_sym = 0.5 * (G_mat + G_mat.T)
+                M_mat = B_j @ rho  # du x du
+
+                # ∂E_jt^{(k)}/∂φ_t based on
+                #   E = r^2 + φ^T G φ + φ^T P_u φ + 2 φ^T M φ
+                # with r = ℓ - φ^T c and M = B_j ρ.
+                dE_dphi = (
+                    -2.0 * residual * c_vec
+                    + 2.0 * (G_sym @ phi_t)
+                    + 2.0 * (P_u @ phi_t)
+                    + 2.0 * ((M_mat + M_mat.T) @ phi_t)
+                )
+
+                # Q_em(θ) = -0.5 Σ_t Σ_k γ_t^{(k)} Σ_j E_jt^{(k)} / R_{k,j}
+                # ⇒ ∂Q_em/∂φ_t contribution:
+                grad_phi += -0.5 * gamma_k * (1.0 / R_kj) * dE_dphi
+
+        # Map gradient wrt φ_t to feature parameters via chain rule.
+        if self.feature_arch == "linear":
+            # φ_t = W φ_base_t  ⇒  ∂Q/∂W = grad_phi ⊗ φ_base_t
+            grad_W = np.outer(grad_phi, phi_base_t)
+            self.feature_W += self.feature_learning_rate * grad_W
+            W_norm = float(np.linalg.norm(self.feature_W))
+        else:
+            # Two-layer MLP: φ = W2 σ(W1 φ_base + b1) + b2
+            z1 = self.feature_W1 @ phi_base_t + self.feature_b1
+            h1 = self._feature_activation(z1)
+            act_deriv = self._feature_activation_deriv(z1)
+
+            # Top layer gradients
+            grad_W2 = np.outer(grad_phi, h1)
+            grad_b2 = grad_phi
+
+            # Backprop into hidden layer
+            g1 = self.feature_W2.T @ grad_phi
+            grad_z1 = g1 * act_deriv
+            grad_W1 = np.outer(grad_z1, phi_base_t)
+            grad_b1 = grad_z1
+
+            lr = self.feature_learning_rate
+            self.feature_W2 += lr * grad_W2
+            self.feature_b2 += lr * grad_b2
+            self.feature_W1 += lr * grad_W1
+            self.feature_b1 += lr * grad_b1
+
+            W_norm = float(np.linalg.norm(self.feature_W1) + np.linalg.norm(self.feature_W2))
+
+        # Logging of feature-map norm for diagnostics / ablation.
+        self.feature_W_norm_history.append((int(self._time), W_norm))
+        if self.feature_log_interval is not None:
+            if int(self._time) % self.feature_log_interval == 0:
+                print(
+                    f"[SLDSIMMRouter_Corr] t={self._time}, "
+                    f"||feature_W||_F = {W_norm:.6f}"
+                )

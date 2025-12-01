@@ -1,0 +1,157 @@
+hyperparam_search:
+  num_workers: 8
+  num_regimes_grid: [2, 3]
+  lambda_risk_grid: [-0.5, -0.2, 0.0, 0.2]
+  q_g_scale_grid: [0.25, 0.5, 1.0]
+  q_u_scale_grid: [0.25, 0.5, 1.0, 2.0]
+  r_scale_grid: [0.5, 1.0, 2.0]
+
+environment:
+  # Main experiment environment for ETTh1 (oil temperature as target).
+  # We reuse the same router code as for the synthetic environment, but
+  # the data now comes from a real-world dataset.
+  data_source: etth1
+  csv_path: Data/ETTh1.csv
+  target_column: OT
+
+  # Number of experts and regimes.
+  num_experts: 5
+  num_regimes: 2
+
+  # State dimension d = dim φ(x). The current feature map returns 2D features.
+  state_dim: 2
+
+  # Optional: limit the number of time steps T used from the dataset.
+  # If omitted or null, the full ETTh1 series is used.
+  # For example, to use only the first 2000 points, set T: 2000.
+  # T: 2000
+
+  seed: 42
+
+  # Expert availability controls. In this ETTh1 experiment we introduce
+  # multiple experts whose availability switches over time:
+  #   - Expert 1 is unavailable on two disjoint intervals.
+  #   - Expert 4 is only available on specified arrival intervals.
+  unavailable_expert_idx: 1
+  unavailable_intervals:
+    - [100, 500]
+    - [1000, 7000]
+    - [9000, 15000]
+  arrival_expert_idx: 4
+  arrival_intervals:
+    - [300, 700]
+    - [1200, 10000]
+    - [12000, 17000]
+
+routers:
+  # Risk sensitivity for SLDS-IMM routers.
+  # Scalar (regime-independent) in this experiment.
+  lambda_risk: -0.2
+
+  # Consultation costs for routers (β_j).
+  # Can be a single scalar (broadcast to all experts) or
+  # a list of length num_experts.
+  beta: 0.0
+
+  # Independent-expert SLDS-IMM router configuration (shares R with
+  # the correlated router).
+  slds_imm:
+    # Process noise covariances Q_k are built from per-regime scales.
+    # Here we use scales tuned via hyperparameter search (q_scale ≈ 0.5).
+    Q_scales: [0.0025, 0.025]
+
+    # Observation noise R_{k,j}: single scalar broadcast to all regimes/experts.
+    # This value was tuned via hyperparameter search (r_scale ≈ 2.0).
+    R_scalar: 2.0
+
+    # Regime transition matrix Π (shape [num_regimes, num_regimes]).
+    # For ETTh1 with num_regimes=2 we start from the same example as in
+    # the synthetic setting.
+    Pi:
+      - [0.9, 0.1]
+      - [0.2, 0.8]
+
+    # Prior on reliability states α_{j,t} (shape [d] and [d,d]).
+    pop_mean: [0.0, 0.0]
+    pop_cov:
+      - [1.0, 0.0]
+      - [0.0, 1.0]
+    # Numerical stabilizer ε for covariances.
+    eps: 1.0e-8
+
+  # Correlated-expert SLDS-IMM router configuration.
+  slds_imm_corr:
+    # Shared factor dimension d_g and idiosyncratic dimension d_u.
+    shared_dim: 1
+    idiosyncratic_dim: 2
+
+    # Shared-factor dynamics A_gk default to identity; Q_gk built from scales.
+    # Scales tuned via hyperparameter search with M=2 and q_scale ≈ 0.5.
+    Q_g_scales: [0.0025, 0.0125]
+
+    # Idiosyncratic dynamics A_uk default to identity; Q_uk built from scales.
+    Q_u_scales: [0.0025, 0.025]
+
+    # Shared-factor loadings B_j: first feature loads on shared factor with
+    # this scalar (same for all experts).
+    B_intercept_load: 1.0
+
+    # Priors for shared factor g_t and idiosyncratic states u_{j,t}.
+    g_mean0: [0.0]
+    g_cov0:
+      - [1.0]
+    u_mean0: [0.0, 0.0]
+    u_cov0:
+      - [1.0, 0.0]
+      - [0.0, 1.0]
+
+    # Numerical stabilizer ε for joint covariances.
+    eps: 1.0e-8
+
+  # Registry pruning threshold for correlated router (in decision epochs).
+  # If null, pruning is disabled.
+  staleness_threshold: null
+
+baselines:
+  l2d:
+    # Linear L2D baseline (LearningToDeferBaseline)
+    learning_rate: 0.01
+
+    # Coefficients α_j in μ_j = α_j * RMSE + β_j.
+    # Scalar or list of length num_experts.
+    alpha: 1.0
+
+    # Consultation costs for L2D baseline. If omitted or null, the
+    # router β vector from routers.beta is used.
+    beta: null
+
+  l2d_rnn:
+    # RNN-based L2D baseline (L2D_RNN)
+    learning_rate: 0.001
+    hidden_dim: 8
+
+    # As above, can be scalar or list.
+    alpha: 1.0
+    beta: null
+
+horizon_planning:
+  # Starting time index for horizon planning in slds_imm_router.py.
+  # For ETTh1, we pick a point reasonably far into the series.
+  t0: 700
+
+  # Planning horizon length (e.g., 24 hours ahead).
+  H: 24
+  # Planning method for horizon scheduling:
+  #   - "regressive": original router-influenced context planning
+  #   - "monte_carlo": scenario-based staffing planning with N=1
+  #   - "{N}_monte_carlo": N-scenario Monte Carlo staffing planning
+  method: "regressive"
+
+  # Scenario generator parameters for Monte Carlo planning.
+  # Gaussian AR(1) feature-space perturbation as in
+  # Section~\ref{sec:staffing-generator-gaussian}.
+  scenario_generator:
+    type: "gaussian_ar1"
+    rho: 0.9
+    sigma0: 0.05
+    q_scale: 0.05

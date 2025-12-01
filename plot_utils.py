@@ -39,10 +39,24 @@ def get_expert_color(j: int) -> str:
     """
     Deterministic color for expert index j, shared across plots.
 
-    Uses matplotlib's default color cycle (C0, C1, ...) so that
-    expert j always has the same color in every figure.
+    Uses a fixed qualitative palette (tab colors) so that
+    experts up to at least 10 have clearly distinguishable
+    colors. This avoids accidental reuse of visually similar
+    colors (e.g., for expert 0 and expert 4).
     """
-    return f"C{int(j) % 10}"
+    palette = [
+        "tab:blue",
+        "tab:orange",
+        "tab:green",
+        "tab:red",
+        "tab:purple",
+        "tab:brown",
+        "tab:pink",
+        "tab:gray",
+        "tab:olive",
+        "tab:cyan",
+    ]
+    return palette[int(j) % len(palette)]
 
 
 def get_model_color(name: str) -> str:
@@ -57,6 +71,8 @@ def get_model_color(name: str) -> str:
         "full": "tab:orange",
         "partial_corr": "tab:cyan",
         "full_corr": "tab:olive",
+        "neural_partial": "tab:brown",
+        "neural_full": "tab:purple",
         "l2d": "tab:red",
         "l2d_rnn": "tab:pink",
         "random": "tab:green",
@@ -242,6 +258,8 @@ def evaluate_routers_and_baselines(
     router_partial_corr=None,
     router_full_corr=None,
     l2d_rnn_baseline: Optional[L2D_RNN] = None,
+    router_partial_neural=None,
+    router_full_neural=None,
 ) -> None:
     """
     Evaluate how the partial- and full-feedback routers behave on the
@@ -251,6 +269,21 @@ def evaluate_routers_and_baselines(
     # Run both base routers to obtain costs and choices
     costs_partial, choices_partial = run_router_on_env(router_partial, env)
     costs_full, choices_full = run_router_on_env(router_full, env)
+
+    # Neural routers (if provided)
+    if router_partial_neural is not None:
+        costs_partial_neural, choices_partial_neural = run_router_on_env(
+            router_partial_neural, env
+        )
+    else:
+        costs_partial_neural, choices_partial_neural = None, None
+
+    if router_full_neural is not None:
+        costs_full_neural, choices_full_neural = run_router_on_env(
+            router_full_neural, env
+        )
+    else:
+        costs_full_neural, choices_full_neural = None, None
 
     # Correlated routers (if provided)
     if router_partial_corr is not None:
@@ -298,6 +331,16 @@ def evaluate_routers_and_baselines(
         if choices_full_corr is not None
         else None
     )
+    preds_partial_neural = (
+        compute_predictions_from_choices(env, choices_partial_neural)
+        if choices_partial_neural is not None
+        else None
+    )
+    preds_full_neural = (
+        compute_predictions_from_choices(env, choices_full_neural)
+        if choices_full_neural is not None
+        else None
+    )
     preds_l2d = (
         compute_predictions_from_choices(env, choices_l2d)
         if choices_l2d is not None
@@ -330,6 +373,12 @@ def evaluate_routers_and_baselines(
     avg_cost_full_corr = (
         costs_full_corr.mean() if costs_full_corr is not None else None
     )
+    avg_cost_neural_partial = (
+        costs_partial_neural.mean() if costs_partial_neural is not None else None
+    )
+    avg_cost_neural_full = (
+        costs_full_neural.mean() if costs_full_neural is not None else None
+    )
     avg_cost_l2d = costs_l2d.mean() if costs_l2d is not None else None
     avg_cost_l2d_rnn = costs_l2d_rnn.mean() if costs_l2d_rnn is not None else None
     avg_cost_random = costs_random.mean()
@@ -344,6 +393,14 @@ def evaluate_routers_and_baselines(
         )
     if avg_cost_full_corr is not None:
         print(f"Router Corr (full feedback):    {avg_cost_full_corr:.4f}")
+    if avg_cost_neural_partial is not None:
+        print(
+            f"Neural router (partial fb):     {avg_cost_neural_partial:.4f}"
+        )
+    if avg_cost_neural_full is not None:
+        print(
+            f"Neural router (full fb):        {avg_cost_neural_full:.4f}"
+        )
     if avg_cost_l2d is not None:
         print(f"L2D baseline:                  {avg_cost_l2d:.4f}")
     if avg_cost_l2d_rnn is not None:
@@ -368,6 +425,10 @@ def evaluate_routers_and_baselines(
             ("oracle", choices_oracle),
         ]
     )
+    if choices_partial_neural is not None:
+        entries.append(("neural_partial", choices_partial_neural))
+    if choices_full_neural is not None:
+        entries.append(("neural_full", choices_full_neural))
     if choices_l2d is not None:
         entries.append(("l2d", choices_l2d))
     if choices_l2d_rnn is not None:
@@ -408,6 +469,24 @@ def evaluate_routers_and_baselines(
         linestyle="-",
         alpha=0.8,
     )
+    if preds_partial_neural is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_partial_neural,
+            label="Neural router (partial)",
+            color=get_model_color("neural_partial"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_full_neural is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_full_neural,
+            label="Neural router (full)",
+            color=get_model_color("neural_full"),
+            linestyle="-",
+            alpha=0.8,
+        )
     if preds_l2d is not None:
         ax_pred.plot(
             t_grid,
@@ -449,86 +528,117 @@ def evaluate_routers_and_baselines(
     ax_pred.set_title("True series vs router-induced predictions")
     ax_pred.legend(loc="upper left")
 
-    # Bottom subplot: cumulative costs for all baselines
-    cum_partial = np.cumsum(costs_partial)
-    cum_full = np.cumsum(costs_full)
-    cum_partial_corr = (
-        np.cumsum(costs_partial_corr)
+    # Bottom subplot: running average costs for all baselines
+    denom = np.arange(1, T, dtype=float)
+    avg_partial_t = np.cumsum(costs_partial) / denom
+    avg_full_t = np.cumsum(costs_full) / denom
+    avg_partial_corr_t = (
+        np.cumsum(costs_partial_corr) / denom
         if costs_partial_corr is not None
         else None
     )
-    cum_full_corr = (
-        np.cumsum(costs_full_corr) if costs_full_corr is not None else None
+    avg_full_corr_t = (
+        np.cumsum(costs_full_corr) / denom if costs_full_corr is not None else None
     )
-    cum_random = np.cumsum(costs_random)
-    cum_oracle = np.cumsum(costs_oracle)
-    cum_l2d = np.cumsum(costs_l2d) if costs_l2d is not None else None
-    cum_l2d_rnn = np.cumsum(costs_l2d_rnn) if costs_l2d_rnn is not None else None
+    avg_neural_partial_t = (
+        np.cumsum(costs_partial_neural) / denom
+        if costs_partial_neural is not None
+        else None
+    )
+    avg_neural_full_t = (
+        np.cumsum(costs_full_neural) / denom
+        if costs_full_neural is not None
+        else None
+    )
+    avg_random_t = np.cumsum(costs_random) / denom
+    avg_oracle_t = np.cumsum(costs_oracle) / denom
+    avg_l2d_t = (
+        np.cumsum(costs_l2d) / denom if costs_l2d is not None else None
+    )
+    avg_l2d_rnn_t = (
+        np.cumsum(costs_l2d_rnn) / denom if costs_l2d_rnn is not None else None
+    )
 
     ax_cost.plot(
         t_grid,
-        cum_partial,
-        label="Partial (cumulative cost)",
+        avg_partial_t,
+        label="Partial (avg cost)",
         color=get_model_color("partial"),
         linestyle="-",
     )
     ax_cost.plot(
         t_grid,
-        cum_full,
-        label="Full (cumulative cost)",
+        avg_full_t,
+        label="Full (avg cost)",
         color=get_model_color("full"),
         linestyle="-",
     )
-    if cum_partial_corr is not None:
+    if avg_neural_partial_t is not None:
         ax_cost.plot(
             t_grid,
-            cum_partial_corr,
-            label="Partial Corr (cumulative cost)",
+            avg_neural_partial_t,
+            label="Neural partial (avg cost)",
+            color=get_model_color("neural_partial"),
+            linestyle="-",
+        )
+    if avg_neural_full_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_neural_full_t,
+            label="Neural full (avg cost)",
+            color=get_model_color("neural_full"),
+            linestyle="-",
+        )
+    if avg_partial_corr_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_partial_corr_t,
+            label="Partial Corr (avg cost)",
             color=get_model_color("partial_corr"),
             linestyle="-",
         )
-    if cum_full_corr is not None:
+    if avg_full_corr_t is not None:
         ax_cost.plot(
             t_grid,
-            cum_full_corr,
-            label="Full Corr (cumulative cost)",
+            avg_full_corr_t,
+            label="Full Corr (avg cost)",
             color=get_model_color("full_corr"),
             linestyle="-",
         )
-    if cum_l2d is not None:
+    if avg_l2d_t is not None:
         ax_cost.plot(
             t_grid,
-            cum_l2d,
-            label="L2D (cumulative cost)",
+            avg_l2d_t,
+            label="L2D (avg cost)",
             color=get_model_color("l2d"),
             linestyle="-",
         )
-    if cum_l2d_rnn is not None:
+    if avg_l2d_rnn_t is not None:
         ax_cost.plot(
             t_grid,
-            cum_l2d_rnn,
-            label="L2D_RNN (cumulative cost)",
+            avg_l2d_rnn_t,
+            label="L2D_RNN (avg cost)",
             color=get_model_color("l2d_rnn"),
             linestyle="-",
         )
     ax_cost.plot(
         t_grid,
-        cum_random,
-        label="Random (cumulative cost)",
+        avg_random_t,
+        label="Random (avg cost)",
         color=get_model_color("random"),
         linestyle="-",
     )
     ax_cost.plot(
         t_grid,
-        cum_oracle,
-        label="Oracle (cumulative cost)",
+        avg_oracle_t,
+        label="Oracle (avg cost)",
         color=get_model_color("oracle"),
         linestyle="-",
     )
 
     ax_cost.set_xlabel("Time $t$")
-    ax_cost.set_ylabel("Cumulative cost")
-    ax_cost.set_title("Cumulative cost over time")
+    ax_cost.set_ylabel("Average cost")
+    ax_cost.set_title("Average cost over time")
     ax_cost.legend(loc="upper left")
 
     plt.tight_layout()
@@ -542,11 +652,14 @@ def evaluate_routers_and_baselines(
     has_avail = avail is not None
     has_partial_corr = choices_partial_corr is not None
     has_full_corr = choices_full_corr is not None
+    has_neural_partial = choices_partial_neural is not None
+    has_neural_full = choices_full_neural is not None
 
     # Rows: base routers, optional correlated routers, optional L2D / L2D_RNN,
     # random baseline, oracle baseline, and optional availability.
     n_rows = 4 + (1 if has_l2d else 0) + (1 if has_l2d_rnn else 0) + (1 if has_avail else 0)
     n_rows += (1 if has_partial_corr else 0) + (1 if has_full_corr else 0)
+    n_rows += (1 if has_neural_partial else 0) + (1 if has_neural_full else 0)
     fig2, axes = plt.subplots(n_rows, 1, sharex=True, figsize=(10, 2 * n_rows))
 
     idx = 0
@@ -595,6 +708,30 @@ def evaluate_routers_and_baselines(
         )
         ax_fc.set_ylabel("Expert\n(full corr)")
         ax_fc.set_yticks(np.arange(env.num_experts))
+        idx += 1
+
+    if has_neural_partial:
+        ax_np = axes[idx]
+        ax_np.step(
+            t_grid,
+            choices_partial_neural,
+            where="post",
+            color=get_model_color("neural_partial"),
+        )
+        ax_np.set_ylabel("Expert\n(neural partial)")
+        ax_np.set_yticks(np.arange(env.num_experts))
+        idx += 1
+
+    if has_neural_full:
+        ax_nf = axes[idx]
+        ax_nf.step(
+            t_grid,
+            choices_full_neural,
+            where="post",
+            color=get_model_color("neural_full"),
+        )
+        ax_nf.set_ylabel("Expert\n(neural full)")
+        ax_nf.set_yticks(np.arange(env.num_experts))
         idx += 1
 
     if has_l2d:

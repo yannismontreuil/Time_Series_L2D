@@ -278,9 +278,10 @@ class SLDSIMMRouter:
         M, N, d = self.M, self.N, self.d
         phi_t = np.asarray(phi_t, dtype=float).reshape(d)
 
-        # Regime-conditional mean/variance for each (k,j)
-        mu_kj = np.zeros((M, N), dtype=float)
-        S_kj = np.zeros((M, N), dtype=float)
+        # Regime-conditional mean/variance for log-transformed loss
+        #   \tilde ℓ_{j,t} = log(ℓ_{j,t} + obs_log_eps).
+        mu_kj = np.zeros((M, N), dtype=float)  # mean of log-loss
+        S_kj = np.zeros((M, N), dtype=float)   # var of log-loss
         for k in range(M):
             for j in range(N):
                 m_kj = m_pred[k, j]
@@ -290,7 +291,7 @@ class SLDSIMMRouter:
                 S_kj[k, j] = max(S, self.eps)
                 mu_kj[k, j] = mu
 
-        # Mixture mean/variance over z_{t+1}
+        # Mixture mean/variance over regimes in original loss space.
         mean_ell = np.zeros(N, dtype=float)
         var_ell = np.zeros(N, dtype=float)
         for j in range(N):

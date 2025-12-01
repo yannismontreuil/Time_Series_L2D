@@ -1,0 +1,154 @@
+environment:
+  # Main experiment environment (slds_imm_router.py)
+  num_experts: 5
+  num_regimes: 5
+  # Dataset setting for the synthetic environment.
+  #   - "easy_setting": default, moderate noise, single regime switch.
+  #   - "noisy_forgetting": higher noise and regime 0 → 1 → 0 pattern
+  #                        (or a multi-regime 0 → 1 → 2 → … → M-1 → 0
+  #                        pattern when num_regimes > 2) to highlight
+  #                        potential catastrophic forgetting.
+  setting: easy_setting
+  # When setting: noisy_forgetting, slds_imm_router.py will
+  # automatically use at least 5 regimes (num_regimes ≥ 5) to create a
+  # more challenging Markovian pattern. You can override this by
+  # setting num_regimes to a larger value.
+  # For "noisy_forgetting", you may also want to increase T
+  # (e.g., T: 1000) and optionally override the noise scale:
+  # noise_scale: 0.6
+  # State dimension d = dim φ(x). The current feature map returns 2D features.
+  state_dim: 2
+  T: 3000
+  seed: 42
+  unavailable_expert_idx: 1
+  unavailable_intervals:
+    - [300, 750]
+  arrival_expert_idx: 4
+  arrival_intervals:
+    - [120, 600]
+
+routers:
+  # Risk sensitivity for SLDS-IMM routers.
+  # Can be a scalar (regime-independent) or a list
+  # of length num_regimes for regime-specific λ_k.
+  lambda_risk: -1.0
+
+  # Consultation costs for routers (β_j).
+  # Can be a single scalar (broadcast to all experts) or
+  # a list of length num_experts.
+  # Example: [0.0, 0.0, 0.0, 0.0, 0.0]
+  beta: 0.0
+
+  # Optional configuration for the independent-expert SLDS-IMM router.
+  slds_imm:
+    # Optional: full A_k matrices; default is identity per regime.
+    # A:
+    #   - [[1.0, 0.0], [0.0, 1.0]]
+    #   - [[1.0, 0.0], [0.0, 1.0]]
+    # Process noise covariances Q_k are built from per-regime scales.
+    # Can be:
+    #   - a single scalar (same scale for all regimes),
+    #   - a list of length num_regimes, or
+    #   - for num_regimes > 2, a 2-element list [q_0, q_other] which is
+    #     interpreted as one scale for regime 0 and one shared scale for
+    #     all other regimes.
+    Q_scales: [0.005, 0.05]
+    # Observation noise R_{k,j}: single scalar broadcast to all regimes/experts.
+    R_scalar: 1.0
+    # Regime transition matrix Π (shape [num_regimes, num_regimes]).
+    Pi:
+      - [0.5, 0.5]
+      - [0.2, 0.8]
+    # Prior on reliability states α_{j,t} (shape [d] and [d,d]).
+    pop_mean: [0.0, 0.0]
+    pop_cov:
+      - [1.0, 0.0]
+      - [0.0, 1.0]
+    # Numerical stabilizer ε for covariances.
+    eps: 1.0e-8
+
+  # Optional configuration for the correlated-expert SLDS-IMM router.
+  # If omitted, defaults matching the original example are used.
+  slds_imm_corr:
+    exploration_mode: "ids"
+    feature_mode: "learnable"
+    feature_learning_rate: 0.001
+    # Learnable feature architecture: "linear" or "mlp".
+    feature_arch: "linear"
+    # Hidden size for MLP features (used when feature_arch: "mlp").
+    feature_hidden_dim: 4
+    # Nonlinearity for MLP features: "tanh" or "relu".
+    feature_activation: "tanh"
+    # Shared factor dimension d_g and idiosyncratic dimension d_u.
+    shared_dim: 1
+    idiosyncratic_dim: 2
+    # Shared-factor dynamics A_gk default to identity; Q_gk built from scales.
+    # Same conventions as routers.slds_imm.Q_scales: scalar, length
+    # num_regimes, or (for num_regimes > 2) a 2-element list [qg_0, qg_other].
+    Q_g_scales: [0.005, 0.025]
+    # Idiosyncratic dynamics A_uk default to identity; Q_uk built from scales.
+    # Same conventions as Q_g_scales.
+    Q_u_scales: [0.005, 0.05]
+    # Shared-factor loadings B_j: first feature loads on shared factor with
+    # this scalar (same for all experts).
+    B_intercept_load: 1.0
+    # Priors for shared factor g_t and idiosyncratic states u_{j,t}.
+    g_mean0: [0.0]
+    g_cov0:
+      - [1.0]
+    u_mean0: [0.0, 0.0]
+    u_cov0:
+      - [1.0, 0.0]
+      - [0.0, 1.0]
+    # Numerical stabilizer ε for joint covariances.
+    eps: 1.0e-8
+
+  # Registry pruning threshold for correlated router (in decision epochs).
+  # If null, pruning is disabled.
+  staleness_threshold: null
+
+baselines:
+  l2d:
+    # Linear L2D baseline (LearningToDeferBaseline)
+    learning_rate: 0.01
+
+    # Coefficients α_j in μ_j = α_j * RMSE + β_j.
+    # Scalar or list of length num_experts.
+    alpha: 1.0
+
+    # Consultation costs for L2D baseline. If omitted or null, the
+    # router β vector from routers.beta is used.
+    beta: null
+
+  l2d_rnn:
+    # RNN-based L2D baseline (L2D_RNN)
+    learning_rate: 0.001
+    hidden_dim: 2
+
+    # As above, can be scalar or list.
+    alpha: 1.0
+    beta: null
+
+horizon_planning:
+  # Starting time index for horizon planning in slds_imm_router.py
+  t0: 400
+
+  # Planning horizon length
+  H: 100
+  # Planning method for horizon scheduling:
+  #   - "regressive": original router-influenced context planning
+  #   - "monte_carlo": scenario-based staffing planning with N=1
+  #   - "{N}_monte_carlo": N-scenario Monte Carlo staffing planning
+  method: "20_monte_carlo"
+
+  # Scenario generator parameters for Monte Carlo planning.
+  # Gaussian AR(1) feature-space perturbation as in
+  # Section~\ref{sec:staffing-generator-gaussian}.
+  scenario_generator:
+    type: "gaussian_ar1"
+    # AR(1) coefficient rho in [-1,1).
+    rho: 0.9
+    # Initial residual covariance Σ_0 ≈ (sigma0^2 I).
+    sigma0: 0.1
+    # Innovation covariance Q ≈ (q_scale^2 I).
+    q_scale: 0.1
