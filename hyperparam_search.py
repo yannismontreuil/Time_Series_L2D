@@ -168,14 +168,12 @@ def build_correlated_routers(
     d_g = int(slds_corr_cfg.get("shared_dim", 1))
     d_u = int(slds_corr_cfg.get("idiosyncratic_dim", d))
 
-    # Independent-router R (shared with correlated router)
-    R_cfg = slds_cfg.get("R", None)
-    if R_cfg is not None:
-        R_base = np.asarray(R_cfg, dtype=float)
-    else:
-        r_scalar = float(slds_cfg.get("R_scalar", 0.5))
-        R_base = np.full((M, N), r_scalar, dtype=float)
-    R = R_base * float(r_scale)
+    # Observation noise R for the correlated router: we treat r_scale
+    # as an absolute value and build R_{k,j} = r_scale for all
+    # regimes/experts. This decouples the hyperparameter search from
+    # any baseline R specified in the config and is more robust across
+    # different problems.
+    R = np.full((M, N), float(r_scale), dtype=float)
 
     # Regime transition matrix Π
     Pi_cfg = slds_cfg.get("Pi", None)
@@ -270,6 +268,16 @@ def build_correlated_routers(
         int(staleness_threshold_cfg) if staleness_threshold_cfg is not None else None
     )
 
+    # Exploration and feature-learning configuration for correlated router.
+    exploration_mode = slds_corr_cfg.get("exploration_mode", "greedy")
+    feature_mode = slds_corr_cfg.get("feature_mode", "fixed")
+    feature_learning_rate = float(slds_corr_cfg.get("feature_learning_rate", 0.0))
+    feature_freeze_after = slds_corr_cfg.get("feature_freeze_after", None)
+    feature_log_interval = slds_corr_cfg.get("feature_log_interval", None)
+    feature_arch = slds_corr_cfg.get("feature_arch", "linear")
+    feature_hidden_dim = slds_corr_cfg.get("feature_hidden_dim", None)
+    feature_activation = slds_corr_cfg.get("feature_activation", "tanh")
+
     # Scalar lambda_risk used for both routers in the search
     lambda_scalar = float(lambda_risk)
 
@@ -289,6 +297,11 @@ def build_correlated_routers(
         beta=beta,
         lambda_risk=lambda_scalar,
         staleness_threshold=staleness_threshold,
+        exploration_mode=exploration_mode,
+        feature_mode=feature_mode,
+        feature_learning_rate=feature_learning_rate,
+        feature_freeze_after=feature_freeze_after,
+        feature_log_interval=feature_log_interval,
         feedback_mode="partial",
         eps=eps_corr,
         g_mean0=g_mean0,
@@ -313,12 +326,20 @@ def build_correlated_routers(
         beta=beta,
         lambda_risk=lambda_scalar,
         staleness_threshold=staleness_threshold,
+        exploration_mode=exploration_mode,
+        feature_mode=feature_mode,
+        feature_learning_rate=feature_learning_rate,
+        feature_freeze_after=feature_freeze_after,
+        feature_log_interval=feature_log_interval,
         feedback_mode="full",
         eps=eps_corr,
         g_mean0=g_mean0,
         g_cov0=g_cov0,
         u_mean0=u_mean0,
         u_cov0=u_cov0,
+        feature_arch=feature_arch,
+        feature_hidden_dim=feature_hidden_dim,
+        feature_activation=feature_activation,
     )
 
     return router_partial_corr, router_full_corr
@@ -425,16 +446,20 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
     # Base number of regimes from the experiment config
     _, _, M_base, _ = _get_dims_from_config(cfg)
 
-    # Grids for hyperparameters (can be overridden via config)
+    # Grids for hyperparameters (can be overridden via config). We treat
+    # q_g_scale, q_u_scale, and r_scale as absolute values (typically
+    # variances) and use log-spaced defaults for robustness.
     lambda_risk_grid = search_cfg.get(
-        "lambda_risk_grid", [-0.5, -0.2, 0.0, 0.2]
+        "lambda_risk_grid", [-1.0, -0.5, 0.0, 0.5]
     )
-    # Global default scale grid; can be shared by q_g and q_u if
+    # Global default value grid; can be shared by q_g and q_u if
     # component-specific grids are not provided.
-    q_scale_grid_default = search_cfg.get("q_scale_grid", [0.5, 1.0, 2.0])
-    q_g_scale_grid = search_cfg.get("q_g_scale_grid", q_scale_grid_default)
-    q_u_scale_grid = search_cfg.get("q_u_scale_grid", q_scale_grid_default)
-    r_scale_grid = search_cfg.get("r_scale_grid", [0.5, 1.0, 2.0])
+    q_value_grid_default = search_cfg.get(
+        "q_scale_grid", [1e-3, 1e-2, 1e-1, 1.0]
+    )
+    q_g_scale_grid = search_cfg.get("q_g_scale_grid", q_value_grid_default)
+    q_u_scale_grid = search_cfg.get("q_u_scale_grid", q_value_grid_default)
+    r_scale_grid = search_cfg.get("r_scale_grid", [1e-3, 1e-2, 1e-1, 1.0])
 
     # Regime-count grid: if not provided, search over a small set around M_base.
     num_regimes_grid_raw = search_cfg.get("num_regimes_grid", None)
@@ -452,7 +477,12 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
         if not num_regimes_grid:
             num_regimes_grid = [max(2, M_base)]
 
-    seeds = [42, 43, 44, 45, 46]
+    # Seeds for averaging: can be overridden via hyperparam_search.seeds.
+    seeds_cfg = search_cfg.get("seeds", None)
+    if seeds_cfg is None:
+        seeds = [42, 43, 44, 45, 46]
+    else:
+        seeds = [int(s) for s in seeds_cfg]
 
     # Optional number of worker processes for parallel evaluation.
     # If num_workers <= 0 or omitted, use all available CPUs.
@@ -538,19 +568,31 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
         f"avg_cost_full_corr={best_full['avg_cost_full']:.4f}"
     )
 
-    print(
-        "\nYou can adapt your YAML by, e.g.,\n"
-        "  environment:\n"
-        f"    num_regimes: {int(best_full['num_regimes'])}\n"
-        "  routers:\n"
-        "    lambda_risk: "
-        f"{best_full['lambda_risk']:+.2f}\n"
-        "    slds_imm:\n"
-        "      # multiply existing Q_scales / R_scalar by q_scale / r_scale\n"
-        f"      # recommended q_g_scale = {best_full['q_g_scale']:.2f}, "
-        f"q_u_scale = {best_full['q_u_scale']:.2f}, "
-        f"r_scale = {best_full['r_scale']:.2f}"
-    )
+    # Save best hyperparameters to a dedicated file for later use.
+    best_params = {
+        "partial": {
+            "num_regimes": int(best_partial["num_regimes"]),
+            "lambda_risk": float(best_partial["lambda_risk"]),
+            "q_g": float(best_partial["q_g_scale"]),
+            "q_u": float(best_partial["q_u_scale"]),
+            "r": float(best_partial["r_scale"]),
+            "avg_cost": float(best_partial["avg_cost_partial"]),
+        },
+        "full": {
+            "num_regimes": int(best_full["num_regimes"]),
+            "lambda_risk": float(best_full["lambda_risk"]),
+            "q_g": float(best_full["q_g_scale"]),
+            "q_u": float(best_full["q_u_scale"]),
+            "r": float(best_full["r_scale"]),
+            "avg_cost": float(best_full["avg_cost_full"]),
+        },
+    }
+    os.makedirs("param", exist_ok=True)
+    out_path = os.path.join("param", "best_corr_hyperparams.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(best_params, f, indent=2)
+
+    print(f"\nSaved best hyperparameters to {out_path}")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,74 @@ from plot_utils import get_expert_color, get_model_color
 from matplotlib import lines as mlines, patches as mpatches
 
 
+def _simulate_value_scenarios_for_schedule(
+    env: SyntheticTimeSeriesEnv,
+    schedule: Sequence[int],
+    times: np.ndarray,
+    num_scenarios: int,
+    scenario_generator_cfg: Optional[dict],
+) -> np.ndarray:
+    """
+    Simulate Monte Carlo trajectories of predicted values y_hat along a
+    fixed expert schedule, using a Gaussian AR(1) perturbation model in
+    context space. This is used purely for visualization to illustrate
+    how, for a given chosen expert j_h, the predicted value could vary
+    under context noise.
+
+    For each scenario n and horizon step h we draw:
+        x_{t+h}^{(n)} = x_hat_{t+h} + ξ_h^{(n)},
+    where x_hat_{t+h} = env.get_context(times[h]) is the baseline
+    context path and ξ_h follows an AR(1) recursion governed by the
+    scenario_generator_cfg (rho, sigma0, q_scale). The expert's
+    prediction y_hat^{(n)}_{h} is then
+        y_hat^{(n)}_{h} = env.expert_predict(j_h, x_{t+h}^{(n)}).
+
+    Returns
+    -------
+    values_scen : np.ndarray of shape (N_scen, H_eff)
+        Scenario-wise predicted values along the schedule.
+    """
+    H_eff = int(len(times))
+    N_scen = int(num_scenarios)
+    if H_eff == 0 or N_scen <= 0:
+        return np.zeros((max(N_scen, 0), max(H_eff, 0)), dtype=float)
+
+    cfg = scenario_generator_cfg or {}
+    rho = float(cfg.get("rho", 0.0))
+    sigma0 = float(cfg.get("sigma0", 0.0))
+    q_scale = float(cfg.get("q_scale", 0.0))
+
+    # Baseline context path x_hat_{t+h}.
+    x_hat = np.zeros(H_eff, dtype=float)
+    for h in range(H_eff):
+        x_hat[h] = float(env.get_context(int(times[h]))[0])
+
+    values_scen = np.zeros((N_scen, H_eff), dtype=float)
+    rng = np.random.default_rng()
+
+    for n in range(N_scen):
+        # AR(1) residual for scalar context.
+        if sigma0 > 0.0:
+            xi_prev = float(rng.normal(loc=0.0, scale=sigma0))
+        else:
+            xi_prev = 0.0
+        for h in range(H_eff):
+            if h == 0:
+                xi_h = xi_prev
+            else:
+                if q_scale > 0.0:
+                    eta_h = float(rng.normal(loc=0.0, scale=q_scale))
+                else:
+                    eta_h = 0.0
+                xi_h = rho * xi_prev + eta_h
+                xi_prev = xi_h
+            x_scen = x_hat[h] + xi_h
+            j_h = int(schedule[h])
+            values_scen[n, h] = env.expert_predict(j_h, np.array([x_scen], dtype=float))
+
+    return values_scen
+
+
 def warm_start_router_to_time(
     router,
     env: SyntheticTimeSeriesEnv,
@@ -173,7 +241,7 @@ def _plan_horizon_schedule_monte_carlo(
     avail_per_h: List[np.ndarray],
     num_scenarios: int,
     scenario_generator_cfg: Optional[dict],
-) -> Tuple[List[int], np.ndarray, np.ndarray]:
+) -> Tuple[List[int], np.ndarray, np.ndarray, np.ndarray]:
     """
     N-scenario Monte Carlo / scenario-based planning as in
     Section "Extension: Staffing/Availability Planning over a Horizon":
@@ -195,9 +263,8 @@ def _plan_horizon_schedule_monte_carlo(
     """
     H_eff = int(times.shape[0])
     if H_eff == 0:
-        return [], np.zeros((0, env.num_experts), dtype=float), np.zeros(
-            (0, env.num_experts), dtype=float
-        )
+        empty = np.zeros((0, env.num_experts), dtype=float)
+        return [], empty, empty, empty
 
     N_scen = int(num_scenarios)
     if N_scen <= 0:
@@ -240,7 +307,6 @@ def _plan_horizon_schedule_monte_carlo(
 
     # Scenario scores J_{j,h}(x_{t+h}^{(n)}) with shape (N_scen, H_eff, N_experts)
     N_experts = router.N
-    # Scenario scores J_{j,h}(x_{t+h}^{(n)}) with shape (N_scen, H_eff, N)
     J_scen = np.zeros((N_scen, H_eff, N_experts), dtype=float)
 
     schedule: List[int] = []
@@ -320,7 +386,7 @@ def _plan_horizon_schedule_monte_carlo(
     for h in range(H_eff):
         avail = np.asarray(avail_per_h[h], dtype=int)
         if avail.size == 0:
-            avail = np.arange(N, dtype=int)
+            avail = np.arange(N_experts, dtype=int)
 
         # Trajectory (capacity m=1) based on c_hat.
         scores_avail = c_hat[h, avail]
@@ -346,7 +412,17 @@ def _plan_horizon_schedule_monte_carlo(
                 mass_av = 1.0 / (N_scen * float(av_min_local.size))
                 p_avail[h, avail[av_min_local]] += mass_av
 
-    return schedule, p_avail, p_all
+    # Scenario-wise scores along the planned trajectory:
+    # J_sched[n, h] = J_{j_h^*, h}(x^{(n)}_{t+h}).
+    if H_eff > 0:
+        schedule_arr = np.asarray(schedule, dtype=int).reshape(1, H_eff)
+        h_idx = np.arange(H_eff, dtype=int).reshape(1, H_eff)
+        n_idx = np.arange(N_scen, dtype=int).reshape(N_scen, 1)
+        J_sched = J_scen[n_idx, h_idx, schedule_arr]
+    else:
+        J_sched = np.zeros((N_scen, 0), dtype=float)
+
+    return schedule, p_avail, p_all, J_sched
 
 
 def evaluate_horizon_planning(
@@ -506,7 +582,7 @@ def evaluate_horizon_planning(
     else:
         # Scenario-based Monte Carlo planning with exogenous contexts:
         # Section \ref{sec:staffing-mc} and Algorithm~\ref{alg:staffing-planning}.
-        sched_partial, p_avail_partial, p_all_partial = _plan_horizon_schedule_monte_carlo(
+        sched_partial, p_avail_partial, p_all_partial, J_sched_partial = _plan_horizon_schedule_monte_carlo(
             router_partial,
             env,
             beta,
@@ -515,7 +591,7 @@ def evaluate_horizon_planning(
             num_scenarios,
             scenario_generator_cfg,
         )
-        sched_full, p_avail_full, p_all_full = _plan_horizon_schedule_monte_carlo(
+        sched_full, p_avail_full, p_all_full, J_sched_full = _plan_horizon_schedule_monte_carlo(
             router_full,
             env,
             beta,
@@ -526,7 +602,7 @@ def evaluate_horizon_planning(
         )
 
         if router_partial_corr is not None:
-            sched_partial_corr, p_avail_partial_corr, p_all_partial_corr = (
+            sched_partial_corr, p_avail_partial_corr, p_all_partial_corr, J_sched_partial_corr = (
                 _plan_horizon_schedule_monte_carlo(
                     router_partial_corr,
                     env,
@@ -541,9 +617,10 @@ def evaluate_horizon_planning(
             sched_partial_corr = []
             p_avail_partial_corr = np.zeros((H_eff, env.num_experts), dtype=float)
             p_all_partial_corr = np.zeros((H_eff, env.num_experts), dtype=float)
+            J_sched_partial_corr = np.zeros((num_scenarios, H_eff), dtype=float)
 
         if router_full_corr is not None:
-            sched_full_corr, p_avail_full_corr, p_all_full_corr = (
+            sched_full_corr, p_avail_full_corr, p_all_full_corr, J_sched_full_corr = (
                 _plan_horizon_schedule_monte_carlo(
                     router_full_corr,
                     env,
@@ -558,6 +635,7 @@ def evaluate_horizon_planning(
             sched_full_corr = []
             p_avail_full_corr = np.zeros((H_eff, env.num_experts), dtype=float)
             p_all_full_corr = np.zeros((H_eff, env.num_experts), dtype=float)
+            J_sched_full_corr = np.zeros((num_scenarios, H_eff), dtype=float)
 
         # For neural routers we do not have a generative SLDS model to
         # support IMM-based staffing planning, so we skip Monte Carlo
@@ -702,6 +780,211 @@ def evaluate_horizon_planning(
             print(f"\n  {label} (p_all, steps 1..{h_max}):")
             print(mat[:h_max, :])
             plot_prob_heatmap(mat, f"Best-over-all selection probability ({label})")
+
+        # ------------------------------------------------------------------
+        # New: truth y_t and correlated-router forecasts with MC value bands
+        # ------------------------------------------------------------------
+        if cost_full_corr_plan.size > 0 or cost_partial_corr_plan.size > 0:
+            fig_corr, ax_y = plt.subplots(1, 1, figsize=(10, 4))
+
+            # True series on the horizon window.
+            ax_y.plot(
+                times,
+                y_window,
+                label="True $y_t$",
+                color=get_model_color("true"),
+                linewidth=2,
+            )
+
+            # Monte Carlo value bands for correlated routers (if schedules exist).
+            if sched_full_corr:
+                values_full_corr_scen = _simulate_value_scenarios_for_schedule(
+                    env,
+                    sched_full_corr,
+                    times,
+                    num_scenarios,
+                    scenario_generator_cfg,
+                )
+                mean_full = values_full_corr_scen.mean(axis=0)
+                std_full = values_full_corr_scen.std(axis=0)
+                lower_full = mean_full - std_full
+                upper_full = mean_full + std_full
+                color_full = get_model_color("full_corr")
+                ax_y.fill_between(
+                    times,
+                    lower_full,
+                    upper_full,
+                    color=color_full,
+                    alpha=0.15,
+                    label="Corr full (MC band, value)",
+                )
+            if sched_partial_corr:
+                values_partial_corr_scen = _simulate_value_scenarios_for_schedule(
+                    env,
+                    sched_partial_corr,
+                    times,
+                    num_scenarios,
+                    scenario_generator_cfg,
+                )
+                mean_part = values_partial_corr_scen.mean(axis=0)
+                std_part = values_partial_corr_scen.std(axis=0)
+                lower_part = mean_part - std_part
+                upper_part = mean_part + std_part
+                color_part = get_model_color("partial_corr")
+                ax_y.fill_between(
+                    times,
+                    lower_part,
+                    upper_part,
+                    color=color_part,
+                    alpha=0.15,
+                    label="Corr partial (MC band, value)",
+                )
+
+            # Correlated-router forecasts on the same horizon.
+            if cost_full_corr_plan.size > 0 and preds_full_corr_plan.size > 0:
+                ax_y.plot(
+                    times,
+                    preds_full_corr_plan,
+                    label="H-plan corr full (forecast)",
+                    color=get_model_color("full_corr"),
+                    linewidth=1.8,
+                )
+            if cost_partial_corr_plan.size > 0 and preds_partial_corr_plan.size > 0:
+                ax_y.plot(
+                    times,
+                    preds_partial_corr_plan,
+                    label="H-plan corr partial (forecast)",
+                    color=get_model_color("partial_corr"),
+                    linewidth=1.8,
+                )
+            ax_y.set_xlabel("Time $t$")
+            ax_y.set_ylabel("Value")
+            ax_y.set_title(
+                f"True series and correlated-router forecasts "
+                f"on horizon [{times[0]}, {times[-1]}]"
+            )
+            ax_y.legend(loc="upper left")
+            plt.tight_layout()
+            plt.show()
+
+        # ------------------------------------------------------------------
+        # New: expert selection sets for correlated routers
+        # ------------------------------------------------------------------
+        if sched_full_corr or sched_partial_corr:
+            fig_sel, ax_sel = plt.subplots(1, 1, figsize=(10, 4))
+
+            # Deterministic schedules (no-noise planning outcome)
+            if sched_full_corr:
+                ax_sel.step(
+                    times,
+                    sched_full_corr,
+                    where="post",
+                    label="Corr full schedule",
+                    color=get_model_color("full_corr"),
+                    linewidth=2,
+                )
+            if sched_partial_corr:
+                ax_sel.step(
+                    times,
+                    sched_partial_corr,
+                    where="post",
+                    label="Corr partial schedule",
+                    color=get_model_color("partial_corr"),
+                    linewidth=2,
+                    linestyle="--",
+                )
+
+            # For each horizon step, explicitly mark which experts could
+            # be optimal under noise. If, for a given h, the Monte Carlo
+            # runs ever select experts e1, e2, e3 as best-over-all, we
+            # draw markers at (t_h, e1), (t_h, e2), (t_h, e3).
+            eps_prob = 1e-12
+
+            # Helper to scatter support of p_all_*.
+            def scatter_expert_support(
+                prob_matrix: np.ndarray,
+                color_key: str,
+                label: str,
+                marker: str,
+            ) -> None:
+                if prob_matrix.size == 0:
+                    return
+                color = get_model_color(color_key)
+                plotted = False
+                for j in range(env.num_experts):
+                    mask_h = prob_matrix[:, j] > eps_prob
+                    if not np.any(mask_h):
+                        continue
+                    # Times where expert j is selected in at least one scenario.
+                    t_support = times[mask_h]
+                    y_j = np.full(t_support.shape[0], j, dtype=float)
+                    ax_sel.scatter(
+                    t_support,
+                    y_j,
+                    facecolors="none",
+                    edgecolors=color,
+                    marker=marker,
+                    alpha=0.6,
+                    s=30,
+                        label=label if not plotted else None,
+                    )
+                    plotted = True
+
+            scatter_expert_support(
+                p_all_full_corr,
+                "full_corr",
+                "Corr full (experts possible under noise)",
+                marker="o",
+            )
+            scatter_expert_support(
+                p_all_partial_corr,
+                "partial_corr",
+                "Corr partial (experts possible under noise)",
+                marker="o",
+            )
+
+            ax_sel.set_xlabel("Time $t$")
+            ax_sel.set_ylabel("Expert index")
+            ax_sel.set_yticks(np.arange(env.num_experts))
+            ax_sel.set_title(
+                "Expert selection under noise (schedules and possible experts)"
+            )
+            ax_sel.legend(loc="upper left")
+            plt.tight_layout()
+            plt.show()
+
+            # Separate figure: number of experts possible per time.
+            fig_count, ax_count = plt.subplots(1, 1, figsize=(10, 3))
+            if p_all_full_corr.size > 0:
+                n_full = (p_all_full_corr > eps_prob).sum(axis=1)
+                ax_count.plot(
+                    times,
+                    n_full,
+                    color=get_model_color("full_corr"),
+                    linestyle=":",
+                    marker="o",
+                    markerfacecolor="none",
+                    linewidth=1.5,
+                    label="Corr full (num experts possible)",
+                )
+            if p_all_partial_corr.size > 0:
+                n_part = (p_all_partial_corr > eps_prob).sum(axis=1)
+                ax_count.plot(
+                    times,
+                    n_part,
+                    color=get_model_color("partial_corr"),
+                    linestyle=":",
+                    marker="o",
+                    markerfacecolor="none",
+                    linewidth=1.5,
+                    label="Corr partial (num experts possible)",
+                )
+            ax_count.set_xlabel("Time $t$")
+            ax_count.set_ylabel("num experts possible")
+            ax_count.set_title("Number of experts possible under noise")
+            ax_count.legend(loc="upper left")
+            plt.tight_layout()
+            plt.show()
 
     # Plot forecasts vs truth and zoomed horizon window + scheduling
     fig_h, (ax_h_full, ax_h_zoom, ax_h_sched) = plt.subplots(

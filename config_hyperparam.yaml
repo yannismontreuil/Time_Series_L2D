@@ -1,0 +1,118 @@
+environment:
+  # Environment for hyperparameter search (synthetic by default).
+  num_experts: 5
+  num_regimes: 5
+  setting: easy_setting
+  # State dimension d = dim φ(x). The current feature map returns 2D features.
+  state_dim: 2
+  # Horizon length for training/evaluation in hyperparam search.
+  T: 3000
+  seed: 42
+  unavailable_expert_idx: 1
+  unavailable_intervals:
+    - [300, 750]
+  arrival_expert_idx: 4
+  arrival_intervals:
+    - [120, 600]
+
+routers:
+  # Risk sensitivity for SLDS-IMM routers.
+  # Can be a scalar (regime-independent) or a list of length num_regimes.
+  lambda_risk: -1.0
+
+  # Consultation costs for routers (β_j).
+  # Can be a single scalar (broadcast to all experts) or a list
+  # of length num_experts.
+  beta: 0.0
+
+  # Independent-expert SLDS-IMM router (baseline model).
+  slds_imm:
+    # Transition matrices A_k: default identity per regime.
+    # A:
+    #   - [[1.0, 0.0], [0.0, 1.0]]
+    #   - [[1.0, 0.0], [0.0, 1.0]]
+    # Process noise scales Q_scales; see main config for details.
+    Q_scales: [0.005, 0.05]
+    # Observation noise R_{k,j}: scalar broadcast to all regimes/experts.
+    R_scalar: 1.0
+    # Regime transition matrix Π (shape [num_regimes, num_regimes]).
+    Pi:
+      - [0.5, 0.5]
+      - [0.2, 0.8]
+    # Prior on reliability states α_{j,t}.
+    pop_mean: [0.0, 0.0]
+    pop_cov:
+      - [1.0, 0.0]
+      - [0.0, 1.0]
+    # Numerical stabilizer ε for covariances.
+    eps: 1.0e-8
+
+  # Correlated-expert SLDS-IMM router (model to tune).
+  slds_imm_corr:
+    exploration_mode: "ids"
+    feature_mode: "learnable"
+    feature_learning_rate: 0.001
+    # Learnable feature architecture: "linear" or "mlp".
+    feature_arch: "linear"
+    feature_hidden_dim: 4
+    feature_activation: "tanh"
+    # Shared factor dimension d_g and idiosyncratic dimension d_u.
+    shared_dim: 1
+    idiosyncratic_dim: 2
+    # Shared-factor dynamics A_gk default to identity; Q_gk built from scales.
+    Q_g_scales: [0.005, 0.025]
+    # Idiosyncratic dynamics A_uk default to identity; Q_uk built from scales.
+    Q_u_scales: [0.005, 0.05]
+    # Shared-factor loadings B_j: first feature loads on shared factor.
+    B_intercept_load: 1.0
+    # Priors for shared factor g_t and idiosyncratic states u_{j,t}.
+    g_mean0: [0.0]
+    g_cov0:
+      - [1.0]
+    u_mean0: [0.0, 0.0]
+    u_cov0:
+      - [1.0, 0.0]
+      - [0.0, 1.0]
+    eps: 1.0e-8
+
+  # Registry pruning threshold for correlated router (in decision epochs).
+  # If null, pruning is disabled.
+  staleness_threshold: null
+
+baselines:
+  l2d:
+    learning_rate: 0.01
+    alpha: 1.0
+    beta: null
+
+  l2d_rnn:
+    learning_rate: 0.001
+    hidden_dim: 2
+    alpha: 1.0
+    beta: null
+
+# Hyperparameter search configuration for correlated SLDS-IMM router.
+hyperparam_search:
+  # Regime-count grid (M values).
+  num_regimes_grid: [3, 5]
+
+  # Scalar lambda_risk grid for the correlated router.
+  lambda_risk_grid: [-1.0, -0.5, 0.0, 0.5]
+
+  # Global default scale/value grid (absolute values, log-spaced);
+  # can be shared by q_g and q_u if component-specific grids are not
+  # provided.
+  q_scale_grid: [0.001, 0.01, 0.1, 1.0]
+
+  # Component-specific process-noise scales (optional; fall back to q_scale_grid).
+  # q_g_scale_grid: [0.5, 1.0, 2.0]
+  # q_u_scale_grid: [0.5, 1.0, 2.0]
+
+  # Observation-noise value grid (absolute, log-spaced).
+  r_scale_grid: [0.001, 0.01, 0.1, 1.0]
+
+  # Seeds for averaging across environment randomness.
+  seeds: [42]
+
+  # Number of worker processes for parallel evaluation.
+  num_workers: 8
