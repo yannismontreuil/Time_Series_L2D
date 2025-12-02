@@ -4,13 +4,15 @@ from typing import Optional
 
 from router_model import SLDSIMMRouter
 from synthetic_env import SyntheticTimeSeriesEnv
-from l2d_baseline import LearningToDeferBaseline, L2D_RNN
+from l2d_baseline import L2D
 from router_eval import (
     run_router_on_env,
     run_l2d_on_env,
     run_random_on_env,
     run_oracle_on_env,
     compute_predictions_from_choices,
+    run_linucb_on_env,
+    run_neuralucb_on_env,
 )
 
 # ---------------------------------------------------------------------
@@ -74,7 +76,10 @@ def get_model_color(name: str) -> str:
         "neural_partial": "tab:brown",
         "neural_full": "tab:purple",
         "l2d": "tab:red",
-        "l2d_rnn": "tab:pink",
+        "l2d_sw": "tab:pink",
+        "linucb_partial": "tab:olive",
+        "linucb_full": "tab:cyan",
+        "neuralucb": "tab:brown",
         "random": "tab:green",
     }
     return mapping.get(name, "tab:purple")
@@ -254,10 +259,14 @@ def evaluate_routers_and_baselines(
     env: SyntheticTimeSeriesEnv,
     router_partial: SLDSIMMRouter,
     router_full: SLDSIMMRouter,
-    l2d_baseline: Optional[LearningToDeferBaseline] = None,
+    l2d_baseline: Optional[L2D] = None,
     router_partial_corr=None,
     router_full_corr=None,
-    l2d_rnn_baseline: Optional[L2D_RNN] = None,
+    l2d_sw_baseline: Optional[L2D] = None,
+    linucb_partial=None,
+    linucb_full=None,
+    neuralucb_partial=None,
+    neuralucb_full=None,
     router_partial_neural=None,
     router_full_neural=None,
 ) -> None:
@@ -306,10 +315,40 @@ def evaluate_routers_and_baselines(
     else:
         costs_l2d, choices_l2d = None, None
 
-    if l2d_rnn_baseline is not None:
-        costs_l2d_rnn, choices_l2d_rnn = run_l2d_on_env(l2d_rnn_baseline, env)
+    if l2d_sw_baseline is not None:
+        costs_l2d_sw, choices_l2d_sw = run_l2d_on_env(l2d_sw_baseline, env)
     else:
-        costs_l2d_rnn, choices_l2d_rnn = None, None
+        costs_l2d_sw, choices_l2d_sw = None, None
+
+    # Run LinUCB baselines if provided
+    if linucb_partial is not None:
+        costs_linucb_partial, choices_linucb_partial = run_linucb_on_env(
+            linucb_partial, env
+        )
+    else:
+        costs_linucb_partial, choices_linucb_partial = None, None
+
+    if linucb_full is not None:
+        costs_linucb_full, choices_linucb_full = run_linucb_on_env(
+            linucb_full, env
+        )
+    else:
+        costs_linucb_full, choices_linucb_full = None, None
+
+    # Run NeuralUCB baselines if provided
+    if neuralucb_partial is not None:
+        costs_neuralucb_partial, choices_neuralucb_partial = run_neuralucb_on_env(
+            neuralucb_partial, env
+        )
+    else:
+        costs_neuralucb_partial, choices_neuralucb_partial = None, None
+
+    if neuralucb_full is not None:
+        costs_neuralucb_full, choices_neuralucb_full = run_neuralucb_on_env(
+            neuralucb_full, env
+        )
+    else:
+        costs_neuralucb_full, choices_neuralucb_full = None, None
 
     # Common consultation costs (assumed shared across methods)
     beta = router_partial.beta[: env.num_experts]
@@ -346,9 +385,29 @@ def evaluate_routers_and_baselines(
         if choices_l2d is not None
         else None
     )
-    preds_l2d_rnn = (
-        compute_predictions_from_choices(env, choices_l2d_rnn)
-        if choices_l2d_rnn is not None
+    preds_l2d_sw = (
+        compute_predictions_from_choices(env, choices_l2d_sw)
+        if choices_l2d_sw is not None
+        else None
+    )
+    preds_linucb_partial = (
+        compute_predictions_from_choices(env, choices_linucb_partial)
+        if choices_linucb_partial is not None
+        else None
+    )
+    preds_linucb_full = (
+        compute_predictions_from_choices(env, choices_linucb_full)
+        if choices_linucb_full is not None
+        else None
+    )
+    preds_neuralucb_partial = (
+        compute_predictions_from_choices(env, choices_neuralucb_partial)
+        if choices_neuralucb_partial is not None
+        else None
+    )
+    preds_neuralucb_full = (
+        compute_predictions_from_choices(env, choices_neuralucb_full)
+        if choices_neuralucb_full is not None
         else None
     )
     preds_random = compute_predictions_from_choices(env, choices_random)
@@ -380,7 +439,23 @@ def evaluate_routers_and_baselines(
         costs_full_neural.mean() if costs_full_neural is not None else None
     )
     avg_cost_l2d = costs_l2d.mean() if costs_l2d is not None else None
-    avg_cost_l2d_rnn = costs_l2d_rnn.mean() if costs_l2d_rnn is not None else None
+    avg_cost_l2d_sw = costs_l2d_sw.mean() if costs_l2d_sw is not None else None
+    avg_cost_linucb_partial = (
+        costs_linucb_partial.mean() if costs_linucb_partial is not None else None
+    )
+    avg_cost_linucb_full = (
+        costs_linucb_full.mean() if costs_linucb_full is not None else None
+    )
+    avg_cost_neuralucb_partial = (
+        costs_neuralucb_partial.mean()
+        if costs_neuralucb_partial is not None
+        else None
+    )
+    avg_cost_neuralucb_full = (
+        costs_neuralucb_full.mean()
+        if costs_neuralucb_full is not None
+        else None
+    )
     avg_cost_random = costs_random.mean()
     avg_cost_oracle = costs_oracle.mean()
 
@@ -403,8 +478,16 @@ def evaluate_routers_and_baselines(
         )
     if avg_cost_l2d is not None:
         print(f"L2D baseline:                  {avg_cost_l2d:.4f}")
-    if avg_cost_l2d_rnn is not None:
-        print(f"L2D_RNN baseline:              {avg_cost_l2d_rnn:.4f}")
+    if avg_cost_l2d_sw is not None:
+        print(f"L2D_SW baseline:               {avg_cost_l2d_sw:.4f}")
+    if avg_cost_linucb_partial is not None:
+        print(f"LinUCB (partial feedback):     {avg_cost_linucb_partial:.4f}")
+    if avg_cost_linucb_full is not None:
+        print(f"LinUCB (full feedback):        {avg_cost_linucb_full:.4f}")
+    if avg_cost_neuralucb_partial is not None:
+        print(f"NeuralUCB (partial feedback):  {avg_cost_neuralucb_partial:.4f}")
+    if avg_cost_neuralucb_full is not None:
+        print(f"NeuralUCB (full feedback):     {avg_cost_neuralucb_full:.4f}")
     print(f"Random baseline:               {avg_cost_random:.4f}")
     print(f"Oracle baseline:               {avg_cost_oracle:.4f}")
     for j in range(env.num_experts):
@@ -431,8 +514,16 @@ def evaluate_routers_and_baselines(
         entries.append(("neural_full", choices_full_neural))
     if choices_l2d is not None:
         entries.append(("l2d", choices_l2d))
-    if choices_l2d_rnn is not None:
-        entries.append(("l2d_rnn", choices_l2d_rnn))
+    if choices_l2d_sw is not None:
+        entries.append(("l2d_sw", choices_l2d_sw))
+    if choices_linucb_partial is not None:
+        entries.append(("linucb_partial", choices_linucb_partial))
+    if choices_linucb_full is not None:
+        entries.append(("linucb_full", choices_linucb_full))
+    if choices_neuralucb_partial is not None:
+        entries.append(("neuralucb_partial", choices_neuralucb_partial))
+    if choices_neuralucb_full is not None:
+        entries.append(("neuralucb_full", choices_neuralucb_full))
     for name, choices in entries:
         values, counts = np.unique(choices, return_counts=True)
         freqs = counts / choices.shape[0]
@@ -496,13 +587,49 @@ def evaluate_routers_and_baselines(
             linestyle="-",
             alpha=0.8,
         )
-    if preds_l2d_rnn is not None:
+    if preds_l2d_sw is not None:
         ax_pred.plot(
             t_grid,
-            preds_l2d_rnn,
-            label="L2D_RNN baseline",
-            color=get_model_color("l2d_rnn"),
+            preds_l2d_sw,
+            label="L2D_SW baseline",
+            color=get_model_color("l2d_sw"),
             linestyle="-",
+            alpha=0.8,
+        )
+    if preds_linucb_partial is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_linucb_partial,
+            label="LinUCB (partial)",
+            color=get_model_color("linucb_partial"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_linucb_full is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_linucb_full,
+            label="LinUCB (full)",
+            color=get_model_color("linucb_full"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_neuralucb_partial is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_neuralucb_partial,
+            label="NeuralUCB (partial)",
+            color=get_model_color("neuralucb"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_neuralucb_full is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_neuralucb_full,
+            label="NeuralUCB (full)",
+            color=get_model_color("neuralucb"),
+            linestyle="--",
             alpha=0.8,
         )
     ax_pred.plot(
@@ -555,8 +682,28 @@ def evaluate_routers_and_baselines(
     avg_l2d_t = (
         np.cumsum(costs_l2d) / denom if costs_l2d is not None else None
     )
-    avg_l2d_rnn_t = (
-        np.cumsum(costs_l2d_rnn) / denom if costs_l2d_rnn is not None else None
+    avg_l2d_sw_t = (
+        np.cumsum(costs_l2d_sw) / denom if costs_l2d_sw is not None else None
+    )
+    avg_linucb_partial_t = (
+        np.cumsum(costs_linucb_partial) / denom
+        if costs_linucb_partial is not None
+        else None
+    )
+    avg_linucb_full_t = (
+        np.cumsum(costs_linucb_full) / denom
+        if costs_linucb_full is not None
+        else None
+    )
+    avg_neuralucb_partial_t = (
+        np.cumsum(costs_neuralucb_partial) / denom
+        if costs_neuralucb_partial is not None
+        else None
+    )
+    avg_neuralucb_full_t = (
+        np.cumsum(costs_neuralucb_full) / denom
+        if costs_neuralucb_full is not None
+        else None
     )
 
     ax_cost.plot(
@@ -613,13 +760,45 @@ def evaluate_routers_and_baselines(
             color=get_model_color("l2d"),
             linestyle="-",
         )
-    if avg_l2d_rnn_t is not None:
+    if avg_l2d_sw_t is not None:
         ax_cost.plot(
             t_grid,
-            avg_l2d_rnn_t,
-            label="L2D_RNN (avg cost)",
-            color=get_model_color("l2d_rnn"),
+            avg_l2d_sw_t,
+            label="L2D_SW (avg cost)",
+            color=get_model_color("l2d_sw"),
             linestyle="-",
+        )
+    if avg_linucb_partial_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_linucb_partial_t,
+            label="LinUCB (partial, avg cost)",
+            color=get_model_color("linucb_partial"),
+            linestyle="-",
+        )
+    if avg_linucb_full_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_linucb_full_t,
+            label="LinUCB (full, avg cost)",
+            color=get_model_color("linucb_full"),
+            linestyle="-",
+        )
+    if avg_neuralucb_partial_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_neuralucb_partial_t,
+            label="NeuralUCB (partial, avg cost)",
+            color=get_model_color("neuralucb"),
+            linestyle="-",
+        )
+    if avg_neuralucb_full_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_neuralucb_full_t,
+            label="NeuralUCB (full, avg cost)",
+            color=get_model_color("neuralucb"),
+            linestyle="--",
         )
     ax_cost.plot(
         t_grid,
@@ -644,20 +823,152 @@ def evaluate_routers_and_baselines(
     plt.tight_layout()
     plt.show()
 
+    # --------------------------------------------------------------
+    # Correlated Sidekick Trap: cumulative regret from t = 2000
+    # --------------------------------------------------------------
+    # For the "sidekick_trap" setting, highlight the theoretical gap
+    # between correlated router and baselines by plotting cumulative
+    # regret from t = 2000 onward with respect to the oracle.
+    if getattr(env, "setting", None) == "sidekick_trap":
+        t0_regret = 2000
+        idx0 = max(0, min(t0_regret - 1, T - 2))
+
+        def cum_reg(costs: np.ndarray | None) -> np.ndarray | None:
+            if costs is None:
+                return None
+            delta = costs[idx0:] - costs_oracle[idx0:]
+            return np.cumsum(delta)
+
+        reg_partial = cum_reg(costs_partial)
+        reg_full = cum_reg(costs_full)
+        reg_partial_corr = cum_reg(costs_partial_corr)
+        reg_full_corr = cum_reg(costs_full_corr)
+        reg_l2d = cum_reg(costs_l2d)
+        reg_l2d_sw = cum_reg(costs_l2d_sw)
+        reg_linucb_partial = cum_reg(costs_linucb_partial)
+        reg_linucb_full = cum_reg(costs_linucb_full)
+
+        # Numeric summary of mean costs / regret from t >= t0_regret
+        def mean_cost(costs: np.ndarray | None) -> float | None:
+            if costs is None:
+                return None
+            return float(costs[idx0:].mean())
+
+        mean_oracle = float(costs_oracle[idx0:].mean())
+        mean_partial = mean_cost(costs_partial)
+        mean_full = mean_cost(costs_full)
+        mean_partial_corr = mean_cost(costs_partial_corr)
+        mean_full_corr = mean_cost(costs_full_corr)
+        mean_l2d = mean_cost(costs_l2d)
+        mean_l2d_sw = mean_cost(costs_l2d_sw)
+        mean_linucb_partial = mean_cost(costs_linucb_partial)
+        mean_linucb_full = mean_cost(costs_linucb_full)
+
+        print(f"\n=== Sidekick Trap: mean costs from t={t0_regret} ===")
+        print(f"Oracle (truth):                {mean_oracle:.4f}")
+        print(f"Router (partial):              {mean_partial:.4f}")
+        print(f"Router (full):                 {mean_full:.4f}")
+        if mean_partial_corr is not None:
+            print(f"Router Corr (partial):         {mean_partial_corr:.4f}")
+        if mean_full_corr is not None:
+            print(f"Router Corr (full):            {mean_full_corr:.4f}")
+        if mean_l2d is not None:
+            print(f"L2D baseline:                  {mean_l2d:.4f}")
+        if mean_l2d_sw is not None:
+            print(f"L2D_SW baseline:               {mean_l2d_sw:.4f}")
+        if mean_linucb_partial is not None:
+            print(f"LinUCB (partial):              {mean_linucb_partial:.4f}")
+        if mean_linucb_full is not None:
+            print(f"LinUCB (full):                 {mean_linucb_full:.4f}")
+
+        t_reg = t_grid[idx0:]
+        fig_reg, ax_reg = plt.subplots(1, 1, figsize=(10, 4))
+        ax_reg.axhline(0.0, color="black", linestyle="--", linewidth=1.0)
+
+        ax_reg.plot(
+            t_reg,
+            reg_partial,
+            label="Router (partial)",
+            color=get_model_color("partial"),
+        )
+        ax_reg.plot(
+            t_reg,
+            reg_full,
+            label="Router (full)",
+            color=get_model_color("full"),
+        )
+        if reg_partial_corr is not None:
+            ax_reg.plot(
+                t_reg,
+                reg_partial_corr,
+                label="Router Corr (partial)",
+                color=get_model_color("partial_corr"),
+            )
+        if reg_full_corr is not None:
+            ax_reg.plot(
+                t_reg,
+                reg_full_corr,
+                label="Router Corr (full)",
+                color=get_model_color("full_corr"),
+            )
+        if reg_l2d is not None:
+            ax_reg.plot(
+                t_reg,
+                reg_l2d,
+                label="L2D",
+                color=get_model_color("l2d"),
+            )
+        if reg_l2d_sw is not None:
+            ax_reg.plot(
+                t_reg,
+                reg_l2d_sw,
+                label="L2D_SW",
+                color=get_model_color("l2d_sw"),
+            )
+        if reg_linucb_partial is not None:
+            ax_reg.plot(
+                t_reg,
+                reg_linucb_partial,
+                label="LinUCB (partial)",
+                color=get_model_color("linucb_partial"),
+            )
+        if reg_linucb_full is not None:
+            ax_reg.plot(
+                t_reg,
+                reg_linucb_full,
+                label="LinUCB (full)",
+                color=get_model_color("linucb_full"),
+            )
+
+        ax_reg.set_xlabel("Time $t$ (from 2000)")
+        ax_reg.set_ylabel("Cumulative regret vs oracle")
+        ax_reg.set_title("Correlated Sidekick Trap: Regret from $t=2000$")
+        ax_reg.legend(loc="upper left")
+        plt.tight_layout()
+        plt.show()
+
     # Plot the expert index chosen over time for each router and baseline,
     # together with expert availability (0 = not available, 1 = available).
     avail = getattr(env, "availability", None)
     has_l2d = choices_l2d is not None
-    has_l2d_rnn = choices_l2d_rnn is not None
+    has_l2d_sw = choices_l2d_sw is not None
+    has_linucb_partial = choices_linucb_partial is not None
+    has_linucb_full = choices_linucb_full is not None
+    has_neuralucb_partial = choices_neuralucb_partial is not None
+    has_neuralucb_full = choices_neuralucb_full is not None
     has_avail = avail is not None
     has_partial_corr = choices_partial_corr is not None
     has_full_corr = choices_full_corr is not None
     has_neural_partial = choices_partial_neural is not None
     has_neural_full = choices_full_neural is not None
 
-    # Rows: base routers, optional correlated routers, optional L2D / L2D_RNN,
-    # random baseline, oracle baseline, and optional availability.
-    n_rows = 4 + (1 if has_l2d else 0) + (1 if has_l2d_rnn else 0) + (1 if has_avail else 0)
+    # Rows: base routers, optional correlated routers, optional L2D / L2D_SW /
+    # LinUCB partial/full / NeuralUCB partial/full, random baseline,
+    # oracle baseline, and optional availability.
+    n_rows = 4 + (1 if has_l2d else 0) + (1 if has_l2d_sw else 0)
+    n_rows += (1 if has_linucb_partial else 0) + (1 if has_linucb_full else 0)
+    n_rows += (1 if has_neuralucb_partial else 0) + (1 if has_neuralucb_full else 0)
+    n_rows += (1 if has_avail else 0)
     n_rows += (1 if has_partial_corr else 0) + (1 if has_full_corr else 0)
     n_rows += (1 if has_neural_partial else 0) + (1 if has_neural_full else 0)
     fig2, axes = plt.subplots(n_rows, 1, sharex=True, figsize=(10, 2 * n_rows))
@@ -745,17 +1056,61 @@ def evaluate_routers_and_baselines(
         ax_l2d.set_ylabel("Expert\n(L2D)")
         ax_l2d.set_yticks(np.arange(env.num_experts))
         idx += 1
-
-    if has_l2d_rnn:
-        ax_l2d_rnn = axes[idx]
-        ax_l2d_rnn.step(
+    if has_l2d_sw:
+        ax_l2d_sw = axes[idx]
+        ax_l2d_sw.step(
             t_grid,
-            choices_l2d_rnn,
+            choices_l2d_sw,
             where="post",
-            color=get_model_color("l2d_rnn"),
+            color=get_model_color("l2d_sw"),
         )
-        ax_l2d_rnn.set_ylabel("Expert\n(L2D_RNN)")
-        ax_l2d_rnn.set_yticks(np.arange(env.num_experts))
+        ax_l2d_sw.set_ylabel("Expert\n(L2D_SW)")
+        ax_l2d_sw.set_yticks(np.arange(env.num_experts))
+        idx += 1
+    if has_linucb_partial:
+        ax_lin_p = axes[idx]
+        ax_lin_p.step(
+            t_grid,
+            choices_linucb_partial,
+            where="post",
+            color=get_model_color("linucb_partial"),
+        )
+        ax_lin_p.set_ylabel("Expert\n(LinUCB P)")
+        ax_lin_p.set_yticks(np.arange(env.num_experts))
+        idx += 1
+    if has_linucb_full:
+        ax_lin_f = axes[idx]
+        ax_lin_f.step(
+            t_grid,
+            choices_linucb_full,
+            where="post",
+            color=get_model_color("linucb_full"),
+        )
+        ax_lin_f.set_ylabel("Expert\n(LinUCB F)")
+        ax_lin_f.set_yticks(np.arange(env.num_experts))
+        idx += 1
+
+    if has_neuralucb_partial:
+        ax_nucb_p = axes[idx]
+        ax_nucb_p.step(
+            t_grid,
+            choices_neuralucb_partial,
+            where="post",
+            color=get_model_color("neuralucb"),
+        )
+        ax_nucb_p.set_ylabel("Expert\n(NeuralUCB P)")
+        ax_nucb_p.set_yticks(np.arange(env.num_experts))
+        idx += 1
+    if has_neuralucb_full:
+        ax_nucb_f = axes[idx]
+        ax_nucb_f.step(
+            t_grid,
+            choices_neuralucb_full,
+            where="post",
+            color=get_model_color("neuralucb"),
+        )
+        ax_nucb_f.set_ylabel("Expert\n(NeuralUCB F)")
+        ax_nucb_f.set_yticks(np.arange(env.num_experts))
         idx += 1
 
     ax_rand = axes[idx]

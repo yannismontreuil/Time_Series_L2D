@@ -3,7 +3,9 @@ from typing import Optional, Sequence, Tuple
 
 from router_model import SLDSIMMRouter
 from synthetic_env import SyntheticTimeSeriesEnv
-from l2d_baseline import LearningToDeferBaseline
+from l2d_baseline import L2D
+from linucb_baseline import LinUCB
+from neuralucb_baseline import NeuralUCB
 
 
 def run_router_on_env(
@@ -68,7 +70,7 @@ def run_router_on_env(
 
 
 def run_l2d_on_env(
-    baseline: LearningToDeferBaseline,
+    baseline: L2D,
     env: SyntheticTimeSeriesEnv,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -106,6 +108,82 @@ def run_l2d_on_env(
         choices.append(r_t)
 
         # Full-feedback update on all experts' losses for available experts
+        baseline.update(x_t, loss_all, available)
+
+    return np.array(costs), np.array(choices)
+
+
+def run_linucb_on_env(
+    baseline: LinUCB,
+    env: SyntheticTimeSeriesEnv,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Run a LinUCB baseline on the synthetic environment.
+
+    At each time t (1,...,T-1):
+      - context x_t = env.get_context(t)
+      - policy selects expert r_t via LinUCB
+      - environment reveals squared losses at time t
+      - policy updates its per-expert linear models
+      - record incurred cost: ℓ_{r_t,t} + β_{r_t}
+    """
+    T = env.T
+    N = env.num_experts
+
+    costs: list[float] = []
+    choices: list[int] = []
+
+    for t in range(1, T):
+        x_t = env.get_context(t)
+        available = env.get_available_experts(t)
+
+        r_t = baseline.select_expert(x_t, available)
+
+        loss_all = env.losses(t)
+        loss_r = float(loss_all[r_t])
+        cost_t = loss_r + baseline.beta[r_t]
+
+        costs.append(cost_t)
+        choices.append(int(r_t))
+
+        baseline.update(x_t, loss_all, available)
+
+    return np.array(costs), np.array(choices)
+
+
+def run_neuralucb_on_env(
+    baseline: NeuralUCB,
+    env: SyntheticTimeSeriesEnv,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Run a NeuralUCB baseline on the synthetic environment.
+
+    At each time t (1,...,T-1):
+      - context x_t = env.get_context(t)
+      - policy selects expert r_t via NeuralUCB
+      - environment reveals squared losses at time t
+      - policy updates its neural embedding + linear heads
+      - record incurred cost: ℓ_{r_t,t} + β_{r_t}
+    """
+    T = env.T
+    N = env.num_experts
+
+    costs: list[float] = []
+    choices: list[int] = []
+
+    for t in range(1, T):
+        x_t = env.get_context(t)
+        available = env.get_available_experts(t)
+
+        r_t = baseline.select_expert(x_t, available)
+
+        loss_all = env.losses(t)
+        loss_r = float(loss_all[r_t])
+        cost_t = loss_r + baseline.beta[r_t]
+
+        costs.append(cost_t)
+        choices.append(int(r_t))
+
         baseline.update(x_t, loss_all, available)
 
     return np.array(costs), np.array(choices)

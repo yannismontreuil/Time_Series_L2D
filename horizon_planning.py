@@ -5,7 +5,7 @@ from typing import Callable, List, Sequence, Tuple, Optional
 from router_model import SLDSIMMRouter
 from router_model_corr import SLDSIMMRouter_Corr
 from synthetic_env import SyntheticTimeSeriesEnv
-from l2d_baseline import LearningToDeferBaseline
+from l2d_baseline import L2D
 from plot_utils import get_expert_color, get_model_color
 from matplotlib import lines as mlines, patches as mpatches
 
@@ -215,7 +215,7 @@ def compute_dynamic_oracle_schedule(
 
 
 def warm_start_l2d_to_time(
-    baseline: LearningToDeferBaseline,
+    baseline: L2D,
     env: SyntheticTimeSeriesEnv,
     t0: int,
 ) -> None:
@@ -370,13 +370,9 @@ def _plan_horizon_schedule_monte_carlo(
                 var_between = (b_h.reshape(-1, 1) * (diff**2)).sum(axis=0)
                 var_ell = np.maximum(var_within + var_between, router.eps)
 
-            # Risk parameter λ at horizon step h (mixture over regimes if needed).
-            if getattr(router, "lambda_risk_vec", None) is not None:
-                lambda_eff_h = float(router.lambda_risk_vec @ b_h)
-            else:
-                lambda_eff_h = float(router.lambda_risk)
-
-            scores = mean_ell + beta + lambda_eff_h * np.sqrt(var_ell)
+            # Planning-time risk parameter: risk-neutral (λ_plan = 0),
+            # independent of the router's online λ used for routing.
+            scores = mean_ell + beta
             J_scen[n, h, :] = scores
 
     # Planning-time scores: c_h(j) ≈ 1/N Σ_n J_{j,h}(x_{t+h}^{(n)}).
@@ -434,7 +430,7 @@ def evaluate_horizon_planning(
     H: int,
     experts_predict: Sequence[Callable[[np.ndarray], float]],
     context_update: Callable[[np.ndarray, float], np.ndarray],
-    l2d_baseline: Optional[LearningToDeferBaseline] = None,
+    l2d_baseline: Optional[L2D] = None,
     router_partial_corr: Optional[SLDSIMMRouter_Corr] = None,
     router_full_corr: Optional[SLDSIMMRouter_Corr] = None,
     router_partial_neural=None,
@@ -848,6 +844,9 @@ def evaluate_horizon_planning(
                     label="H-plan corr full (forecast)",
                     color=get_model_color("full_corr"),
                     linewidth=1.8,
+                    marker="o",
+                    markersize=4,
+                    markerfacecolor="none",
                 )
             if cost_partial_corr_plan.size > 0 and preds_partial_corr_plan.size > 0:
                 ax_y.plot(
@@ -855,6 +854,18 @@ def evaluate_horizon_planning(
                     preds_partial_corr_plan,
                     label="H-plan corr partial (forecast)",
                     color=get_model_color("partial_corr"),
+                    linewidth=1.8,
+                    marker="o",
+                    markersize=4,
+                    markerfacecolor="none",
+                )
+            # Oracle trajectory on the same horizon, for fair comparison.
+            if preds_oracle.size > 0:
+                ax_y.plot(
+                    times,
+                    preds_oracle,
+                    label="Oracle (schedule forecast)",
+                    color=get_model_color("oracle"),
                     linewidth=1.8,
                 )
             ax_y.set_xlabel("Time $t$")
@@ -874,6 +885,16 @@ def evaluate_horizon_planning(
             fig_sel, ax_sel = plt.subplots(1, 1, figsize=(10, 4))
 
             # Deterministic schedules (no-noise planning outcome)
+            # Add the clairvoyant oracle schedule for comparison.
+            ax_sel.step(
+                times,
+                sched_oracle,
+                where="post",
+                label="Oracle schedule",
+                color=get_model_color("oracle"),
+                linewidth=2,
+                linestyle=":",
+            )
             if sched_full_corr:
                 ax_sel.step(
                     times,

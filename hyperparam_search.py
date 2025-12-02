@@ -2,14 +2,7 @@ import argparse
 import itertools
 import json
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, Tuple, List
-
-# Limit internal BLAS/OpenMP threading so that using multiple Python
-# processes actually speeds things up rather than oversubscribing CPU
-# cores. These must be set before importing NumPy / SciPy / PyTorch.
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 import numpy as np
 
@@ -143,6 +136,11 @@ def build_correlated_routers(
     r_scale: float,
     cfg: Dict,
     num_regimes: int | None = None,
+    feature_mode: str | None = None,
+    feature_learning_rate: float | None = None,
+    feature_arch: str | None = None,
+    shared_dim: int | None = None,
+    idiosyncratic_dim: int | None = None,
 ) -> Tuple[SLDSIMMRouter_Corr, SLDSIMMRouter_Corr]:
     """
     Construct partial- and full-feedback SLDSIMMRouter_Corr instances
@@ -164,9 +162,11 @@ def build_correlated_routers(
     # Consultation costs (shared across experts)
     beta = _resolve_vector(routers_cfg.get("beta", None), 0.0, N)
 
-    # Dimensions for correlated router
-    d_g = int(slds_corr_cfg.get("shared_dim", 1))
-    d_u = int(slds_corr_cfg.get("idiosyncratic_dim", d))
+    # Dimensions for correlated router (can be overridden).
+    d_g_cfg = slds_corr_cfg.get("shared_dim", 1)
+    d_u_cfg = slds_corr_cfg.get("idiosyncratic_dim", d)
+    d_g = int(d_g_cfg if shared_dim is None else shared_dim)
+    d_u = int(d_u_cfg if idiosyncratic_dim is None else idiosyncratic_dim)
 
     # Observation noise R for the correlated router: we treat r_scale
     # as an absolute value and build R_{k,j} = r_scale for all
@@ -263,6 +263,22 @@ def build_correlated_routers(
         np.asarray(u_cov0_cfg, dtype=float) if u_cov0_cfg is not None else None
     )
 
+    # If dimensionality overrides are in effect or prior shapes do not
+    # match the chosen dims, fall back to default priors inside
+    # SLDSIMMRouter_Corr by passing None for means/covariances.
+    if g_mean0 is not None and g_mean0.shape != (d_g,):
+        g_mean0 = None
+        g_cov0 = None
+    if g_cov0 is not None and g_cov0.shape != (d_g, d_g):
+        g_mean0 = None
+        g_cov0 = None
+    if u_mean0 is not None and u_mean0.shape != (d_u,):
+        u_mean0 = None
+        u_cov0 = None
+    if u_cov0 is not None and u_cov0.shape != (d_u, d_u):
+        u_mean0 = None
+        u_cov0 = None
+
     staleness_threshold_cfg = routers_cfg.get("staleness_threshold", None)
     staleness_threshold = (
         int(staleness_threshold_cfg) if staleness_threshold_cfg is not None else None
@@ -270,11 +286,21 @@ def build_correlated_routers(
 
     # Exploration and feature-learning configuration for correlated router.
     exploration_mode = slds_corr_cfg.get("exploration_mode", "greedy")
-    feature_mode = slds_corr_cfg.get("feature_mode", "fixed")
-    feature_learning_rate = float(slds_corr_cfg.get("feature_learning_rate", 0.0))
+    feature_mode_cfg = slds_corr_cfg.get("feature_mode", "fixed")
+    feature_mode_eff = feature_mode_cfg if feature_mode is None else str(feature_mode)
+
+    feature_lr_cfg = float(slds_corr_cfg.get("feature_learning_rate", 0.0))
+    if feature_learning_rate is None:
+        feature_lr_eff = feature_lr_cfg
+    else:
+        feature_lr_eff = float(feature_learning_rate)
+
     feature_freeze_after = slds_corr_cfg.get("feature_freeze_after", None)
     feature_log_interval = slds_corr_cfg.get("feature_log_interval", None)
-    feature_arch = slds_corr_cfg.get("feature_arch", "linear")
+
+    feature_arch_cfg = slds_corr_cfg.get("feature_arch", "linear")
+    feature_arch_eff = feature_arch_cfg if feature_arch is None else str(feature_arch)
+
     feature_hidden_dim = slds_corr_cfg.get("feature_hidden_dim", None)
     feature_activation = slds_corr_cfg.get("feature_activation", "tanh")
 
@@ -298,8 +324,8 @@ def build_correlated_routers(
         lambda_risk=lambda_scalar,
         staleness_threshold=staleness_threshold,
         exploration_mode=exploration_mode,
-        feature_mode=feature_mode,
-        feature_learning_rate=feature_learning_rate,
+        feature_mode=feature_mode_eff,
+        feature_learning_rate=feature_lr_eff,
         feature_freeze_after=feature_freeze_after,
         feature_log_interval=feature_log_interval,
         feedback_mode="partial",
@@ -327,8 +353,8 @@ def build_correlated_routers(
         lambda_risk=lambda_scalar,
         staleness_threshold=staleness_threshold,
         exploration_mode=exploration_mode,
-        feature_mode=feature_mode,
-        feature_learning_rate=feature_learning_rate,
+        feature_mode=feature_mode_eff,
+        feature_learning_rate=feature_lr_eff,
         feature_freeze_after=feature_freeze_after,
         feature_log_interval=feature_log_interval,
         feedback_mode="full",
@@ -337,7 +363,7 @@ def build_correlated_routers(
         g_cov0=g_cov0,
         u_mean0=u_mean0,
         u_cov0=u_cov0,
-        feature_arch=feature_arch,
+        feature_arch=feature_arch_eff,
         feature_hidden_dim=feature_hidden_dim,
         feature_activation=feature_activation,
     )
@@ -353,6 +379,11 @@ def evaluate_config(
     num_regimes: int,
     seeds: List[int],
     cfg: Dict,
+    feature_mode: str | None = None,
+    feature_learning_rate: float | None = None,
+    feature_arch: str | None = None,
+    shared_dim: int | None = None,
+    idiosyncratic_dim: int | None = None,
 ) -> Tuple[float, float]:
     """
     Average correlated-router costs over a list of environment seeds
@@ -372,6 +403,11 @@ def evaluate_config(
             r_scale=r_scale,
             cfg=cfg,
             num_regimes=num_regimes,
+            feature_mode=feature_mode,
+            feature_learning_rate=feature_learning_rate,
+            feature_arch=feature_arch,
+            shared_dim=shared_dim,
+            idiosyncratic_dim=idiosyncratic_dim,
         )
 
         c_partial, _ = run_router_on_env(router_partial_corr, env)
@@ -384,22 +420,52 @@ def evaluate_config(
 
 
 def _eval_hyperparam_task(
-    task: Tuple[int, float, float, float, float, List[int], Dict],
+    task: Tuple[
+        int,
+        float,
+        float,
+        float,
+        float,
+        str,
+        float,
+        str,
+        int,
+        int,
+        List[int],
+        Dict,
+    ],
 ) -> Dict[str, float]:
     """
     Worker function for parallel hyperparameter evaluation.
 
     Parameters
     ----------
-    task : (M, lambda_risk, q_g_scale, q_u_scale, r_scale, seeds, cfg)
+    task : (M, lambda_risk, q_g_scale, q_u_scale, r_scale,
+            feature_mode, feature_lr, feature_arch,
+            shared_dim, idiosyncratic_dim, seeds, cfg)
 
     Returns
     -------
     dict with keys:
-      - num_regimes, lambda_risk, q_scale, r_scale,
+      - num_regimes, lambda_risk, q_g_scale, q_u_scale, r_scale,
+      - feature_mode, feature_learning_rate, feature_arch,
+      - shared_dim, idiosyncratic_dim,
       - avg_cost_partial, avg_cost_full
     """
-    M, lambda_risk, q_g_scale, q_u_scale, r_scale, seeds, cfg = task
+    (
+        M,
+        lambda_risk,
+        q_g_scale,
+        q_u_scale,
+        r_scale,
+        feature_mode,
+        feature_lr,
+        feature_arch,
+        shared_dim,
+        id_dim,
+        seeds,
+        cfg,
+    ) = task
     avg_partial, avg_full = evaluate_config(
         lambda_risk=lambda_risk,
         q_g_scale=q_g_scale,
@@ -408,6 +474,11 @@ def _eval_hyperparam_task(
         num_regimes=M,
         seeds=seeds,
         cfg=cfg,
+        feature_mode=feature_mode,
+        feature_learning_rate=feature_lr,
+        feature_arch=feature_arch,
+        shared_dim=shared_dim,
+        idiosyncratic_dim=id_dim,
     )
     return {
         "num_regimes": int(M),
@@ -415,6 +486,11 @@ def _eval_hyperparam_task(
         "q_g_scale": float(q_g_scale),
         "q_u_scale": float(q_u_scale),
         "r_scale": float(r_scale),
+        "feature_mode": str(feature_mode),
+        "feature_learning_rate": float(feature_lr),
+        "feature_arch": str(feature_arch),
+        "shared_dim": int(shared_dim),
+        "idiosyncratic_dim": int(id_dim),
         "avg_cost_partial": float(avg_partial),
         "avg_cost_full": float(avg_full),
     }
@@ -443,8 +519,11 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
     cfg = _load_config(config_path)
     search_cfg = cfg.get("hyperparam_search", {})
 
-    # Base number of regimes from the experiment config
-    _, _, M_base, _ = _get_dims_from_config(cfg)
+    # Base number of regimes and state dimension from the experiment config
+    _, d_base, M_base, _ = _get_dims_from_config(cfg)
+
+    routers_cfg = cfg.get("routers", {})
+    slds_corr_cfg = routers_cfg.get("slds_imm_corr", {}) or {}
 
     # Grids for hyperparameters (can be overridden via config). We treat
     # q_g_scale, q_u_scale, and r_scale as absolute values (typically
@@ -460,6 +539,29 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
     q_g_scale_grid = search_cfg.get("q_g_scale_grid", q_value_grid_default)
     q_u_scale_grid = search_cfg.get("q_u_scale_grid", q_value_grid_default)
     r_scale_grid = search_cfg.get("r_scale_grid", [1e-3, 1e-2, 1e-1, 1.0])
+
+    # Grids for feature and architecture hyperparameters (optional).
+    feature_mode_default = slds_corr_cfg.get("feature_mode", "fixed")
+    feature_mode_grid = search_cfg.get(
+        "feature_mode_grid", [feature_mode_default]
+    )
+    feature_lr_default = float(slds_corr_cfg.get("feature_learning_rate", 0.0))
+    feature_lr_grid = search_cfg.get(
+        "feature_learning_rate_grid", [feature_lr_default]
+    )
+    feature_arch_default = slds_corr_cfg.get("feature_arch", "linear")
+    feature_arch_grid = search_cfg.get(
+        "feature_arch_grid", [feature_arch_default]
+    )
+
+    shared_dim_default = int(slds_corr_cfg.get("shared_dim", 1))
+    shared_dim_grid = search_cfg.get(
+        "shared_dim_grid", [shared_dim_default]
+    )
+    id_dim_default = int(slds_corr_cfg.get("idiosyncratic_dim", d_base))
+    id_dim_grid = search_cfg.get(
+        "idiosyncratic_dim_grid", [id_dim_default]
+    )
 
     # Regime-count grid: if not provided, search over a small set around M_base.
     num_regimes_grid_raw = search_cfg.get("num_regimes_grid", None)
@@ -493,14 +595,47 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
         num_workers = max(1, int(num_workers_cfg))
 
     # Prepare all tasks
-    tasks: List[Tuple[int, float, float, float, float, List[int], Dict]] = []
+    tasks: List[Tuple[
+        int,
+        float,
+        float,
+        float,
+        float,
+        str,
+        float,
+        str,
+        int,
+        int,
+        List[int],
+        Dict,
+    ]] = []
     for M in num_regimes_grid:
-        for lambda_risk, q_g_scale, q_u_scale, r_scale in itertools.product(
+        for (
+            lambda_risk,
+            q_g_scale,
+            q_u_scale,
+            r_scale,
+            feature_mode,
+            feature_lr,
+            feature_arch,
+            shared_dim,
+            id_dim,
+        ) in itertools.product(
             lambda_risk_grid,
             q_g_scale_grid,
             q_u_scale_grid,
             r_scale_grid,
+            feature_mode_grid,
+            feature_lr_grid,
+            feature_arch_grid,
+            shared_dim_grid,
+            id_dim_grid,
         ):
+            # Skip incompatible combinations: in "fixed" feature_mode we
+            # require idiosyncratic_dim to equal the base state_dim so
+            # that φ(x) and u_{j,t} have matching dimensions.
+            if str(feature_mode) == "fixed" and int(id_dim) != int(d_base):
+                continue
             tasks.append(
                 (
                     M,
@@ -508,6 +643,11 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
                     float(q_g_scale),
                     float(q_u_scale),
                     float(r_scale),
+                     str(feature_mode),
+                     float(feature_lr),
+                     str(feature_arch),
+                     int(shared_dim),
+                     int(id_dim),
                     seeds,
                     cfg,
                 )
@@ -515,24 +655,28 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
 
     results: List[Dict[str, float]] = []
 
-    # Parallel evaluation across CPU cores
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        futures = [executor.submit(_eval_hyperparam_task, task) for task in tasks]
-        for fut in as_completed(futures):
-            result = fut.result()
-            results.append(result)
-
-            print(
-                "Config:",
-                f"M={int(result['num_regimes']):d},",
-                f"lambda_risk={result['lambda_risk']:+.2f},",
-                f"q_g_scale={result['q_g_scale']:.2f},",
-                f"q_u_scale={result['q_u_scale']:.2f},",
-                f"r_scale={result['r_scale']:.2f}",
-                "|",
-                f"partial_corr={result['avg_cost_partial']:.4f}, "
-                f"full_corr={result['avg_cost_full']:.4f}",
-            )
+    # Sequential evaluation across all hyperparameter combinations.
+    # This is more robust than process-based parallelism in restricted
+    # environments and sufficient for moderate grid sizes.
+    for task in tasks:
+        result = _eval_hyperparam_task(task)
+        results.append(result)
+        print(
+            "Config:",
+            f"M={int(result['num_regimes']):d},",
+            f"lambda_risk={result['lambda_risk']:+.2f},",
+            f"q_g_scale={result['q_g_scale']:.4f},",
+            f"q_u_scale={result['q_u_scale']:.4f},",
+            f"r_scale={result['r_scale']:.4f},",
+            f"feature_mode={result['feature_mode']},",
+            f"feature_lr={result['feature_learning_rate']:.4e},",
+            f"feature_arch={result['feature_arch']},",
+            f"shared_dim={result['shared_dim']},",
+            f"id_dim={result['idiosyncratic_dim']}",
+            "|",
+            f"partial_corr={result['avg_cost_partial']:.4f}, "
+            f"full_corr={result['avg_cost_full']:.4f}",
+        )
 
     # Sort results by partial-feedback correlated router performance
     results_sorted_partial = sorted(
@@ -552,9 +696,14 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
     print(
         f"M={int(best_partial['num_regimes'])}, "
         f"lambda_risk={best_partial['lambda_risk']:+.2f}, "
-        f"q_g_scale={best_partial['q_g_scale']:.2f}, "
-        f"q_u_scale={best_partial['q_u_scale']:.2f}, "
-        f"r_scale={best_partial['r_scale']:.2f} | "
+        f"q_g_scale={best_partial['q_g_scale']:.4f}, "
+        f"q_u_scale={best_partial['q_u_scale']:.4f}, "
+        f"r_scale={best_partial['r_scale']:.4f}, "
+        f"feature_mode={best_partial['feature_mode']}, "
+        f"feature_lr={best_partial['feature_learning_rate']:.4e}, "
+        f"feature_arch={best_partial['feature_arch']}, "
+        f"shared_dim={best_partial['shared_dim']}, "
+        f"idiosyncratic_dim={best_partial['idiosyncratic_dim']} | "
         f"avg_cost_partial_corr={best_partial['avg_cost_partial']:.4f}"
     )
 
@@ -562,9 +711,14 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
     print(
         f"M={int(best_full['num_regimes'])}, "
         f"lambda_risk={best_full['lambda_risk']:+.2f}, "
-        f"q_g_scale={best_full['q_g_scale']:.2f}, "
-        f"q_u_scale={best_full['q_u_scale']:.2f}, "
-        f"r_scale={best_full['r_scale']:.2f} | "
+        f"q_g_scale={best_full['q_g_scale']:.4f}, "
+        f"q_u_scale={best_full['q_u_scale']:.4f}, "
+        f"r_scale={best_full['r_scale']:.4f}, "
+        f"feature_mode={best_full['feature_mode']}, "
+        f"feature_lr={best_full['feature_learning_rate']:.4e}, "
+        f"feature_arch={best_full['feature_arch']}, "
+        f"shared_dim={best_full['shared_dim']}, "
+        f"idiosyncratic_dim={best_full['idiosyncratic_dim']} | "
         f"avg_cost_full_corr={best_full['avg_cost_full']:.4f}"
     )
 
@@ -576,6 +730,11 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
             "q_g": float(best_partial["q_g_scale"]),
             "q_u": float(best_partial["q_u_scale"]),
             "r": float(best_partial["r_scale"]),
+            "feature_mode": str(best_partial["feature_mode"]),
+            "feature_learning_rate": float(best_partial["feature_learning_rate"]),
+            "feature_arch": str(best_partial["feature_arch"]),
+            "shared_dim": int(best_partial["shared_dim"]),
+            "idiosyncratic_dim": int(best_partial["idiosyncratic_dim"]),
             "avg_cost": float(best_partial["avg_cost_partial"]),
         },
         "full": {
@@ -584,6 +743,11 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
             "q_g": float(best_full["q_g_scale"]),
             "q_u": float(best_full["q_u_scale"]),
             "r": float(best_full["r_scale"]),
+            "feature_mode": str(best_full["feature_mode"]),
+            "feature_learning_rate": float(best_full["feature_learning_rate"]),
+            "feature_arch": str(best_full["feature_arch"]),
+            "shared_dim": int(best_full["shared_dim"]),
+            "idiosyncratic_dim": int(best_full["idiosyncratic_dim"]),
             "avg_cost": float(best_full["avg_cost_full"]),
         },
     }

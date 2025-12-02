@@ -1,6 +1,7 @@
 environment:
   # Main experiment environment (slds_imm_router.py)
   num_experts: 5
+  # Tuned number of regimes for correlated router (from best_corr_hyperparams.json)
   num_regimes: 5
   # Dataset setting for the synthetic environment.
   #   - "easy_setting": default, moderate noise, single regime switch.
@@ -18,20 +19,26 @@ environment:
   # noise_scale: 0.6
   # State dimension d = dim φ(x). The current feature map returns 2D features.
   state_dim: 2
-  T: 3000
+  T: 1000
   seed: 42
   unavailable_expert_idx: 1
   unavailable_intervals:
-    - [300, 750]
+    - [300, 350]
+    - [400, 450]
+    - [500, 550]
+    - [600, 650]
+    - [700, 750]
+    - [800, 850]
   arrival_expert_idx: 4
   arrival_intervals:
-    - [120, 600]
+    - [90, 300]
+    - [300, 700]
 
 routers:
   # Risk sensitivity for SLDS-IMM routers.
   # Can be a scalar (regime-independent) or a list
   # of length num_regimes for regime-specific λ_k.
-  lambda_risk: -1.0
+  lambda_risk: -2.0
 
   # Consultation costs for routers (β_j).
   # Can be a single scalar (broadcast to all experts) or
@@ -70,6 +77,8 @@ routers:
   # Optional configuration for the correlated-expert SLDS-IMM router.
   # If omitted, defaults matching the original example are used.
   slds_imm_corr:
+    # Base configuration (used as-is for the partial-feedback correlated
+    # router, unless partial_overrides are provided).
     exploration_mode: "ids"
     feature_mode: "learnable"
     feature_learning_rate: 0.001
@@ -83,12 +92,15 @@ routers:
     shared_dim: 1
     idiosyncratic_dim: 2
     # Shared-factor dynamics A_gk default to identity; Q_gk built from scales.
-    # Same conventions as routers.slds_imm.Q_scales: scalar, length
-    # num_regimes, or (for num_regimes > 2) a 2-element list [qg_0, qg_other].
-    Q_g_scales: [0.005, 0.025]
+    # Hyperparameter-tuned absolute value for shared-factor process noise
+    # (updated from param/best_corr_hyperparams.json: q_g=0.001).
+    Q_g_scales: 0.001
     # Idiosyncratic dynamics A_uk default to identity; Q_uk built from scales.
-    # Same conventions as Q_g_scales.
-    Q_u_scales: [0.005, 0.05]
+    # Hyperparameter-tuned absolute value for idiosyncratic process noise.
+    Q_u_scales: 0.001
+    # Observation noise R_{k,j} for the correlated router (base/partial mode).
+    # Partial best hyperparameters use r = 1.0.
+    R_scalar: 1.0
     # Shared-factor loadings B_j: first feature loads on shared factor with
     # this scalar (same for all experts).
     B_intercept_load: 1.0
@@ -103,14 +115,51 @@ routers:
     # Numerical stabilizer ε for joint covariances.
     eps: 1.0e-8
 
+    # Optional mode-specific overrides for the correlated router.
+    # These keys allow router_partial_corr and router_full_corr to use
+    # *different* hyperparameters while sharing the same base model
+    # structure. Any field set here overrides the corresponding field
+    # above for that mode only.
+
+    # For the current best hyperparameters (see param/best_corr_hyperparams.json):
+    #   - partial: shared_dim=1, idiosyncratic_dim=2, Q_g=0.001, Q_u=0.001,
+    #              feature_arch="linear", r=1.0
+    #   - full:    shared_dim=2, idiosyncratic_dim=4, Q_g=0.001, Q_u=0.01,
+    #              feature_arch="mlp", r=0.1
+    #
+    # We explicitly mirror both here so you can edit either mode
+    # independently without touching the base block above.
+    partial_overrides:
+      feature_mode: "learnable"
+      feature_learning_rate: 0.001
+      shared_dim: 1
+      idiosyncratic_dim: 2
+      Q_g_scales: 0.001
+      Q_u_scales: 0.001
+      feature_arch: "linear"
+      R_scalar: 1.0
+    full_overrides:
+      feature_mode: "learnable"
+      feature_learning_rate: 0.001
+      shared_dim: 2
+      idiosyncratic_dim: 4
+      Q_g_scales: 0.001
+      Q_u_scales: 0.01
+      feature_arch: "mlp"
+      R_scalar: 0.1
+
   # Registry pruning threshold for correlated router (in decision epochs).
   # If null, pruning is disabled.
   staleness_threshold: null
 
 baselines:
   l2d:
-    # Linear L2D baseline (LearningToDeferBaseline)
+    # L2D baseline with configurable architecture ("mlp" or "rnn")
+    arch: "mlp"
     learning_rate: 0.01
+    hidden_dim: 8
+    # Window size for context; use 1 for standard L2D.
+    window_size: 1
 
     # Coefficients α_j in μ_j = α_j * RMSE + β_j.
     # Scalar or list of length num_experts.
@@ -120,21 +169,37 @@ baselines:
     # router β vector from routers.beta is used.
     beta: null
 
-  l2d_rnn:
-    # RNN-based L2D baseline (L2D_RNN)
-    learning_rate: 0.001
-    hidden_dim: 2
+  l2d_sw:
+    # L2D baseline with sliding-window context (L2D_SW).
+    # By default we use an RNN policy here to contrast with the MLP L2D.
+    arch: "rnn"
+    learning_rate: 0.01
+    hidden_dim: 8
+    window_size: 5
 
-    # As above, can be scalar or list.
     alpha: 1.0
     beta: null
+
+  linucb:
+    # LinUCB baseline (contextual bandit on losses).
+    # alpha_ucb controls the optimism bonus; larger values explore more.
+    alpha_ucb: 1.0
+    # Ridge regularization strength for per-expert linear models.
+    lambda_reg: 1.0
+
+  neural_ucb:
+    # NeuralUCB baseline (NeuralLinear approximation).
+    alpha_ucb: 1.0
+    lambda_reg: 1.0
+    hidden_dim: 16
+    nn_learning_rate: 0.001
 
 horizon_planning:
   # Starting time index for horizon planning in slds_imm_router.py
   t0: 400
 
   # Planning horizon length
-  H: 100
+  H: 20
   # Planning method for horizon scheduling:
   #   - "regressive": original router-influenced context planning
   #   - "monte_carlo": scenario-based staffing planning with N=1

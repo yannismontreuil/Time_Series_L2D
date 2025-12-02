@@ -95,10 +95,17 @@ class ETTh1TimeSeriesEnv:
 
         # Experts: simple linear predictors y_hat = w_j x + b_j.
         # We choose a small set of distinct behaviours:
-        #   - Expert 0: persistence        (w=1.0, b=0.0)
-        #   - Expert 1: slightly damped    (w=0.9, b=0.0)
-        #   - Expert 2: slightly amplified (w=1.1, b=0.0)
-        base_weights = np.array([1.0, 0.9, 1.1], dtype=float)
+        #   - Expert 0: slightly under-tuned persistence
+        #   - Expert 1: near-persistence, intended to be best on average
+        #   - Expert 2: slightly over-amplified
+        # As in the synthetic environment, we also enforce explicit
+        # correlation structure:
+        #   - Experts 0 and 1 are similar linear policies on x_t.
+        #   - Experts 3 and 4 (when present) are generated as small
+        #     perturbations of the same base archetype (expert 1),
+        #     making them strongly correlated with each other while
+        #     being slightly more biased than expert 1.
+        base_weights = np.array([0.95, 1.0, 1.05], dtype=float)
         base_biases = np.array([0.0, 0.0, 0.0], dtype=float)
 
         rng = np.random.default_rng(seed)
@@ -107,8 +114,29 @@ class ETTh1TimeSeriesEnv:
             self.expert_biases = base_biases[: self.num_experts].copy()
         else:
             extra = self.num_experts - 3
-            extra_w = rng.normal(loc=1.0, scale=0.05, size=extra)
-            extra_b = rng.normal(loc=0.0, scale=0.5, size=extra)
+            extra_w = np.zeros(extra, dtype=float)
+            extra_b = np.zeros(extra, dtype=float)
+            for i in range(extra):
+                global_idx = 3 + i
+                if global_idx in (3, 4):
+                    # Experts 3 and 4: perturbations of expert 1 with a
+                    # biased intercept so that they remain correlated
+                    # but slightly worse on average than expert 1.
+                    base_idx = 1
+                    extra_w[i] = (
+                        base_weights[base_idx]
+                        + rng.normal(loc=0.0, scale=0.05)
+                    )
+                    extra_b[i] = (
+                        base_biases[base_idx]
+                        + rng.normal(loc=0.5, scale=0.5)
+                    )
+                else:
+                    # Additional experts: small perturbations around
+                    # w ≈ 1.0, b ≈ 0.0 as before.
+                    extra_w[i] = rng.normal(loc=1.0, scale=0.05)
+                    extra_b[i] = rng.normal(loc=0.0, scale=0.5)
+
             self.expert_weights = np.concatenate([base_weights, extra_w])
             self.expert_biases = np.concatenate([base_biases, extra_b])
 
@@ -182,4 +210,3 @@ class ETTh1TimeSeriesEnv:
         """
         mask = self.availability[t].astype(bool)
         return np.where(mask)[0]
-

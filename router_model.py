@@ -544,11 +544,10 @@ class SLDSIMMRouter:
 
             avail = np.asarray(list(available_experts_per_h[h - 1]), dtype=int)
 
-            # Effective risk aversion at pseudo-time t+h
-            if getattr(self, "lambda_risk_vec", None) is not None:
-                lambda_eff_h = float(self.lambda_risk_vec @ b_h)
-            else:
-                lambda_eff_h = self.lambda_risk
+            # Planning-time risk parameter: we use risk-neutral planning
+            # (λ_plan = 0) to minimize expected cost, independently of
+            # the online λ used for bandit routing.
+            lambda_eff_h = 0.0
 
             # Apply population prior to experts that become available for the
             # first time on this future step (planning analogue of online

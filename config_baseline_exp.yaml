@@ -1,0 +1,155 @@
+environment:
+  # Baseline experiment: synthetic SLDS-like environment with
+  # latent regimes, strong non-stationarity, dynamic availability,
+  # and correlated experts (see synthetic_env.py).
+  data_source: synthetic
+  num_experts: 5
+  # Use the tuned number of regimes for the correlated router.
+  num_regimes: 3
+  # Non-stationary "noisy_forgetting" setting: multiple regime
+  # blocks to stress catastrophic forgetting and regime re-entry.
+  setting: noisy_forgetting
+  # State dimension d = dim φ(x). The current feature map returns 2D features.
+  state_dim: 2
+  # Long horizon to expose regime structure and availability patterns.
+  T: 3000
+  seed: 42
+
+  # Dynamic availability: repeated outages for expert 1 and staggered
+  # arrival intervals for expert 4.
+  unavailable_expert_idx: 1
+  unavailable_intervals:
+    - [300, 450]
+    - [800, 950]
+    - [1300, 1450]
+    - [1800, 1950]
+  arrival_expert_idx: 4
+  arrival_intervals:
+    - [200, 700]
+    - [900, 1400]
+    - [1600, 2500]
+
+routers:
+  # Risk sensitivity for SLDS-IMM routers.
+  # We use a scalar λ tuned via hyperparam search.
+  lambda_risk: -1.0
+
+  # Consultation costs for routers (β_j).
+  beta: 0.0
+
+  # Independent-expert SLDS-IMM router (baseline model).
+  slds_imm:
+    # Process noise covariances Q_k built from per-regime scales.
+    # A moderate amount of process noise; independent router is not
+    # the main focus of this baseline experiment.
+    Q_scales: [0.01, 0.1]
+    # Observation noise R_{k,j}: single scalar broadcast to all regimes/experts.
+    R_scalar: 1.0
+    # Regime transition matrix Π (shape [num_regimes, num_regimes]).
+    # Simple sticky two-regime template; for M>2 the code falls back
+    # to a uniform transition if shape mismatched.
+    Pi:
+      - [0.5, 0.5]
+      - [0.2, 0.8]
+    # Prior on reliability states α_{j,t}.
+    pop_mean: [0.0, 0.0]
+    pop_cov:
+      - [1.0, 0.0]
+      - [0.0, 1.0]
+    eps: 1.0e-8
+
+  # Correlated-expert SLDS-IMM router (model to test against L2D).
+  slds_imm_corr:
+    # Use IDS exploration to leverage predictive variance.
+    exploration_mode: "ids"
+    # Learnable feature map to adapt representation online.
+    feature_mode: "learnable"
+    feature_learning_rate: 0.001
+    feature_arch: "linear"
+    feature_hidden_dim: 4
+    feature_activation: "tanh"
+
+    # Dimensions for shared factor and idiosyncratic states.
+    shared_dim: 1
+    idiosyncratic_dim: 2
+
+    # Shared-factor dynamics A_gk default to identity; Q_gk built from
+    # tuned absolute process-noise value.
+    Q_g_scales: 0.1
+    # Idiosyncratic dynamics A_uk default to identity; Q_uk built from
+    # tuned absolute process-noise value.
+    Q_u_scales: 0.001
+
+    # Shared-factor loadings B_j: first feature loads on shared factor.
+    B_intercept_load: 1.0
+
+    # Priors for shared factor g_t and idiosyncratic states u_{j,t}.
+    g_mean0: [0.0]
+    g_cov0:
+      - [1.0]
+    u_mean0: [0.0, 0.0]
+    u_cov0:
+      - [1.0, 0.0]
+      - [0.0, 1.0]
+    eps: 1.0e-8
+
+  # Registry pruning threshold for correlated router (in decision epochs).
+  # If null, pruning is disabled.
+  staleness_threshold: null
+
+baselines:
+  l2d:
+    # L2D baseline with configurable architecture ("mlp" or "rnn")
+    arch: "mlp"
+    learning_rate: 0.001
+    hidden_dim: 8
+    window_size: 1
+    alpha: 1.0
+    beta: null
+
+  l2d_sw:
+    # L2D baseline with sliding-window context (L2D_SW)
+    arch: "rnn"
+    learning_rate: 0.001
+    hidden_dim: 8
+    window_size: 5
+    alpha: 1.0
+    beta: null
+
+  linucb:
+    alpha_ucb: 1.0
+    lambda_reg: 1.0
+
+  neural_ucb:
+    alpha_ucb: 1.0
+    lambda_reg: 1.0
+    hidden_dim: 16
+    nn_learning_rate: 0.001
+
+  linucb:
+    alpha_ucb: 1.0
+    lambda_reg: 1.0
+
+horizon_planning:
+  # Starting time index for horizon planning in slds_imm_router.py
+  t0: 2000
+
+  # Planning horizon length
+  H: 20
+  # Planning method for horizon scheduling:
+  #   - "regressive": original router-influenced context planning
+  #   - "monte_carlo": scenario-based staffing planning with N=1
+  #   - "{N}_monte_carlo": N-scenario Monte Carlo staffing planning
+  method: "20_monte_carlo"
+
+  # Scenario generator parameters for Monte Carlo planning.
+  # Gaussian AR(1) feature-space perturbation as in
+  # Section~\ref{sec:staffing-generator-gaussian}.
+  scenario_generator:
+    type: "gaussian_ar1"
+    # AR(1) coefficient rho in [-1,1).
+    rho: 0.9
+    # Initial residual covariance Σ_0 ≈ (sigma0^2 I).
+    sigma0: 0.1
+    # Innovation covariance Q ≈ (q_scale^2 I).
+    q_scale: 0.1

@@ -114,8 +114,11 @@ routers:
 
 baselines:
   l2d:
-    # Linear L2D baseline (LearningToDeferBaseline)
+    # L2D baseline with configurable architecture ("mlp" or "rnn")
+    arch: "mlp"
     learning_rate: 0.01
+    hidden_dim: 8
+    window_size: 1
 
     # Coefficients α_j in μ_j = α_j * RMSE + β_j.
     # Scalar or list of length num_experts.
@@ -125,14 +128,28 @@ baselines:
     # router β vector from routers.beta is used.
     beta: null
 
-  l2d_rnn:
-    # RNN-based L2D baseline (L2D_RNN)
-    learning_rate: 0.001
+  l2d_sw:
+    # L2D baseline with sliding-window context (L2D_SW)
+    arch: "rnn"
+    learning_rate: 0.01
     hidden_dim: 8
-
-    # As above, can be scalar or list.
+    window_size: 5
     alpha: 1.0
     beta: null
+
+  linucb:
+    alpha_ucb: 1.0
+    lambda_reg: 1.0
+
+  neural_ucb:
+    alpha_ucb: 1.0
+    lambda_reg: 1.0
+    hidden_dim: 16
+    nn_learning_rate: 0.001
+
+  linucb:
+    alpha_ucb: 1.0
+    lambda_reg: 1.0
 
 horizon_planning:
   # Starting time index for horizon planning in slds_imm_router.py.

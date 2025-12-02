@@ -8,7 +8,9 @@ from router_model_corr import SLDSIMMRouter_Corr
 from neural_SSM import NeuralSSMRouter
 from synthetic_env import SyntheticTimeSeriesEnv
 from etth1_env import ETTh1TimeSeriesEnv
-from l2d_baseline import LearningToDeferBaseline, L2D_RNN
+from l2d_baseline import L2D, L2D_SW
+from linucb_baseline import LinUCB
+from neuralucb_baseline import NeuralUCB
 from plot_utils import plot_time_series, evaluate_routers_and_baselines
 from horizon_planning import evaluate_horizon_planning
 
@@ -78,7 +80,9 @@ if __name__ == "__main__":
     slds_corr_cfg = routers_cfg.get("slds_imm_corr", {}) or {}
     baselines_cfg = cfg.get("baselines", {})
     l2d_cfg = baselines_cfg.get("l2d", {})
-    l2d_rnn_cfg = baselines_cfg.get("l2d_rnn", {})
+    l2d_sw_cfg = baselines_cfg.get("l2d_sw", {})
+    linucb_cfg = baselines_cfg.get("linucb", {})
+    neuralucb_cfg = baselines_cfg.get("neural_ucb", {})
     horizon_cfg = cfg.get("horizon_planning", {})
 
     # Model dimensions and core hyperparameters
@@ -308,212 +312,217 @@ if __name__ == "__main__":
     # Correlated-expert SLDS-IMM routers (shared factor model)
     # --------------------------------------------------------
 
-    # Dimensions can be overridden under routers.slds_imm_corr in config.
-    d_g = int(slds_corr_cfg.get("shared_dim", 1))   # shared-factor dimension
-    d_u = int(slds_corr_cfg.get("idiosyncratic_dim", d))  # idiosyncratic dim
-
     staleness_threshold_cfg = routers_cfg.get("staleness_threshold", None)
     staleness_threshold = (
         int(staleness_threshold_cfg) if staleness_threshold_cfg is not None else None
     )
-    # Exploration mode for correlated router: "greedy" (risk-adjusted)
-    # or "ids" (Information-Directed Sampling). Default: "greedy".
-    corr_exploration_mode = slds_corr_cfg.get("exploration_mode", "greedy")
-    # Feature mode for correlated router: "fixed" (use feature_phi) or
-    # "learnable" (online feature adaptation).
-    corr_feature_mode = slds_corr_cfg.get("feature_mode", "fixed")
-    corr_feature_lr = float(slds_corr_cfg.get("feature_learning_rate", 0.0))
-    corr_feature_freeze_after_cfg = slds_corr_cfg.get("feature_freeze_after", None)
-    corr_feature_freeze_after = (
-        int(corr_feature_freeze_after_cfg)
-        if corr_feature_freeze_after_cfg is not None
-        else None
-    )
-    corr_feature_log_interval_cfg = slds_corr_cfg.get("feature_log_interval", None)
-    corr_feature_log_interval = (
-        int(corr_feature_log_interval_cfg)
-        if corr_feature_log_interval_cfg is not None
-        else None
-    )
-    # Optional architecture for learnable features: "linear" or "mlp".
-    corr_feature_arch = slds_corr_cfg.get("feature_arch", "linear")
-    corr_feature_hidden_dim_cfg = slds_corr_cfg.get("feature_hidden_dim", None)
-    corr_feature_hidden_dim = (
-        int(corr_feature_hidden_dim_cfg)
-        if corr_feature_hidden_dim_cfg is not None
-        else None
-    )
-    corr_feature_activation = slds_corr_cfg.get("feature_activation", "tanh")
+    # Allow mode-specific overrides for the correlated router:
+    # routers.slds_imm_corr.partial_overrides and
+    # routers.slds_imm_corr.full_overrides. If these keys are absent,
+    # both partial and full routers share the same hyperparameters as
+    # in the original implementation.
+    slds_corr_partial_overrides = slds_corr_cfg.get("partial_overrides", {}) or {}
+    slds_corr_full_overrides = slds_corr_cfg.get("full_overrides", {}) or {}
 
-    # Joint dynamics for correlated router:
-    # - A_gk, A_uk default to identity per regime (unless overridden),
-    # - Q_gk, Q_uk built from per-regime scales if full matrices not given.
+    def _build_corr_router(corr_base_cfg: dict, overrides: dict, feedback_mode: str) -> SLDSIMMRouter_Corr:
+        # Merge base config with mode-specific overrides, ignoring the
+        # override containers themselves to avoid accidental reuse.
+        cfg_local = dict(corr_base_cfg)
+        cfg_local.update(overrides or {})
+        cfg_local.pop("partial_overrides", None)
+        cfg_local.pop("full_overrides", None)
 
-    A_g_cfg = slds_corr_cfg.get("A_g", None)
-    if A_g_cfg is not None:
-        A_g = np.asarray(A_g_cfg, dtype=float)
-    else:
-        A_g = np.tile(np.eye(d_g, dtype=float)[None, :, :], (M, 1, 1))
+        # Dimensions can be overridden under routers.slds_imm_corr[…].
+        d_g_local = int(cfg_local.get("shared_dim", 1))   # shared-factor dimension
+        d_u_local = int(cfg_local.get("idiosyncratic_dim", d))  # idiosyncratic dim
 
-    Q_g_cfg = slds_corr_cfg.get("Q_g", None)
-    if Q_g_cfg is not None:
-        Q_g = np.asarray(Q_g_cfg, dtype=float)
-    else:
-        q_g_scales_cfg = slds_corr_cfg.get("Q_g_scales", None)
-        if q_g_scales_cfg is None:
-            if M == 2:
-                q_g_scales_cfg = [0.01, 0.05]
-            else:
-                q_g_scales_cfg = 0.01
-        q_g_arr = np.asarray(q_g_scales_cfg, dtype=float)
-        if q_g_arr.shape == ():
-            q_g_arr = np.full(M, float(q_g_arr), dtype=float)
-        elif q_g_arr.shape == (M,):
-            pass
-        elif q_g_arr.size == 2 and M > 2:
-            qg_broadcast = np.empty(M, dtype=float)
-            qg_broadcast[0] = float(q_g_arr[0])
-            qg_broadcast[1:] = float(q_g_arr[1])
-            q_g_arr = qg_broadcast
+        # Exploration mode for correlated router: "greedy" (risk-adjusted)
+        # or "ids" (Information-Directed Sampling). Default: "greedy".
+        corr_exploration_mode_local = cfg_local.get("exploration_mode", "greedy")
+        # Feature mode for correlated router: "fixed" (use feature_phi) or
+        # "learnable" (online feature adaptation).
+        corr_feature_mode_local = cfg_local.get("feature_mode", "fixed")
+        corr_feature_lr_local = float(cfg_local.get("feature_learning_rate", 0.0))
+        corr_feature_freeze_after_cfg = cfg_local.get("feature_freeze_after", None)
+        corr_feature_freeze_after_local = (
+            int(corr_feature_freeze_after_cfg)
+            if corr_feature_freeze_after_cfg is not None
+            else None
+        )
+        corr_feature_log_interval_cfg = cfg_local.get("feature_log_interval", None)
+        corr_feature_log_interval_local = (
+            int(corr_feature_log_interval_cfg)
+            if corr_feature_log_interval_cfg is not None
+            else None
+        )
+        # Optional architecture for learnable features: "linear" or "mlp".
+        corr_feature_arch_local = cfg_local.get("feature_arch", "linear")
+        corr_feature_hidden_dim_cfg = cfg_local.get("feature_hidden_dim", None)
+        corr_feature_hidden_dim_local = (
+            int(corr_feature_hidden_dim_cfg)
+            if corr_feature_hidden_dim_cfg is not None
+            else None
+        )
+        corr_feature_activation_local = cfg_local.get("feature_activation", "tanh")
+
+        # Joint dynamics for correlated router:
+        # - A_gk, A_uk default to identity per regime (unless overridden),
+        # - Q_gk, Q_uk built from per-regime scales if full matrices not given.
+
+        A_g_cfg = cfg_local.get("A_g", None)
+        if A_g_cfg is not None:
+            A_g_local = np.asarray(A_g_cfg, dtype=float)
         else:
-            raise ValueError(
-                "routers.slds_imm_corr.Q_g_scales must be a scalar, a list "
-                "of length num_regimes, or a length-2 list [qg_0, qg_other] "
-                "when num_regimes > 2."
-            )
-        Q_g = np.zeros((M, d_g, d_g), dtype=float)
-        for k in range(M):
-            Q_g[k] = q_g_arr[k] * np.eye(d_g, dtype=float)
+            A_g_local = np.tile(np.eye(d_g_local, dtype=float)[None, :, :], (M, 1, 1))
 
-    A_u_cfg = slds_corr_cfg.get("A_u", None)
-    if A_u_cfg is not None:
-        A_u = np.asarray(A_u_cfg, dtype=float)
-    else:
-        A_u = np.tile(np.eye(d_u, dtype=float)[None, :, :], (M, 1, 1))
-
-    Q_u_cfg = slds_corr_cfg.get("Q_u", None)
-    if Q_u_cfg is not None:
-        Q_u = np.asarray(Q_u_cfg, dtype=float)
-    else:
-        q_u_scales_cfg = slds_corr_cfg.get("Q_u_scales", None)
-        if q_u_scales_cfg is None:
-            if M == 2:
-                q_u_scales_cfg = [0.01, 0.1]
-            else:
-                q_u_scales_cfg = 0.01
-        q_u_arr = np.asarray(q_u_scales_cfg, dtype=float)
-        if q_u_arr.shape == ():
-            q_u_arr = np.full(M, float(q_u_arr), dtype=float)
-        elif q_u_arr.shape == (M,):
-            pass
-        elif q_u_arr.size == 2 and M > 2:
-            qu_broadcast = np.empty(M, dtype=float)
-            qu_broadcast[0] = float(q_u_arr[0])
-            qu_broadcast[1:] = float(q_u_arr[1])
-            q_u_arr = qu_broadcast
+        Q_g_cfg = cfg_local.get("Q_g", None)
+        if Q_g_cfg is not None:
+            Q_g_local = np.asarray(Q_g_cfg, dtype=float)
         else:
-            raise ValueError(
-                "routers.slds_imm_corr.Q_u_scales must be a scalar, a list "
-                "of length num_regimes, or a length-2 list [qu_0, qu_other] "
-                "when num_regimes > 2."
-            )
-        Q_u = np.zeros((M, d_u, d_u), dtype=float)
-        for k in range(M):
-            Q_u[k] = q_u_arr[k] * np.eye(d_u, dtype=float)
+            q_g_scales_cfg = cfg_local.get("Q_g_scales", None)
+            if q_g_scales_cfg is None:
+                if M == 2:
+                    q_g_scales_cfg = [0.01, 0.05]
+                else:
+                    q_g_scales_cfg = 0.01
+            q_g_arr = np.asarray(q_g_scales_cfg, dtype=float)
+            if q_g_arr.shape == ():
+                q_g_arr = np.full(M, float(q_g_arr), dtype=float)
+            elif q_g_arr.shape == (M,):
+                pass
+            elif q_g_arr.size == 2 and M > 2:
+                qg_broadcast = np.empty(M, dtype=float)
+                qg_broadcast[0] = float(q_g_arr[0])
+                qg_broadcast[1:] = float(q_g_arr[1])
+                q_g_arr = qg_broadcast
+            else:
+                raise ValueError(
+                    "routers.slds_imm_corr.Q_g_scales must be a scalar, a list "
+                    "of length num_regimes, or a length-2 list [qg_0, qg_other] "
+                    "when num_regimes > 2."
+                )
+            Q_g_local = np.zeros((M, d_g_local, d_g_local), dtype=float)
+            for k in range(M):
+                Q_g_local[k] = q_g_arr[k] * np.eye(d_g_local, dtype=float)
 
-    # Shared-factor loadings B: either provided explicitly as a full tensor
-    # or generated from a single intercept loading value.
-    B_cfg = slds_corr_cfg.get("B", None)
-    if B_cfg is not None:
-        B = np.asarray(B_cfg, dtype=float)
-    else:
-        load = float(slds_corr_cfg.get("B_intercept_load", 1.0))
-        B = np.zeros((N, d_u, d_g), dtype=float)
-        for j in range(N):
-            B[j, 0, 0] = load
+        A_u_cfg = cfg_local.get("A_u", None)
+        if A_u_cfg is not None:
+            A_u_local = np.asarray(A_u_cfg, dtype=float)
+        else:
+            A_u_local = np.tile(np.eye(d_u_local, dtype=float)[None, :, :], (M, 1, 1))
 
-    # Optional priors and numerical stabilizer for SLDSIMMRouter_Corr
-    eps_corr = float(slds_corr_cfg.get("eps", 1e-8))
-    g_mean0_cfg = slds_corr_cfg.get("g_mean0", None)
-    g_cov0_cfg = slds_corr_cfg.get("g_cov0", None)
-    u_mean0_cfg = slds_corr_cfg.get("u_mean0", None)
-    u_cov0_cfg = slds_corr_cfg.get("u_cov0", None)
+        Q_u_cfg = cfg_local.get("Q_u", None)
+        if Q_u_cfg is not None:
+            Q_u_local = np.asarray(Q_u_cfg, dtype=float)
+        else:
+            q_u_scales_cfg = cfg_local.get("Q_u_scales", None)
+            if q_u_scales_cfg is None:
+                if M == 2:
+                    q_u_scales_cfg = [0.01, 0.1]
+                else:
+                    q_u_scales_cfg = 0.01
+            q_u_arr = np.asarray(q_u_scales_cfg, dtype=float)
+            if q_u_arr.shape == ():
+                q_u_arr = np.full(M, float(q_u_arr), dtype=float)
+            elif q_u_arr.shape == (M,):
+                pass
+            elif q_u_arr.size == 2 and M > 2:
+                qu_broadcast = np.empty(M, dtype=float)
+                qu_broadcast[0] = float(q_u_arr[0])
+                qu_broadcast[1:] = float(q_u_arr[1])
+                q_u_arr = qu_broadcast
+            else:
+                raise ValueError(
+                    "routers.slds_imm_corr.Q_u_scales must be a scalar, a list "
+                    "of length num_regimes, or a length-2 list [qu_0, qu_other] "
+                    "when num_regimes > 2."
+                )
+            Q_u_local = np.zeros((M, d_u_local, d_u_local), dtype=float)
+            for k in range(M):
+                Q_u_local[k] = q_u_arr[k] * np.eye(d_u_local, dtype=float)
 
-    g_mean0 = (
-        np.asarray(g_mean0_cfg, dtype=float) if g_mean0_cfg is not None else None
-    )
-    g_cov0 = (
-        np.asarray(g_cov0_cfg, dtype=float) if g_cov0_cfg is not None else None
-    )
-    u_mean0 = (
-        np.asarray(u_mean0_cfg, dtype=float) if u_mean0_cfg is not None else None
-    )
-    u_cov0 = (
-        np.asarray(u_cov0_cfg, dtype=float) if u_cov0_cfg is not None else None
-    )
+        # Shared-factor loadings B: either provided explicitly as a full
+        # tensor or generated from a single intercept loading value.
+        B_cfg = cfg_local.get("B", None)
+        if B_cfg is not None:
+            B_local = np.asarray(B_cfg, dtype=float)
+        else:
+            load = float(cfg_local.get("B_intercept_load", 1.0))
+            B_local = np.zeros((N, d_u_local, d_g_local), dtype=float)
+            for j in range(N):
+                B_local[j, 0, 0] = load
 
-    router_partial_corr = SLDSIMMRouter_Corr(
-        num_experts=N,
-        num_regimes=M,
-        shared_dim=d_g,
-        idiosyncratic_dim=d_u,
-        feature_fn=feature_phi,
-        A_g=A_g,
-        Q_g=Q_g,
-        A_u=A_u,
-        Q_u=Q_u,
-        B=B,
-        R=R,
-        Pi=Pi,
-        beta=beta,
-        lambda_risk=lambda_risk,
-        staleness_threshold=staleness_threshold,
-        exploration_mode=corr_exploration_mode,
-        feature_mode=corr_feature_mode,
-        feature_learning_rate=corr_feature_lr,
-        feature_freeze_after=corr_feature_freeze_after,
-        feature_log_interval=corr_feature_log_interval,
-        feedback_mode="partial",
-        eps=eps_corr,
-        g_mean0=g_mean0,
-        g_cov0=g_cov0,
-        u_mean0=u_mean0,
-        u_cov0=u_cov0,
-        feature_arch=corr_feature_arch,
-        feature_hidden_dim=corr_feature_hidden_dim,
-        feature_activation=corr_feature_activation,
-    )
+        # Optional priors and numerical stabilizer for SLDSIMMRouter_Corr
+        eps_corr_local = float(cfg_local.get("eps", 1e-8))
+        g_mean0_cfg = cfg_local.get("g_mean0", None)
+        g_cov0_cfg = cfg_local.get("g_cov0", None)
+        u_mean0_cfg = cfg_local.get("u_mean0", None)
+        u_cov0_cfg = cfg_local.get("u_cov0", None)
 
-    router_full_corr = SLDSIMMRouter_Corr(
-        num_experts=N,
-        num_regimes=M,
-        shared_dim=d_g,
-        idiosyncratic_dim=d_u,
-        feature_fn=feature_phi,
-        A_g=A_g,
-        Q_g=Q_g,
-        A_u=A_u,
-        Q_u=Q_u,
-        B=B,
-        R=R,
-        Pi=Pi,
-        beta=beta,
-        lambda_risk=lambda_risk,
-        staleness_threshold=staleness_threshold,
-        exploration_mode=corr_exploration_mode,
-        feature_mode=corr_feature_mode,
-        feature_learning_rate=corr_feature_lr,
-        feature_freeze_after=corr_feature_freeze_after,
-        feature_log_interval=corr_feature_log_interval,
-        feedback_mode="full",
-        eps=eps_corr,
-        g_mean0=g_mean0,
-        g_cov0=g_cov0,
-        u_mean0=u_mean0,
-        u_cov0=u_cov0,
-        feature_arch=corr_feature_arch,
-        feature_hidden_dim=corr_feature_hidden_dim,
-        feature_activation=corr_feature_activation,
+        g_mean0_local = (
+            np.asarray(g_mean0_cfg, dtype=float) if g_mean0_cfg is not None else None
+        )
+        g_cov0_local = (
+            np.asarray(g_cov0_cfg, dtype=float) if g_cov0_cfg is not None else None
+        )
+        u_mean0_local = (
+            np.asarray(u_mean0_cfg, dtype=float) if u_mean0_cfg is not None else None
+        )
+        u_cov0_local = (
+            np.asarray(u_cov0_cfg, dtype=float) if u_cov0_cfg is not None else None
+        )
+
+        # Observation noise: optionally override the base SLDS R with
+        # a correlated-router-specific scalar or full matrix.
+        R_cfg_local = cfg_local.get("R", None)
+        if R_cfg_local is not None:
+            R_local = np.asarray(R_cfg_local, dtype=float)
+        else:
+            r_scalar_local = cfg_local.get("R_scalar", None)
+            if r_scalar_local is not None:
+                R_local = np.full((M, N), float(r_scalar_local), dtype=float)
+            else:
+                R_local = R
+
+        return SLDSIMMRouter_Corr(
+            num_experts=N,
+            num_regimes=M,
+            shared_dim=d_g_local,
+            idiosyncratic_dim=d_u_local,
+            feature_fn=feature_phi,
+            A_g=A_g_local,
+            Q_g=Q_g_local,
+            A_u=A_u_local,
+            Q_u=Q_u_local,
+            B=B_local,
+            R=R_local,
+            Pi=Pi,
+            beta=beta,
+            lambda_risk=lambda_risk,
+            staleness_threshold=staleness_threshold,
+            exploration_mode=corr_exploration_mode_local,
+            feature_mode=corr_feature_mode_local,
+            feature_learning_rate=corr_feature_lr_local,
+            feature_freeze_after=corr_feature_freeze_after_local,
+            feature_log_interval=corr_feature_log_interval_local,
+            feedback_mode=feedback_mode,
+            eps=eps_corr_local,
+            g_mean0=g_mean0_local,
+            g_cov0=g_cov0_local,
+            u_mean0=u_mean0_local,
+            u_cov0=u_cov0_local,
+            feature_arch=corr_feature_arch_local,
+            feature_hidden_dim=corr_feature_hidden_dim_local,
+            feature_activation=corr_feature_activation_local,
+        )
+
+    # Build mode-specific correlated routers. If no overrides are
+    # provided, both fall back to the same configuration.
+    router_partial_corr = _build_corr_router(
+        slds_corr_cfg, slds_corr_partial_overrides, feedback_mode="partial"
+    )
+    router_full_corr = _build_corr_router(
+        slds_corr_cfg, slds_corr_full_overrides, feedback_mode="full"
     )
 
     # Environment: either synthetic or ETTh1, depending on env_cfg.
@@ -559,38 +568,102 @@ if __name__ == "__main__":
     # Plot the true series and expert predictions
     plot_time_series(env)
 
-    # L2D baselines (usual linear policy and RNN policy) for full-horizon evaluation
+    # L2D baselines (configurable MLP/RNN, with and without sliding window)
     alpha_l2d = _resolve_vector(l2d_cfg.get("alpha", 1.0), 1.0, N)
     beta_l2d_cfg = l2d_cfg.get("beta", None)
     beta_l2d = beta.copy() if beta_l2d_cfg is None else _resolve_vector(
         beta_l2d_cfg, 0.0, N
     )
     lr_l2d = float(l2d_cfg.get("learning_rate", 1e-2))
+    arch_l2d = str(l2d_cfg.get("arch", "mlp")).lower()
+    hidden_dim_l2d = int(l2d_cfg.get("hidden_dim", 8))
 
-    l2d_baseline = LearningToDeferBaseline(
+    l2d_baseline = L2D(
         num_experts=N,
         feature_fn=feature_phi,
         alpha=alpha_l2d,
         beta=beta_l2d,
         learning_rate=lr_l2d,
+        arch=arch_l2d,
+        hidden_dim=hidden_dim_l2d,
+        window_size=int(l2d_cfg.get("window_size", 1)),
     )
 
-    alpha_l2d_rnn = _resolve_vector(l2d_rnn_cfg.get("alpha", 1.0), 1.0, N)
-    beta_l2d_rnn_cfg = l2d_rnn_cfg.get("beta", None)
-    beta_l2d_rnn = beta.copy() if beta_l2d_rnn_cfg is None else _resolve_vector(
-        beta_l2d_rnn_cfg, 0.0, N
-    )
-    lr_l2d_rnn = float(l2d_rnn_cfg.get("learning_rate", 1e-3))
-    hidden_dim_l2d_rnn = int(l2d_rnn_cfg.get("hidden_dim", 8))
+    l2d_sw_baseline = None
+    if l2d_sw_cfg:
+        alpha_l2d_sw = _resolve_vector(l2d_sw_cfg.get("alpha", 1.0), 1.0, N)
+        beta_l2d_sw_cfg = l2d_sw_cfg.get("beta", None)
+        beta_l2d_sw = beta.copy() if beta_l2d_sw_cfg is None else _resolve_vector(
+            beta_l2d_sw_cfg, 0.0, N
+        )
+        lr_l2d_sw = float(l2d_sw_cfg.get("learning_rate", lr_l2d))
+        arch_l2d_sw = str(l2d_sw_cfg.get("arch", arch_l2d)).lower()
+        hidden_dim_l2d_sw = int(l2d_sw_cfg.get("hidden_dim", hidden_dim_l2d))
+        window_size_sw = int(l2d_sw_cfg.get("window_size", 5))
 
-    l2d_rnn_baseline = L2D_RNN(
-        num_experts=N,
-        feature_fn=feature_phi,
-        alpha=alpha_l2d_rnn,
-        beta=beta_l2d_rnn,
-        learning_rate=lr_l2d_rnn,
-        hidden_dim=hidden_dim_l2d_rnn,
-    )
+        l2d_sw_baseline = L2D_SW(
+            num_experts=N,
+            feature_fn=feature_phi,
+            alpha=alpha_l2d_sw,
+            beta=beta_l2d_sw,
+            learning_rate=lr_l2d_sw,
+            arch=arch_l2d_sw,
+            hidden_dim=hidden_dim_l2d_sw,
+            window_size=window_size_sw,
+        )
+
+    # LinUCB baselines (partial and full feedback)
+    linucb_partial = None
+    linucb_full = None
+    if linucb_cfg:
+        alpha_ucb = float(linucb_cfg.get("alpha_ucb", 1.0))
+        lambda_reg = float(linucb_cfg.get("lambda_reg", 1.0))
+
+        linucb_partial = LinUCB(
+            num_experts=N,
+            feature_fn=feature_phi,
+            alpha_ucb=alpha_ucb,
+            lambda_reg=lambda_reg,
+            beta=beta,
+            feedback_mode="partial",
+        )
+        linucb_full = LinUCB(
+            num_experts=N,
+            feature_fn=feature_phi,
+            alpha_ucb=alpha_ucb,
+            lambda_reg=lambda_reg,
+            beta=beta,
+            feedback_mode="full",
+        )
+
+    # NeuralUCB baseline (single policy; partial feedback by default)
+    neuralucb_partial = None
+    neuralucb_full = None
+    if neuralucb_cfg:
+        alpha_ucb_nn = float(neuralucb_cfg.get("alpha_ucb", 1.0))
+        lambda_reg_nn = float(neuralucb_cfg.get("lambda_reg", 1.0))
+        hidden_dim_nn = int(neuralucb_cfg.get("hidden_dim", 16))
+        nn_lr = float(neuralucb_cfg.get("nn_learning_rate", 1e-3))
+        neuralucb_partial = NeuralUCB(
+            num_experts=N,
+            feature_fn=feature_phi,
+            alpha_ucb=alpha_ucb_nn,
+            lambda_reg=lambda_reg_nn,
+            beta=beta,
+            hidden_dim=hidden_dim_nn,
+            nn_learning_rate=nn_lr,
+            feedback_mode="partial",
+        )
+        neuralucb_full = NeuralUCB(
+            num_experts=N,
+            feature_fn=feature_phi,
+            alpha_ucb=alpha_ucb_nn,
+            lambda_reg=lambda_reg_nn,
+            beta=beta,
+            hidden_dim=hidden_dim_nn,
+            nn_learning_rate=nn_lr,
+            feedback_mode="full",
+        )
 
     # Evaluate routers, L2D baseline, and constant-expert baselines,
     # and plot their induced prediction time series.
@@ -601,7 +674,11 @@ if __name__ == "__main__":
         l2d_baseline,
         router_partial_corr=router_partial_corr,
         router_full_corr=router_full_corr,
-        l2d_rnn_baseline=l2d_rnn_baseline,
+        l2d_sw_baseline=l2d_sw_baseline,
+        linucb_partial=linucb_partial,
+        linucb_full=linucb_full,
+        neuralucb_partial=neuralucb_partial,
+        neuralucb_full=neuralucb_full,
         # router_partial_neural=router_partial_neural,
         # router_full_neural=router_full_neural,
     )
@@ -628,12 +705,15 @@ if __name__ == "__main__":
     planning_method = str(horizon_cfg.get("method", "regressive"))
     scenario_generator_cfg = horizon_cfg.get("scenario_generator", {})
     # Separate L2D baseline instance for horizon-only evaluation (trained up to t0)
-    l2d_baseline_horizon = LearningToDeferBaseline(
+    l2d_baseline_horizon = L2D(
         num_experts=N,
         feature_fn=feature_phi,
         alpha=np.ones(N, dtype=float),
         beta=beta,
         learning_rate=1e-2,
+        arch="mlp",
+        hidden_dim=8,
+        window_size=1,
     )
 
     evaluate_horizon_planning(
@@ -653,3 +733,20 @@ if __name__ == "__main__":
         planning_method=planning_method,
         scenario_generator_cfg=scenario_generator_cfg,
     )
+    # NeuralUCB baseline (single policy; partial feedback by default)
+    neuralucb_baseline = None
+    if neuralucb_cfg:
+        alpha_ucb_nn = float(neuralucb_cfg.get("alpha_ucb", 1.0))
+        lambda_reg_nn = float(neuralucb_cfg.get("lambda_reg", 1.0))
+        hidden_dim_nn = int(neuralucb_cfg.get("hidden_dim", 16))
+        nn_lr = float(neuralucb_cfg.get("nn_learning_rate", 1e-3))
+        neuralucb_baseline = NeuralUCB(
+            num_experts=N,
+            feature_fn=feature_phi,
+            alpha_ucb=alpha_ucb_nn,
+            lambda_reg=lambda_reg_nn,
+            beta=beta,
+            hidden_dim=hidden_dim_nn,
+            nn_learning_rate=nn_lr,
+            feedback_mode="partial",
+        )
