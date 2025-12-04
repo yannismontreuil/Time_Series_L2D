@@ -435,6 +435,8 @@ def evaluate_horizon_planning(
     router_full_corr: Optional[SLDSIMMRouter_Corr] = None,
     router_partial_neural=None,
     router_full_neural=None,
+    router_partial_corr_em: Optional[SLDSIMMRouter_Corr] = None,
+    router_full_corr_em: Optional[SLDSIMMRouter_Corr] = None,
     planning_method: str = "regressive",
     scenario_generator_cfg: Optional[dict] = None,
 ) -> None:
@@ -487,6 +489,10 @@ def evaluate_horizon_planning(
         warm_start_router_to_time(router_partial_corr, env, t0)
     if router_full_corr is not None:
         warm_start_router_to_time(router_full_corr, env, t0)
+    if router_partial_corr_em is not None:
+        warm_start_router_to_time(router_partial_corr_em, env, t0)
+    if router_full_corr_em is not None:
+        warm_start_router_to_time(router_full_corr_em, env, t0)
     if router_partial_neural is not None:
         warm_start_router_to_time(router_partial_neural, env, t0)
     if router_full_neural is not None:
@@ -553,6 +559,28 @@ def evaluate_horizon_planning(
             )
         else:
             sched_full_corr = []
+
+        if router_partial_corr_em is not None:
+            sched_partial_corr_em, _, _ = router_partial_corr_em.plan_horizon_schedule(
+                x_t=x_now,
+                H=H_eff,
+                experts_predict=experts_predict,
+                context_update=context_update,
+                available_experts_per_h=avail_lists,
+            )
+        else:
+            sched_partial_corr_em = []
+
+        if router_full_corr_em is not None:
+            sched_full_corr_em, _, _ = router_full_corr_em.plan_horizon_schedule(
+                x_t=x_now,
+                H=H_eff,
+                experts_predict=experts_predict,
+                context_update=context_update,
+                available_experts_per_h=avail_lists,
+            )
+        else:
+            sched_full_corr_em = []
 
         if router_partial_neural is not None:
             sched_partial_neural, _, _ = router_partial_neural.plan_horizon_schedule(
@@ -633,6 +661,48 @@ def evaluate_horizon_planning(
             p_all_full_corr = np.zeros((H_eff, env.num_experts), dtype=float)
             J_sched_full_corr = np.zeros((num_scenarios, H_eff), dtype=float)
 
+        if router_partial_corr_em is not None:
+            (
+                sched_partial_corr_em,
+                p_avail_partial_corr_em,
+                p_all_partial_corr_em,
+                J_sched_partial_corr_em,
+            ) = _plan_horizon_schedule_monte_carlo(
+                router_partial_corr_em,
+                env,
+                beta,
+                times,
+                avail_per_h,
+                num_scenarios,
+                scenario_generator_cfg,
+            )
+        else:
+            sched_partial_corr_em = []
+            p_avail_partial_corr_em = np.zeros((H_eff, env.num_experts), dtype=float)
+            p_all_partial_corr_em = np.zeros((H_eff, env.num_experts), dtype=float)
+            J_sched_partial_corr_em = np.zeros((num_scenarios, H_eff), dtype=float)
+
+        if router_full_corr_em is not None:
+            (
+                sched_full_corr_em,
+                p_avail_full_corr_em,
+                p_all_full_corr_em,
+                J_sched_full_corr_em,
+            ) = _plan_horizon_schedule_monte_carlo(
+                router_full_corr_em,
+                env,
+                beta,
+                times,
+                avail_per_h,
+                num_scenarios,
+                scenario_generator_cfg,
+            )
+        else:
+            sched_full_corr_em = []
+            p_avail_full_corr_em = np.zeros((H_eff, env.num_experts), dtype=float)
+            p_all_full_corr_em = np.zeros((H_eff, env.num_experts), dtype=float)
+            J_sched_full_corr_em = np.zeros((num_scenarios, H_eff), dtype=float)
+
         # For neural routers we do not have a generative SLDS model to
         # support IMM-based staffing planning, so we skip Monte Carlo
         # planning for them in this mode.
@@ -665,6 +735,22 @@ def evaluate_horizon_planning(
     else:
         preds_full_corr_plan = np.array([], dtype=float)
         cost_full_corr_plan = np.array([], dtype=float)
+
+    if sched_partial_corr_em:
+        preds_partial_corr_em_plan, cost_partial_corr_em_plan = eval_schedule_on_env(
+            env, beta, times, sched_partial_corr_em
+        )
+    else:
+        preds_partial_corr_em_plan = np.array([], dtype=float)
+        cost_partial_corr_em_plan = np.array([], dtype=float)
+
+    if sched_full_corr_em:
+        preds_full_corr_em_plan, cost_full_corr_em_plan = eval_schedule_on_env(
+            env, beta, times, sched_full_corr_em
+        )
+    else:
+        preds_full_corr_em_plan = np.array([], dtype=float)
+        cost_full_corr_em_plan = np.array([], dtype=float)
 
     if sched_partial_neural:
         preds_partial_neural_plan, cost_partial_neural_plan = eval_schedule_on_env(
@@ -733,6 +819,14 @@ def evaluate_horizon_planning(
         )
     if cost_full_corr_plan.size > 0:
         print(f"H-plan (full corr router):    {cost_full_corr_plan.mean():.4f}")
+    if cost_partial_corr_em_plan.size > 0:
+        print(
+            f"H-plan (partial corr EM router): {cost_partial_corr_em_plan.mean():.4f}"
+        )
+    if cost_full_corr_em_plan.size > 0:
+        print(
+            f"H-plan (full corr EM router):    {cost_full_corr_em_plan.mean():.4f}"
+        )
 
     # ------------------------------------------------------------------
     # Heatmaps of selection probabilities (Monte Carlo planning only)
@@ -1356,6 +1450,18 @@ def evaluate_horizon_planning(
         plot_method_line("partial_corr", "Router Corr (partial)", preds_partial_corr_plan)
     if preds_full_corr_plan.size > 0:
         plot_method_line("full_corr", "Router Corr (full)", preds_full_corr_plan)
+    if preds_partial_corr_em_plan.size > 0:
+        plot_method_line(
+            "partial_corr_em",
+            "Router Corr EM (partial)",
+            preds_partial_corr_em_plan,
+        )
+    if preds_full_corr_em_plan.size > 0:
+        plot_method_line(
+            "full_corr_em",
+            "Router Corr EM (full)",
+            preds_full_corr_em_plan,
+        )
     if l2d_baseline is not None and preds_l2d_plan.size > 0:
         plot_method_line("l2d", "L2D", preds_l2d_plan)
 
@@ -1368,6 +1474,8 @@ def evaluate_horizon_planning(
         "Neural router (full)": "*",
         "Router Corr (partial)": "D",
         "Router Corr (full)": "v",
+        "Router Corr EM (partial)": "D",
+        "Router Corr EM (full)": "^",
         "L2D": "x",
     }
 
@@ -1410,6 +1518,18 @@ def evaluate_horizon_planning(
         scatter_method("Router Corr (partial)", preds_partial_corr_plan, sched_partial_corr)
     if preds_full_corr_plan.size > 0 and sched_full_corr:
         scatter_method("Router Corr (full)", preds_full_corr_plan, sched_full_corr)
+    if preds_partial_corr_em_plan.size > 0 and sched_partial_corr_em:
+        scatter_method(
+            "Router Corr EM (partial)",
+            preds_partial_corr_em_plan,
+            sched_partial_corr_em,
+        )
+    if preds_full_corr_em_plan.size > 0 and sched_full_corr_em:
+        scatter_method(
+            "Router Corr EM (full)",
+            preds_full_corr_em_plan,
+            sched_full_corr_em,
+        )
     if l2d_baseline is not None and preds_l2d_plan.size > 0 and sched_l2d:
         scatter_method("L2D", preds_l2d_plan, sched_l2d)
 
@@ -1424,6 +1544,8 @@ def evaluate_horizon_planning(
         ("neural_full", "Neural router (full)"),
         ("partial_corr", "Router Corr (partial)"),
         ("full_corr", "Router Corr (full)"),
+        ("partial_corr_em", "Router Corr EM (partial)"),
+        ("full_corr_em", "Router Corr EM (full)"),
         ("l2d", "L2D"),
     ]
     for key, label in legend_specs:

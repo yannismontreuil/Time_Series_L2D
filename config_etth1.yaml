@@ -30,18 +30,21 @@ environment:
 
   # Expert availability controls. In this ETTh1 experiment we introduce
   # multiple experts whose availability switches over time:
-  #   - Expert 1 is unavailable on two disjoint intervals.
-  #   - Expert 4 is only available on specified arrival intervals.
-  unavailable_expert_idx: 1
+  #   - Expert 3 (index 2) is unavailable on several disjoint intervals.
+  #   - Expert 5 (index 4) arrives late and is only available on
+  #     specified arrival intervals.
+  unavailable_expert_idx: 0
   unavailable_intervals:
-    - [100, 500]
-    - [1000, 7000]
-    - [9000, 15000]
+    - [1000, 3000]
+    - [9000, 22000]
   arrival_expert_idx: 4
   arrival_intervals:
-    - [300, 700]
-    - [1200, 10000]
-    - [12000, 17000]
+    # Expert 5 becomes available only later in the series.
+    - [9000, 22000]
+  analysis_window: 500
+  analysis_adoption_threshold: 0.5
+
+late_arrival_analysis: true
 
 routers:
   # Risk sensitivity for SLDS-IMM routers.
@@ -147,28 +150,27 @@ baselines:
     hidden_dim: 16
     nn_learning_rate: 0.001
 
-  linucb:
-    alpha_ucb: 1.0
-    lambda_reg: 1.0
 
 horizon_planning:
-  # Starting time index for horizon planning in slds_imm_router.py.
-  # For ETTh1, we pick a point reasonably far into the series.
+  # Starting time index for horizon planning in slds_imm_router.py
   t0: 700
 
-  # Planning horizon length (e.g., 24 hours ahead).
-  H: 24
+  # Planning horizon length
+  H: 20
   # Planning method for horizon scheduling:
   #   - "regressive": original router-influenced context planning
   #   - "monte_carlo": scenario-based staffing planning with N=1
   #   - "{N}_monte_carlo": N-scenario Monte Carlo staffing planning
-  method: "regressive"
+  method: "20_monte_carlo"
 
   # Scenario generator parameters for Monte Carlo planning.
   # Gaussian AR(1) feature-space perturbation as in
   # Section~\ref{sec:staffing-generator-gaussian}.
   scenario_generator:
     type: "gaussian_ar1"
+    # AR(1) coefficient rho in [-1,1).
     rho: 0.9
-    sigma0: 0.05
-    q_scale: 0.05
+    # Initial residual covariance Σ_0 ≈ (sigma0^2 I).
+    sigma0: 0.1
+    # Innovation covariance Q ≈ (q_scale^2 I).
+    q_scale: 0.1

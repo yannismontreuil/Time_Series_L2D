@@ -2843,6 +2843,12 @@ regime switch.
 
 The base framework assumes a fixed feature map $\phi:\mathcal X\to\mathbb R^{d_\alpha}$. For high-dimensional contexts,
 one can replace $\phi$ by a neural feature map $\phi_\theta$ and learn $\theta$ jointly with SLDS parameters $\Theta$.
+This gives rise to two correlated routers:
+\begin{itemize}
+    \item a \emph{Corr} router with fixed linear-Gaussian parameters $(\Theta,\theta)$ tuned by hyperparameter search; and
+    \item a \emph{Corr--EM} router that performs an additional EM-style update of the linear-Gaussian dynamics and noise
+          on an initial training window, starting from the same initialization as Corr.
+\end{itemize}
 
 Given observed logged data
 $\mathbf D=\{(\mathbf x_t,\Expert_t,r_t,\ell_{r_t,t})\}_{t=1}^T$, define the IMM predictive density (bandit feedback case)
@@ -2853,7 +2859,7 @@ $\mathbf D=\{(\mathbf x_t,\Expert_t,r_t,\ell_{r_t,t})\}_{t=1}^T$, define the IMM
     \mathcal N\!\bigl(\ell_{r_t,t};\ \mu^{(k)}_{r_t,t\mid t-1}(\theta),\ \sigma^{2,(k)}_{r_t,t\mid t-1}(\theta)\bigr),
 \]
 where $\bar c_t(k)=\mathbb P_\Theta(z_t=k\mid \mathcal I_{t-1})$ and the regime-$k$ mean/variance are those induced by the
-star predictors with $\phi_t=\phi_\theta(\mathbf x_t)$. The (surrogate) log-likelihood is
+IMM predictors with $\phi_t=\phi_\theta(\mathbf x_t)$. The (surrogate) log-likelihood is
 \[
     \tilde{\mathcal J}_{\mathrm{IMM}}(\Theta,\theta)
     \;\coloneqq\;
@@ -2869,7 +2875,7 @@ signal the router needs.
 \label{sec:learn-phi}
 
 This subsection describes an \emph{implementable} algorithm to learn a parametric feature map
-$\Phi_\theta:\mathcal X\to\mathbb R^{d_\alpha}$ jointly with the SLDS parameters $\Theta$, while retaining the IMM+star
+$\Phi_\theta:\mathcal X\to\mathbb R^{d_\alpha}$ jointly with the SLDS parameters $\Theta$, while retaining the IMM-based
 inference machinery. The key point is that the observation model depends on $\theta$ through
 $\phi_t(\theta)\coloneqq \Phi_\theta(\mathbf x_t)$, so we augment the generalized EM procedure with an additional
 \emph{feature-step} (a gradient M-step) for $\theta$.
@@ -2931,6 +2937,34 @@ Hence we can separate the M-step into:
     \item a \textbf{closed-form} update for $\Theta$ (exactly as in Section~\ref{sec:param-opt}); and
     \item a \textbf{gradient feature-step} for $\theta$ that maximizes the \emph{expected emission log-likelihood}.
 \end{itemize}
+
+\subsubsection{Training schedule for Corr--EM (Phase 0/1/2)}
+
+In practice we adopt a three-phase training schedule for the Corr--EM router, designed to stabilize the high-capacity
+representation while preserving the interpretability of the SLDS dynamics.
+\begin{description}[leftmargin=1.5em]
+    \item[Phase 0 (pre-training of $\phi_\theta$).]
+    On an initial segment $t=1,\dots,T_0$ we train $\phi_\theta$ on a supervised next-step prediction objective
+    (e.g.\ regression of $y_t$ or of expert losses) with a relatively large learning rate. This initializes $\theta$ in a
+    region where the context embedding is predictive.
+
+    \item[Phase 1 (offline SLDS training / generalized EM).]
+    Keeping $\Theta$ and $\theta$ fixed at their Phase-0 values, we run the SLDS/IMM filter over a (possibly longer) window
+    $t=1,\dots,T_1$ and accumulate approximate sufficient statistics for the linear-Gaussian parameters in $\Theta$
+    (transition matrices and process/observation noise). We then perform a small number of generalized EM iterations that:
+    (i) update $\Theta$ in closed form using the accumulated moments; and
+    (ii) optionally refine $\theta$ using a much smaller learning rate, so that the feature map supports the inferred
+    switching structure without drifting aggressively.
+
+    \item[Phase 2 (online deployment).]
+    During live routing we freeze $\theta$ (or use an extremely small learning rate, e.g.\ $10^{-5}$) and only update the
+    posterior over latent states and regimes via the IMM filter. This preserves the safety properties of L2D: the router's
+    decisions adapt through Bayesian state updates, while the representation used by the SLDS remains essentially fixed and
+    cannot overreact to a single outlying observation.
+\end{description}
+The non-EM Corr router corresponds to using Phase~0 only (feature pre-training followed by hyperparameter selection for
+fixed $\Theta$), whereas Corr--EM executes all three phases, adding an explicit generalized-EM refinement of the SLDS
+dynamics and noise on the initial window before deployment.
 
 \subsubsection{E-step: IMM+star smoothing (inputs/outputs for implementation)}
 

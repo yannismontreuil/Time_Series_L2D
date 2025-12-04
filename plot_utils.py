@@ -73,6 +73,8 @@ def get_model_color(name: str) -> str:
         "full": "tab:orange",
         "partial_corr": "tab:cyan",
         "full_corr": "tab:olive",
+        "partial_corr_em": "tab:blue",
+        "full_corr_em": "tab:red",
         "neural_partial": "tab:brown",
         "neural_full": "tab:purple",
         "l2d": "tab:red",
@@ -262,6 +264,8 @@ def evaluate_routers_and_baselines(
     l2d_baseline: Optional[L2D] = None,
     router_partial_corr=None,
     router_full_corr=None,
+    router_partial_corr_em=None,
+    router_full_corr_em=None,
     l2d_sw_baseline: Optional[L2D] = None,
     linucb_partial=None,
     linucb_full=None,
@@ -308,6 +312,21 @@ def evaluate_routers_and_baselines(
         )
     else:
         costs_full_corr, choices_full_corr = None, None
+
+    # EM-capable correlated routers (if provided)
+    if router_partial_corr_em is not None:
+        costs_partial_corr_em, choices_partial_corr_em = run_router_on_env(
+            router_partial_corr_em, env
+        )
+    else:
+        costs_partial_corr_em, choices_partial_corr_em = None, None
+
+    if router_full_corr_em is not None:
+        costs_full_corr_em, choices_full_corr_em = run_router_on_env(
+            router_full_corr_em, env
+        )
+    else:
+        costs_full_corr_em, choices_full_corr_em = None, None
 
     # Run learning-to-defer baselines if provided
     if l2d_baseline is not None:
@@ -368,6 +387,16 @@ def evaluate_routers_and_baselines(
     preds_full_corr = (
         compute_predictions_from_choices(env, choices_full_corr)
         if choices_full_corr is not None
+        else None
+    )
+    preds_partial_corr_em = (
+        compute_predictions_from_choices(env, choices_partial_corr_em)
+        if choices_partial_corr_em is not None
+        else None
+    )
+    preds_full_corr_em = (
+        compute_predictions_from_choices(env, choices_full_corr_em)
+        if choices_full_corr_em is not None
         else None
     )
     preds_partial_neural = (
@@ -432,6 +461,12 @@ def evaluate_routers_and_baselines(
     avg_cost_full_corr = (
         costs_full_corr.mean() if costs_full_corr is not None else None
     )
+    avg_cost_partial_corr_em = (
+        costs_partial_corr_em.mean() if costs_partial_corr_em is not None else None
+    )
+    avg_cost_full_corr_em = (
+        costs_full_corr_em.mean() if costs_full_corr_em is not None else None
+    )
     avg_cost_neural_partial = (
         costs_partial_neural.mean() if costs_partial_neural is not None else None
     )
@@ -468,6 +503,14 @@ def evaluate_routers_and_baselines(
         )
     if avg_cost_full_corr is not None:
         print(f"Router Corr (full feedback):    {avg_cost_full_corr:.4f}")
+    if avg_cost_partial_corr_em is not None:
+        print(
+            f"Router Corr EM (partial fb):   {avg_cost_partial_corr_em:.4f}"
+        )
+    if avg_cost_full_corr_em is not None:
+        print(
+            f"Router Corr EM (full fb):      {avg_cost_full_corr_em:.4f}"
+        )
     if avg_cost_neural_partial is not None:
         print(
             f"Neural router (partial fb):     {avg_cost_neural_partial:.4f}"
@@ -502,6 +545,10 @@ def evaluate_routers_and_baselines(
         entries.append(("partial_corr", choices_partial_corr))
     if choices_full_corr is not None:
         entries.append(("full_corr", choices_full_corr))
+    if choices_partial_corr_em is not None:
+        entries.append(("partial_corr_em", choices_partial_corr_em))
+    if choices_full_corr_em is not None:
+        entries.append(("full_corr_em", choices_full_corr_em))
     entries.extend(
         [
             ("random", choices_random),
@@ -667,6 +714,16 @@ def evaluate_routers_and_baselines(
     avg_full_corr_t = (
         np.cumsum(costs_full_corr) / denom if costs_full_corr is not None else None
     )
+    avg_partial_corr_em_t = (
+        np.cumsum(costs_partial_corr_em) / denom
+        if costs_partial_corr_em is not None
+        else None
+    )
+    avg_full_corr_em_t = (
+        np.cumsum(costs_full_corr_em) / denom
+        if costs_full_corr_em is not None
+        else None
+    )
     avg_neural_partial_t = (
         np.cumsum(costs_partial_neural) / denom
         if costs_partial_neural is not None
@@ -750,6 +807,22 @@ def evaluate_routers_and_baselines(
             avg_full_corr_t,
             label="Full Corr (avg cost)",
             color=get_model_color("full_corr"),
+            linestyle="-",
+        )
+    if avg_partial_corr_em_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_partial_corr_em_t,
+            label="Partial Corr EM (avg cost)",
+            color=get_model_color("partial_corr_em"),
+            linestyle="-",
+        )
+    if avg_full_corr_em_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_full_corr_em_t,
+            label="Full Corr EM (avg cost)",
+            color=get_model_color("full_corr_em"),
             linestyle="-",
         )
     if avg_l2d_t is not None:
@@ -959,6 +1032,8 @@ def evaluate_routers_and_baselines(
     has_avail = avail is not None
     has_partial_corr = choices_partial_corr is not None
     has_full_corr = choices_full_corr is not None
+    has_partial_corr_em = choices_partial_corr_em is not None
+    has_full_corr_em = choices_full_corr_em is not None
     has_neural_partial = choices_partial_neural is not None
     has_neural_full = choices_full_neural is not None
 
@@ -970,6 +1045,7 @@ def evaluate_routers_and_baselines(
     n_rows += (1 if has_neuralucb_partial else 0) + (1 if has_neuralucb_full else 0)
     n_rows += (1 if has_avail else 0)
     n_rows += (1 if has_partial_corr else 0) + (1 if has_full_corr else 0)
+    n_rows += (1 if has_partial_corr_em else 0) + (1 if has_full_corr_em else 0)
     n_rows += (1 if has_neural_partial else 0) + (1 if has_neural_full else 0)
     fig2, axes = plt.subplots(n_rows, 1, sharex=True, figsize=(10, 2 * n_rows))
 
@@ -1019,6 +1095,30 @@ def evaluate_routers_and_baselines(
         )
         ax_fc.set_ylabel("Expert\n(full corr)")
         ax_fc.set_yticks(np.arange(env.num_experts))
+        idx += 1
+
+    if has_partial_corr_em:
+        ax_pc_em = axes[idx]
+        ax_pc_em.step(
+            t_grid,
+            choices_partial_corr_em,
+            where="post",
+            color=get_model_color("partial_corr_em"),
+        )
+        ax_pc_em.set_ylabel("Expert\n(partial corr EM)")
+        ax_pc_em.set_yticks(np.arange(env.num_experts))
+        idx += 1
+
+    if has_full_corr_em:
+        ax_fc_em = axes[idx]
+        ax_fc_em.step(
+            t_grid,
+            choices_full_corr_em,
+            where="post",
+            color=get_model_color("full_corr_em"),
+        )
+        ax_fc_em.set_ylabel("Expert\n(full corr EM)")
+        ax_fc_em.set_yticks(np.arange(env.num_experts))
         idx += 1
 
     if has_neural_partial:
@@ -1156,3 +1256,354 @@ def evaluate_routers_and_baselines(
 
     plt.tight_layout()
     plt.show()
+
+
+def analysis_late_arrival(
+    env: SyntheticTimeSeriesEnv,
+    router_partial: SLDSIMMRouter,
+    router_full: SLDSIMMRouter,
+    l2d_baseline: Optional[L2D] = None,
+    router_partial_corr=None,
+    router_full_corr=None,
+    router_partial_corr_em=None,
+    router_full_corr_em=None,
+    l2d_sw_baseline: Optional[L2D] = None,
+    linucb_partial=None,
+    linucb_full=None,
+    neuralucb_partial=None,
+    neuralucb_full=None,
+    new_expert_idx: int | None = None,
+    window: int = 500,
+    adoption_threshold: float = 0.5,
+) -> None:
+    """
+    Analyze how different policies react to the late arrival of a new
+    expert that was previously unavailable.
+
+    For a given expert index j_new and its first availability interval
+    [t_start, t_end], this function:
+      - runs all routers / baselines on the environment,
+      - extracts costs and chosen experts over a window starting at
+        t_start (clipped by `window` and the end of the first arrival
+        interval),
+      - computes, for each method:
+            * selection frequency of j_new in the window,
+            * mean cost in the window,
+            * mean regret vs the oracle in the window,
+            * "time to adoption" = first time in the window where the
+              running selection frequency of j_new exceeds
+              `adoption_threshold`.
+
+    Results are printed as a compact textual summary.
+    """
+    T = env.T
+    N = env.num_experts
+
+    if new_expert_idx is None:
+        raise ValueError(
+            "analysis_late_arrival requires `new_expert_idx` "
+            "(e.g., the arrival_expert_idx configured in the environment)."
+        )
+    j_new = int(new_expert_idx)
+    if not (0 <= j_new < N):
+        raise ValueError(
+            f"new_expert_idx={j_new} is out of range for env.num_experts={N}."
+        )
+
+    if window <= 0:
+        raise ValueError("window must be a positive integer.")
+    if not (0.0 < adoption_threshold <= 1.0):
+        raise ValueError("adoption_threshold must be in (0, 1].")
+
+    avail = getattr(env, "availability", None)
+    if avail is None:
+        raise ValueError(
+            "Environment has no `availability` matrix; cannot analyze late arrival."
+        )
+    avail_arr = np.asarray(avail, dtype=int)
+    if avail_arr.shape != (T, N):
+        raise ValueError(
+            f"env.availability has shape {avail_arr.shape}, expected ({T}, {N})."
+        )
+
+    # Determine the first arrival interval for the new expert:
+    # contiguous block of availability beginning at the first time t
+    # where availability switches from 0 to 1 (or is 1 for the first
+    # time).
+    avail_j = avail_arr[:, j_new].astype(bool)
+    if not avail_j.any():
+        print(
+            f"[analysis_late_arrival] Expert {j_new} is never available; "
+            "nothing to analyze."
+        )
+        return
+
+    first_one_indices = np.where(avail_j)[0]
+    t_start = int(first_one_indices[0])
+    t_end = T - 1
+    for t in range(t_start + 1, T):
+        if not avail_j[t]:
+            t_end = t - 1
+            break
+
+    # Warn if the expert was already available from t=0 (no true "late" arrival).
+    if t_start == 0 and not np.any(~avail_j[:t_start]):
+        print(
+            f"[analysis_late_arrival] Expert {j_new} is available from t=0; "
+            "t_start=0 will be treated as the analysis start, but this is "
+            "not a strict late-arrival scenario."
+        )
+
+    # Analysis window: from t_start to min(t_start + window, t_end, T-1).
+    t_window_end = min(t_start + int(window), t_end, T - 1)
+    if t_window_end <= t_start:
+        print(
+            f"[analysis_late_arrival] Arrival window [{t_start}, {t_window_end}] "
+            "is too short; skipping analysis."
+        )
+        return
+
+    # Map time indices t=1,...,T-1 to array indices 0,...,T-2.
+    start_idx = max(t_start, 1) - 1
+    end_idx_excl = t_window_end
+    if end_idx_excl <= start_idx:
+        print(
+            f"[analysis_late_arrival] Effective analysis range is empty after "
+            f"aligning to t>=1 (start_idx={start_idx}, end_idx_excl={end_idx_excl})."
+        )
+        return
+
+    idx_range = np.arange(start_idx, end_idx_excl, dtype=int)
+    num_steps = int(idx_range.shape[0])
+
+    # Reset router beliefs and L2D internal state so that this analysis
+    # run starts from a fresh prior, independent of any previous calls.
+    router_partial.reset_beliefs()
+    router_full.reset_beliefs()
+    if router_partial_corr is not None:
+        router_partial_corr.reset_beliefs()
+    if router_full_corr is not None:
+        router_full_corr.reset_beliefs()
+    if router_partial_corr_em is not None:
+        router_partial_corr_em.reset_beliefs()
+    if router_full_corr_em is not None:
+        router_full_corr_em.reset_beliefs()
+    if l2d_baseline is not None:
+        l2d_baseline.reset_state()
+    if l2d_sw_baseline is not None:
+        l2d_sw_baseline.reset_state()
+
+    # Common consultation costs (shared across methods)
+    beta = router_partial.beta[: N]
+
+    # Run routers and baselines to obtain costs and choices.
+    costs_partial, choices_partial = run_router_on_env(router_partial, env)
+    costs_full, choices_full = run_router_on_env(router_full, env)
+
+    costs_partial_corr, choices_partial_corr = None, None
+    if router_partial_corr is not None:
+        costs_partial_corr, choices_partial_corr = run_router_on_env(
+            router_partial_corr, env
+        )
+
+    costs_full_corr, choices_full_corr = None, None
+    if router_full_corr is not None:
+        costs_full_corr, choices_full_corr = run_router_on_env(
+            router_full_corr, env
+        )
+
+    costs_partial_corr_em, choices_partial_corr_em = None, None
+    if router_partial_corr_em is not None:
+        costs_partial_corr_em, choices_partial_corr_em = run_router_on_env(
+            router_partial_corr_em, env
+        )
+
+    costs_full_corr_em, choices_full_corr_em = None, None
+    if router_full_corr_em is not None:
+        costs_full_corr_em, choices_full_corr_em = run_router_on_env(
+            router_full_corr_em, env
+        )
+
+    costs_l2d, choices_l2d = None, None
+    if l2d_baseline is not None:
+        costs_l2d, choices_l2d = run_l2d_on_env(l2d_baseline, env)
+
+    costs_l2d_sw, choices_l2d_sw = None, None
+    if l2d_sw_baseline is not None:
+        costs_l2d_sw, choices_l2d_sw = run_l2d_on_env(l2d_sw_baseline, env)
+
+    costs_linucb_partial, choices_linucb_partial = None, None
+    if linucb_partial is not None:
+        costs_linucb_partial, choices_linucb_partial = run_linucb_on_env(
+            linucb_partial, env
+        )
+
+    costs_linucb_full, choices_linucb_full = None, None
+    if linucb_full is not None:
+        costs_linucb_full, choices_linucb_full = run_linucb_on_env(
+            linucb_full, env
+        )
+
+    costs_neuralucb_partial, choices_neuralucb_partial = None, None
+    if neuralucb_partial is not None:
+        costs_neuralucb_partial, choices_neuralucb_partial = run_neuralucb_on_env(
+            neuralucb_partial, env
+        )
+
+    costs_neuralucb_full, choices_neuralucb_full = None, None
+    if neuralucb_full is not None:
+        costs_neuralucb_full, choices_neuralucb_full = run_neuralucb_on_env(
+            neuralucb_full, env
+        )
+
+    # Random and oracle baselines
+    costs_random, choices_random = run_random_on_env(env, beta, seed=0)
+    costs_oracle, choices_oracle = run_oracle_on_env(env, beta)
+
+    # Collect methods with valid outputs.
+    methods: list[tuple[str, np.ndarray, np.ndarray]] = [
+        ("partial", costs_partial, choices_partial),
+        ("full", costs_full, choices_full),
+        ("random", costs_random, choices_random),
+        ("oracle", costs_oracle, choices_oracle),
+    ]
+    if costs_partial_corr is not None and choices_partial_corr is not None:
+        methods.append(("partial_corr", costs_partial_corr, choices_partial_corr))
+    if costs_full_corr is not None and choices_full_corr is not None:
+        methods.append(("full_corr", costs_full_corr, choices_full_corr))
+    if costs_partial_corr_em is not None and choices_partial_corr_em is not None:
+        methods.append(("partial_corr_em", costs_partial_corr_em, choices_partial_corr_em))
+    if costs_full_corr_em is not None and choices_full_corr_em is not None:
+        methods.append(("full_corr_em", costs_full_corr_em, choices_full_corr_em))
+    if costs_l2d is not None and choices_l2d is not None:
+        methods.append(("l2d", costs_l2d, choices_l2d))
+    if costs_l2d_sw is not None and choices_l2d_sw is not None:
+        methods.append(("l2d_sw", costs_l2d_sw, choices_l2d_sw))
+    if costs_linucb_partial is not None and choices_linucb_partial is not None:
+        methods.append(("linucb_partial", costs_linucb_partial, choices_linucb_partial))
+    if costs_linucb_full is not None and choices_linucb_full is not None:
+        methods.append(("linucb_full", costs_linucb_full, choices_linucb_full))
+    if costs_neuralucb_partial is not None and choices_neuralucb_partial is not None:
+        methods.append(
+            ("neuralucb_partial", costs_neuralucb_partial, choices_neuralucb_partial)
+        )
+    if costs_neuralucb_full is not None and choices_neuralucb_full is not None:
+        methods.append(
+            ("neuralucb_full", costs_neuralucb_full, choices_neuralucb_full)
+        )
+
+    # Sanity check on index range vs arrays.
+    for _, costs_m, choices_m in methods:
+        if costs_m.shape[0] < end_idx_excl or choices_m.shape[0] < end_idx_excl:
+            raise ValueError(
+                "Inconsistent time horizon between methods and env; "
+                "costs/choices shorter than expected."
+            )
+
+    costs_oracle_window = costs_oracle[start_idx:end_idx_excl]
+
+    print(
+        f"\n=== Late-arrival analysis for expert {j_new} ===\n"
+        f"First availability interval: t in [{t_start}, {t_end}] (inclusive)\n"
+        f"Analysis window: t in [{max(t_start,1)}, {t_window_end}] "
+        f"({num_steps} steps), adoption_threshold={adoption_threshold:.2f}\n"
+    )
+    header = (
+        f"{'Method':<20} {'freq_new':>9} {'mean_cost':>11} "
+        f"{'mean_regret':>12} {'t_adopt':>9}"
+    )
+    print(header)
+    print("-" * len(header))
+
+    for name, costs_m, choices_m in methods:
+        costs_win = costs_m[start_idx:end_idx_excl]
+        choices_win = choices_m[start_idx:end_idx_excl]
+
+        sel_new = (choices_win == j_new)
+        freq_new = float(sel_new.mean()) if num_steps > 0 else 0.0
+        regret_win = float((costs_win - costs_oracle_window).mean())
+        mean_cost_win = float(costs_win.mean())
+
+        t_adopt_str = "never"
+        if num_steps > 0 and sel_new.any():
+            running_freq = np.cumsum(sel_new.astype(float)) / np.arange(
+                1, num_steps + 1, dtype=float
+            )
+            idx_adopt = np.where(running_freq >= adoption_threshold)[0]
+            if idx_adopt.size > 0:
+                t_adopt = int((start_idx + idx_adopt[0]) + 1)  # map index to time t
+                t_adopt_str = str(t_adopt)
+
+        print(
+            f"{name:<20} {freq_new:9.3f} {mean_cost_win:11.4f} "
+            f"{regret_win:12.4f} {t_adopt_str:>9}"
+        )
+
+    # ------------------------------------------------------------------
+    # Visualization: reaction to late-arriving expert
+    # ------------------------------------------------------------------
+    if num_steps > 0:
+        t_grid_win = np.arange(start_idx, end_idx_excl, dtype=int) + 1
+        t_start_eff = max(t_start, 1)
+
+        fig, (ax_freq, ax_reg) = plt.subplots(
+            2, 1, sharex=True, figsize=(10, 6)
+        )
+
+        # Running selection frequency of the new expert in the window.
+        for name, _, choices_m in methods:
+            choices_win = choices_m[start_idx:end_idx_excl]
+            sel_new = (choices_win == j_new).astype(float)
+            running_freq = np.cumsum(sel_new) / np.arange(
+                1, num_steps + 1, dtype=float
+            )
+            color = get_model_color(name)
+            ax_freq.plot(
+                t_grid_win,
+                running_freq,
+                label=name,
+                color=color,
+            )
+
+        ax_freq.axhline(
+            adoption_threshold,
+            color="gray",
+            linestyle="--",
+            linewidth=1.0,
+            label=f"adoption threshold={adoption_threshold:.2f}",
+        )
+        ax_freq.axvline(
+            t_start_eff,
+            color="black",
+            linestyle=":",
+            linewidth=1.0,
+        )
+        ax_freq.set_ylabel(f"Freq(exp {j_new})")
+        ax_freq.set_title(
+            f"Running selection frequency for late expert {j_new}"
+        )
+        ax_freq.legend(loc="upper left", fontsize=9)
+
+        # Cumulative regret vs oracle in the same window.
+        for name, costs_m, _ in methods:
+            costs_win = costs_m[start_idx:end_idx_excl]
+            delta = costs_win - costs_oracle_window
+            cum_regret = np.cumsum(delta)
+            color = get_model_color(name)
+            ax_reg.plot(
+                t_grid_win,
+                cum_regret,
+                label=name,
+                color=color,
+            )
+
+        ax_reg.axhline(0.0, color="black", linestyle="--", linewidth=1.0)
+        ax_reg.set_xlabel("Time $t$")
+        ax_reg.set_ylabel("Cumulative regret vs oracle")
+        ax_reg.set_title(
+            f"Late-arrival window cumulative regret (expert {j_new})"
+        )
+        ax_reg.legend(loc="upper left", fontsize=9)
+
+        plt.tight_layout()
+        plt.show()
