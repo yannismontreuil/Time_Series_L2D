@@ -141,8 +141,8 @@ routers:
     full_overrides:
       feature_mode: "learnable"
       feature_learning_rate: 0.001
-      shared_dim: 2
-      idiosyncratic_dim: 4
+      shared_dim: 1
+      idiosyncratic_dim: 2
       Q_g_scales: 0.001
       Q_u_scales: 0.01
       feature_arch: "mlp"
