@@ -3,7 +3,7 @@ environment:
   # Main experiment environment (slds_imm_router.py)
   num_experts: 5
   # Tuned number of regimes for correlated router (from best_corr_hyperparams.json)
-  num_regimes: 5
+  num_regimes: 2
   # Dataset setting for the synthetic environment.
   #   - "easy_setting": default, moderate noise, single regime switch.
   #   - "noisy_forgetting": higher noise and regime 0 → 1 → 0 pattern

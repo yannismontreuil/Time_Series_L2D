@@ -31,6 +31,7 @@ def _load_config(path: str = "config.yaml") -> dict:
         text = f.read()
     if yaml is not None:
         data = yaml.safe_load(text)
+        print(f"Loaded configuration from {path} using YAML parser.")
     else:
         data = json.loads(text)
     if data is None:
@@ -112,6 +113,7 @@ if __name__ == "__main__":
     # State dimension (= dim φ(x)); feature map in router_model.py currently
     # returns a 2D feature, so d must be compatible with that.
     d = int(env_cfg.get("state_dim", 2))
+
     # Number of regimes M. For the "noisy_forgetting" setting we
     # automatically use at least 5 regimes to create a more challenging
     # Markovian pattern, unless the config explicitly requests more.
@@ -123,7 +125,8 @@ if __name__ == "__main__":
         else:
             M = max(int(raw_M), default_M)
     else:
-        M = int(env_cfg.get("num_regimes", 2)) # set as 5
+        M = int(env_cfg.get("num_regimes", 2))
+    print(f"Using num_regimes = {M}.")
 
     # Risk sensitivity λ; can be scalar or length-M vector. If a
     # 2-element vector is provided while num_regimes > 2, we interpret
@@ -158,9 +161,10 @@ if __name__ == "__main__":
     else:
         A = np.tile(np.eye(d, dtype=float)[None, :, :], (M, 1, 1))
         # shape (M, d, d)
+        # identity matrix, the next is about the same as the current state
 
     # Process noise covariances Q_k: use full matrix if given; otherwise
-    # build diagonal covariances from per-regime scales Q_scales.
+    # build **diagonal** covariances from per-regime scales Q_scales.
     Q_cfg = slds_cfg.get("Q", None)
     if Q_cfg is not None:
         Q = np.asarray(Q_cfg, dtype=float)
@@ -191,15 +195,17 @@ if __name__ == "__main__":
         Q = np.zeros((M, d, d), dtype=float)
         for k in range(M):
             Q[k] = q_arr[k] * np.eye(d, dtype=float)
+            #**diagonal** covariances from per-regime scales Q_scales.
 
-    # Observation noise R_{k,j}: use full matrix if given; otherwise use
-    # a single scalar (broadcast to all regimes/experts).
+    # Observation noise R_{k,j}: observation noise variance for expert j in regime k
+    # use full matrix if given;
+    # otherwise use a single scalar (broadcast to all regimes/experts).
     R_cfg = slds_cfg.get("R", None)
     if R_cfg is not None:
         R = np.asarray(R_cfg, dtype=float)
     else:
         r_scalar = float(slds_cfg.get("R_scalar", 0.5))
-        R = np.full((M, N), r_scalar, dtype=float)
+        R = np.full((M, N), r_scalar, dtype=float) # M for regimes, N for experts
 
     # Regime transition matrix Π: if omitted, use the original 2-regime
     # example or a uniform transition for general M.
