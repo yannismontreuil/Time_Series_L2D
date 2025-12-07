@@ -205,7 +205,8 @@ if __name__ == "__main__":
         R = np.asarray(R_cfg, dtype=float)
     else:
         r_scalar = float(slds_cfg.get("R_scalar", 0.5))
-        R = np.full((M, N), r_scalar, dtype=float) # M for regimes, N for experts
+        R = np.full((M, N), r_scalar, dtype=float)
+        # M for regimes, N for experts
 
     # Regime transition matrix Π: if omitted, use the original 2-regime
     # example or a uniform transition for general M.
@@ -221,8 +222,12 @@ if __name__ == "__main__":
         else:
             # For num_regimes > 2 and mismatched Pi, fall back to a
             # simple uniform transition.
+            print("Warning: using uniform transition matrix Pi.")
             Pi = np.full((M, M), 1.0 / M, dtype=float)
-    else:
+    else: # Pi is not provided
+        print("Warning: using default transition matrix Pi."
+              "[[0.9, 0.1],"
+              "[0.2, 0.8]]")
         if M == 2:
             Pi = np.array([[0.9, 0.1], [0.2, 0.8]], dtype=float)
         else:
@@ -279,19 +284,23 @@ if __name__ == "__main__":
     # Neural SSM routers (neural replacement of SLDS routing)
     # --------------------------------------------------------
 
-    neural_cfg = routers_cfg.get("neural_ssm", {}) or {}
-    embed_dim = int(neural_cfg.get("embed_dim", 4))
-    hidden_dim = int(neural_cfg.get("hidden_dim", 8))
-    memory_dim = int(neural_cfg.get("memory_dim", 1))
-    num_ensemble = int(neural_cfg.get("num_ensemble", 3))
-    gamma_shape = float(neural_cfg.get("gamma_shape", 10.0))
-    learning_rate = float(neural_cfg.get("learning_rate", 1e-2))
-    delta_scale = float(neural_cfg.get("delta_scale", 0.1))
-    staleness_c1 = float(neural_cfg.get("staleness_c1", 0.0))
-    staleness_c2 = float(neural_cfg.get("staleness_c2", 0.0))
-    k_neighbors = int(neural_cfg.get("k_neighbors", 3))
-    exploration_mode = neural_cfg.get("exploration", "greedy")
-    epsilon_explore = float(neural_cfg.get("epsilon", 0.0))
+    '''
+    See Section 10.3/4, deprecated.
+    '''
+
+    # neural_cfg = routers_cfg.get("neural_ssm", {}) or {}
+    # embed_dim = int(neural_cfg.get("embed_dim", 4))
+    # hidden_dim = int(neural_cfg.get("hidden_dim", 8))
+    # memory_dim = int(neural_cfg.get("memory_dim", 1))
+    # num_ensemble = int(neural_cfg.get("num_ensemble", 3))
+    # gamma_shape = float(neural_cfg.get("gamma_shape", 10.0))
+    # learning_rate = float(neural_cfg.get("learning_rate", 1e-2))
+    # delta_scale = float(neural_cfg.get("delta_scale", 0.1))
+    # staleness_c1 = float(neural_cfg.get("staleness_c1", 0.0))
+    # staleness_c2 = float(neural_cfg.get("staleness_c2", 0.0))
+    # k_neighbors = int(neural_cfg.get("k_neighbors", 3))
+    # exploration_mode = neural_cfg.get("exploration", "greedy")
+    # epsilon_explore = float(neural_cfg.get("epsilon", 0.0))
 
     # router_partial_neural = NeuralSSMRouter(
     #     num_experts=N,
@@ -345,12 +354,18 @@ if __name__ == "__main__":
     )
     # Allow mode-specific overrides for the correlated router:
     # routers.slds_imm_corr.partial_overrides and
-    # routers.slds_imm_corr.full_overrides. If these keys are absent,
-    # both partial and full routers share the same hyperparameters as
+    # routers.slds_imm_corr.full_overrides.
+    # If these keys are absent, both partial and full routers share the same hyperparameters as
     # in the original implementation.
     slds_corr_partial_overrides = slds_corr_cfg.get("partial_overrides", {}) or {}
     slds_corr_full_overrides = slds_corr_cfg.get("full_overrides", {}) or {}
 
+    '''
+    See Section 5: Parameter Optimization with Expectation-Maximization (EM)
+    E-step: Compute the expected sufficient statistics of the latent variables given the current parameters.
+    M-step: Maximize the expected complete-data log-likelihood with respect to the parameters 
+            using the statistics from the E-step.
+    '''
     # Optional EM-capable correlated router configuration. If present,
     # we build an additional pair of correlated routers that perform an
     # EM-style update of dynamics/noise over an initial window.

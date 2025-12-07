@@ -3,7 +3,7 @@ environment:
   # Main experiment environment (slds_imm_router.py)
   num_experts: 5
   # Tuned number of regimes for correlated router (from best_corr_hyperparams.json)
-  num_regimes: 2
+  num_regimes: 5
   # Dataset setting for the synthetic environment.
   #   - "easy_setting": default, moderate noise, single regime switch.
   #   - "noisy_forgetting": higher noise and regime 0 → 1 → 0 pattern
@@ -52,12 +52,12 @@ routers:
 
   # Optional configuration for the independent-expert SLDS-IMM router.
   slds_imm:
-    # Optional: full A_k matrices; default is identity per regime.
-    A:
-      - [[1.0, 0.0],
-         [0.0, 1.0]]
-      - [[1.0, 0.0],
-         [0.0, 1.0]]
+    # Optional: full A_k matrices; default is identity per regime. of size M x d x d
+#    A:
+#      - [[1.0, 0.0],
+#         [0.0, 1.0]]
+#      - [[1.0, 0.0],
+#         [0.0, 1.0]]
     # Process noise covariances Q_k are built from per-regime scales.
     # Can be:
     #   - a single scalar (same scale for all regimes),
@@ -70,8 +70,17 @@ routers:
     R_scalar: 1.0
     # Regime transition matrix Π (shape [num_regimes, num_regimes]).
     Pi:
-      - [0.5, 0.5]
-      - [0.2, 0.8]
+      - [1.0, 0.0, 0.0, 0.0, 0.0]
+      - [0.0, 1.0, 0.0, 0.0, 0.0]
+      - [0.0, 0.0, 1.0, 0.0, 0.0]
+      - [0.0, 0.0, 0.0, 1.0, 0.0]
+      - [0.0, 0.0, 0.0, 0.0, 1.0]
+      # Example of more dynamic transitions:
+      # - [0.5, 0.3, 0.2, 0.0, 0.0]
+      # - [0.2, 0.3, 0.3, 0.2, 0.0]
+      # - [0.1, 0.2, 0.3, 0.1, 0.3]
+      # - [0.1, 0.2, 0.3, 0.1, 0.3]
+      # - [0.1, 0.2, 0.3, 0.1, 0.3]
     # Prior on reliability states α_{j,t} (shape [d] and [d,d]).
     pop_mean: [0.0, 0.0]
     pop_cov:
@@ -147,8 +156,18 @@ routers:
     full_overrides:
       feature_mode: "learnable"
       feature_learning_rate: 0.001
-      shared_dim: 1
-      idiosyncratic_dim: 2
+      g_mean0: [0.0, 0.0]
+      g_cov0:
+        - [1.0, 0.0]
+        - [0.0, 1.0]
+      u_mean0: [0.0, 0.0, 0.0, 0.0]
+      u_cov0:
+        - [1.0, 0.0, 0.0, 0.0]
+        - [0.0, 1.0, 0.0, 0.0]
+        - [0.0, 0.0, 1.0, 0.0]
+        - [0.0, 0.0, 0.0, 1.0]
+      shared_dim: 2
+      idiosyncratic_dim: 4
       Q_g_scales: 0.001
       Q_u_scales: 0.01
       feature_arch: "mlp"
