@@ -871,7 +871,7 @@ if __name__ == "__main__":
 
     # Plot the true series and expert predictions
     plot_time_series(env)
-
+'''
     # L2D baselines (configurable MLP/RNN, with and without sliding window)
     alpha_l2d = _resolve_vector(l2d_cfg.get("alpha", 1.0), 1.0, N)
     beta_l2d_cfg = l2d_cfg.get("beta", None)
@@ -1110,3 +1110,4 @@ if __name__ == "__main__":
             nn_learning_rate=nn_lr,
             feedback_mode="partial",
         )
+'''

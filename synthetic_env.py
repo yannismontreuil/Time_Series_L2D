@@ -130,9 +130,26 @@ class SyntheticTimeSeriesEnv:
                 # Two-regime pattern: first half regime 0, second half regime 1.
                 change_point = T // 2
                 z[change_point:] = 1
-            else:
+            elif setting == "easy_setting":
                 change_point = T // 2
                 z[change_point:] = 1
+                # Default (including "easy_setting"): divide time into M blocks,
+                # one block per regime 0, 1, 2, ..., M-1
+            elif setting == "division_by_M":
+                if M <= 2:
+                    # For 2 regimes, keep original behavior: first half 0, second half 1
+                    change_point = T // 2
+                    z[change_point:] = 1
+                else:
+                    # For M > 2, divide T into M equal blocks
+                    block_len = max(1, T // M)
+                    t = 0
+                    for k in range(M):
+                        t_end = T if k == M - 1 else min(T, t + block_len)
+                        z[t:t_end] = k
+                        t = t_end
+            else:
+                raise ValueError(f"Unknown setting: {setting}")
         self.z = z
         # Track the last time index used in get_context so that
         # expert_predict can implement regime-dependent behaviour in
