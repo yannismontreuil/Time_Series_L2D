@@ -2,7 +2,8 @@ import argparse
 import itertools
 import json
 import os
-from typing import Dict, Tuple, List
+from concurrent.futures import ProcessPoolExecutor
+from typing import Dict, Tuple, List, Any
 
 import numpy as np
 
@@ -15,6 +16,12 @@ try:
     import yaml  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
     yaml = None
+
+# Simple in-process cache for environments keyed by configuration and
+# seed. This avoids retraining ETTh1 neural-network experts and
+# regenerating synthetic time series for every hyperparameter
+# configuration in a single worker process.
+_ENV_CACHE: Dict[Tuple[Any, ...], Any] = {}
 
 
 def _load_config(path: str = "config.yaml") -> Dict:
@@ -92,41 +99,106 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
     data_source = env_cfg.get("data_source", "synthetic")
     N, _, M, setting = _get_dims_from_config(cfg, override_M=num_regimes)
 
+    # Build a cache key that captures the aspects of the environment
+    # that affect its dynamics and expert structure. This allows reuse
+    # across different hyperparameter configurations within a single
+    # worker process.
     if data_source == "etth1":
-        # Real-world ETTh1 experiment (oil temperature as target).
         T_raw = env_cfg.get("T", None)
         T_env = None if T_raw is None else int(T_raw)
         csv_path = env_cfg.get("csv_path", "Data/ETTh1.csv")
         target_column = env_cfg.get("target_column", "OT")
+        unavailable_expert_idx = env_cfg.get("unavailable_expert_idx", None)
+        unavailable_intervals = env_cfg.get("unavailable_intervals", None)
+        arrival_expert_idx = env_cfg.get("arrival_expert_idx", None)
+        arrival_intervals = env_cfg.get("arrival_intervals", None)
 
-        return ETTh1TimeSeriesEnv(
+        # Canonicalize interval lists for the cache key.
+        def _canon_intervals(intv):
+            if intv is None:
+                return None
+            return tuple(tuple(int(v) for v in pair) for pair in intv)
+
+        key: Tuple[Any, ...] = (
+            "etth1",
+            int(seed),
+            int(N),
+            int(M),
+            T_env,
+            csv_path,
+            target_column,
+            unavailable_expert_idx,
+            _canon_intervals(unavailable_intervals),
+            arrival_expert_idx,
+            _canon_intervals(arrival_intervals),
+        )
+        if key in _ENV_CACHE:
+            return _ENV_CACHE[key]
+
+        env = ETTh1TimeSeriesEnv(
             csv_path=csv_path,
             target_column=target_column,
             num_experts=N,
             num_regimes=M,
             T=T_env,
             seed=int(seed),
-            unavailable_expert_idx=env_cfg.get("unavailable_expert_idx", None),
-            unavailable_intervals=env_cfg.get("unavailable_intervals", None),
-            arrival_expert_idx=env_cfg.get("arrival_expert_idx", None),
-            arrival_intervals=env_cfg.get("arrival_intervals", None),
+            unavailable_expert_idx=unavailable_expert_idx,
+            unavailable_intervals=unavailable_intervals,
+            arrival_expert_idx=arrival_expert_idx,
+            arrival_intervals=arrival_intervals,
         )
+        _ENV_CACHE[key] = env
+        return env
 
     # Synthetic environment (default)
-    return SyntheticTimeSeriesEnv(
+    T_env = int(env_cfg.get("T", 300))
+    unavailable_expert_idx = env_cfg.get("unavailable_expert_idx", 1)
+    unavailable_intervals = env_cfg.get(
+        "unavailable_intervals", [[10, 50], [200, 250]]
+    )
+    arrival_expert_idx = env_cfg.get("arrival_expert_idx", 4)
+    arrival_intervals = env_cfg.get("arrival_intervals", [[120, 200]])
+    noise_scale = env_cfg.get("noise_scale", None)
+
+    def _canon_intv_synth(intv):
+        if intv is None:
+            return None
+        return tuple(tuple(int(v) for v in pair) for pair in intv)
+
+    key_synth: Tuple[Any, ...] = (
+        "synthetic",
+        int(seed),
+        int(N),
+        int(M),
+        T_env,
+        int(unavailable_expert_idx) if unavailable_expert_idx is not None else None,
+        _canon_intv_synth(unavailable_intervals),
+        int(arrival_expert_idx) if arrival_expert_idx is not None else None,
+        _canon_intv_synth(arrival_intervals),
+        setting,
+        noise_scale,
+    )
+    if key_synth in _ENV_CACHE:
+        return _ENV_CACHE[key_synth]
+
+    env = SyntheticTimeSeriesEnv(
         num_experts=N,
         num_regimes=M,
-        T=int(env_cfg.get("T", 300)),
+        T=T_env,
         seed=int(seed),
-        unavailable_expert_idx=int(env_cfg.get("unavailable_expert_idx", 1)),
-        unavailable_intervals=env_cfg.get(
-            "unavailable_intervals", [[10, 50], [200, 250]]
-        ),
-        arrival_expert_idx=int(env_cfg.get("arrival_expert_idx", 4)),
-        arrival_intervals=env_cfg.get("arrival_intervals", [[120, 200]]),
+        unavailable_expert_idx=int(unavailable_expert_idx)
+        if unavailable_expert_idx is not None
+        else None,
+        unavailable_intervals=unavailable_intervals,
+        arrival_expert_idx=int(arrival_expert_idx)
+        if arrival_expert_idx is not None
+        else None,
+        arrival_intervals=arrival_intervals,
         setting=setting,
-        noise_scale=env_cfg.get("noise_scale", None),
+        noise_scale=noise_scale,
     )
+    _ENV_CACHE[key_synth] = env
+    return env
 
 
 def build_correlated_routers(
@@ -592,7 +664,14 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
     if num_workers_cfg is None:
         num_workers = os.cpu_count() or 1
     else:
-        num_workers = max(1, int(num_workers_cfg))
+        try:
+            nw_raw = int(num_workers_cfg)
+        except (TypeError, ValueError):
+            nw_raw = 0
+        if nw_raw <= 0:
+            num_workers = os.cpu_count() or 1
+        else:
+            num_workers = nw_raw
 
     # Prepare all tasks
     tasks: List[Tuple[
@@ -655,28 +734,58 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
 
     results: List[Dict[str, float]] = []
 
-    # Sequential evaluation across all hyperparameter combinations.
-    # This is more robust than process-based parallelism in restricted
-    # environments and sufficient for moderate grid sizes.
-    for task in tasks:
-        result = _eval_hyperparam_task(task)
-        results.append(result)
-        print(
-            "Config:",
-            f"M={int(result['num_regimes']):d},",
-            f"lambda_risk={result['lambda_risk']:+.2f},",
-            f"q_g_scale={result['q_g_scale']:.4f},",
-            f"q_u_scale={result['q_u_scale']:.4f},",
-            f"r_scale={result['r_scale']:.4f},",
-            f"feature_mode={result['feature_mode']},",
-            f"feature_lr={result['feature_learning_rate']:.4e},",
-            f"feature_arch={result['feature_arch']},",
-            f"shared_dim={result['shared_dim']},",
-            f"id_dim={result['idiosyncratic_dim']}",
-            "|",
-            f"partial_corr={result['avg_cost_partial']:.4f}, "
-            f"full_corr={result['avg_cost_full']:.4f}",
-        )
+    if not tasks:
+        print("No valid hyperparameter combinations to evaluate.")
+        return
+
+    total_tasks = len(tasks)
+
+    # Parallel or sequential evaluation across all hyperparameter
+    # combinations, depending on num_workers. We print each result as
+    # soon as it is available so long runs do not appear stuck.
+    if num_workers <= 1:
+        for idx, task in enumerate(tasks, start=1):
+            result = _eval_hyperparam_task(task)
+            results.append(result)
+            print(
+                f"[{idx}/{total_tasks}] Config:",
+                f"M={int(result['num_regimes']):d},",
+                f"lambda_risk={result['lambda_risk']:+.2f},",
+                f"q_g_scale={result['q_g_scale']:.4f},",
+                f"q_u_scale={result['q_u_scale']:.4f},",
+                f"r_scale={result['r_scale']:.4f},",
+                f"feature_mode={result['feature_mode']},",
+                f"feature_lr={result['feature_learning_rate']:.4e},",
+                f"feature_arch={result['feature_arch']},",
+                f"shared_dim={result['shared_dim']},",
+                f"id_dim={result['idiosyncratic_dim']}",
+                "|",
+                f"partial_corr={result['avg_cost_partial']:.4f}, "
+                f"full_corr={result['avg_cost_full']:.4f}",
+            )
+    else:
+        max_workers = min(num_workers, total_tasks)
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            for idx, result in enumerate(
+                executor.map(_eval_hyperparam_task, tasks), start=1
+            ):
+                results.append(result)
+                print(
+                    f"[{idx}/{total_tasks}] Config:",
+                    f"M={int(result['num_regimes']):d},",
+                    f"lambda_risk={result['lambda_risk']:+.2f},",
+                    f"q_g_scale={result['q_g_scale']:.4f},",
+                    f"q_u_scale={result['q_u_scale']:.4f},",
+                    f"r_scale={result['r_scale']:.4f},",
+                    f"feature_mode={result['feature_mode']},",
+                    f"feature_lr={result['feature_learning_rate']:.4e},",
+                    f"feature_arch={result['feature_arch']},",
+                    f"shared_dim={result['shared_dim']},",
+                    f"id_dim={result['idiosyncratic_dim']}",
+                    "|",
+                    f"partial_corr={result['avg_cost_partial']:.4f}, "
+                    f"full_corr={result['avg_cost_full']:.4f}",
+                )
 
     # Sort results by partial-feedback correlated router performance
     results_sorted_partial = sorted(

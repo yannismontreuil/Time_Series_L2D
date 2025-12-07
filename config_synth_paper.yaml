@@ -83,6 +83,67 @@ routers:
       feature_arch: "linear"
       R_scalar: 1.0
 
+  # EM-capable correlated SLDS-IMM router: same base configuration as
+  # slds_imm_corr, but with an EM-style learning phase over the initial
+  # window t = 1,...,t_k. For the theoretical-trap experiment, Phase 1
+  # occupies t ≈ 1..999 in regime 0, so we choose t_k = 999.
+  slds_imm_corr_em:
+    exploration_mode: "ids"
+    feature_mode: "learnable"
+    # Base learning rate used in Phase 0; Phase 1 uses a 10x smaller
+    # rate by default unless overridden below, and Phase 2 defaults to
+    # freezing features (feature_lr_phase2 = 0.0).
+    feature_learning_rate: 0.001
+    feature_arch: "linear"
+    feature_hidden_dim: 4
+    feature_activation: "tanh"
+
+    shared_dim: 1
+    idiosyncratic_dim: 1
+
+    Q_g_scales: 0.001
+    Q_u_scales: 0.001
+
+    B_intercept_load: 1.0
+
+    g_mean0: [0.0]
+    g_cov0:
+      - [1.0]
+    u_mean0: [0.0]
+    u_cov0:
+      - [1.0]
+    eps: 1.0e-8
+
+    # EM-specific configuration and feature-learning schedule:
+    #   - Phase 0: t in [1, phase0_t_end] with lr ≈ feature_lr_phase0
+    #   - Phase 1: t in (phase0_t_end, em_tk] with lr ≈ feature_lr_phase1
+    #   - Phase 2: t > em_tk or training_mode=False with lr ≈ feature_lr_phase2
+    em_tk: 999
+    em_min_weight: 1.0e-6
+    em_verbose: true
+    # Use the first half of the EM window for Phase 0 pretraining.
+    phase0_t_end: 500
+    # Explicit Phase 0/1/2 learning rates (optional; if omitted, defaults
+    # inside SLDSIMMRouter_Corr_EM are used).
+    feature_lr_phase0: 0.001   # pretraining
+    feature_lr_phase1: 0.0001  # EM / SLDS training
+    feature_lr_phase2: 0.00001     # deployment (features frozen)
+
+    partial_overrides:
+      shared_dim: 1
+      idiosyncratic_dim: 1
+      Q_g_scales: 0.001
+      Q_u_scales: 0.001
+      feature_arch: "linear"
+      R_scalar: 0.001
+    full_overrides:
+      shared_dim: 1
+      idiosyncratic_dim: 1
+      Q_g_scales: 0.001
+      Q_u_scales: 0.001
+      feature_arch: "linear"
+      R_scalar: 1.0
+
   staleness_threshold: null
 
 baselines:

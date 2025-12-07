@@ -8,6 +8,219 @@ from linucb_baseline import LinUCB
 from neuralucb_baseline import NeuralUCB
 
 
+def _train_router_offline(
+    router: SLDSIMMRouter,
+    env: SyntheticTimeSeriesEnv,
+    t_train_end: int,
+    sliding_window: bool = False,
+    sliding_window_size: Optional[int] = None,
+) -> None:
+    """
+    Offline training phase for expanding-window / periodic retraining.
+
+    This function replays the environment up to time t_train_end,
+    allowing routers with a `training_mode` attribute (e.g.,
+    correlated SLDS, DPF/Neural router) to update their internal
+    parameters while tracking the posterior belief at t_train_end.
+    """
+    T = env.T
+    if t_train_end <= 1 or t_train_end >= T:
+        return
+
+    # Determine training window start index for sliding vs expanding.
+    if sliding_window and sliding_window_size is not None:
+        t_start = max(1, t_train_end - int(sliding_window_size) + 1)
+    else:
+        t_start = 1
+
+    router_name = getattr(router, "__class__", type(router)).__name__
+    print(
+        f"[offline-train] Router={router_name}, "
+        f"window=[{t_start},{t_train_end}] "
+        f"({'sliding' if sliding_window else 'expanding'})"
+    )
+
+    # Routers are expected to handle reset_beliefs and internal time
+    # counters; we fully recompute the belief state on the training
+    # window so that the final posterior at t_train_end is consistent
+    # with the updated parameters.
+    router.reset_beliefs()
+
+    has_training_mode = hasattr(router, "training_mode")
+    if has_training_mode:
+        old_mode = bool(getattr(router, "training_mode"))
+        router.training_mode = True  # enable parameter updates
+
+    T_env = env.T
+    t_end_clipped = min(t_train_end, T_env - 1)
+
+    for t in range(1, t_end_clipped + 1):
+        x_t = env.get_context(t)
+        available = env.get_available_experts(t)
+        r_t, cache = router.select_expert(x_t, available)
+        loss_all = env.losses(t)
+        loss_r = float(loss_all[r_t])
+
+        if router.feedback_mode == "partial":
+            router.update_beliefs(
+                r_t=r_t,
+                loss_obs=loss_r,
+                losses_full=None,
+                available_experts=available,
+                cache=cache,
+            )
+        else:
+            router.update_beliefs(
+                r_t=r_t,
+                loss_obs=loss_r,
+                losses_full=loss_all,
+                available_experts=available,
+                cache=cache,
+            )
+
+    if has_training_mode:
+        router.training_mode = old_mode
+
+
+def _run_router_online_window(
+    router: SLDSIMMRouter,
+    env: SyntheticTimeSeriesEnv,
+    t_start: int,
+    t_end: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Run the router on a specified time window [t_start, t_end],
+    recording costs and choices while treating parameters as frozen.
+    """
+    T = env.T
+    t_start = max(int(t_start), 1)
+    t_end = min(int(t_end), T - 1)
+    if t_start > t_end:
+        return np.zeros(0, dtype=float), np.zeros(0, dtype=int)
+
+    costs: list[float] = []
+    choices: list[int] = []
+
+    has_training_mode = hasattr(router, "training_mode")
+    if has_training_mode:
+        old_mode = bool(getattr(router, "training_mode"))
+        router.training_mode = False  # freeze parameters
+
+    router_name = getattr(router, "__class__", type(router)).__name__
+    print(
+        f"[online-run] Router={router_name}, "
+        f"eval_window=[{t_start},{t_end}] "
+        f"(training_mode={'off' if has_training_mode else 'n/a'})"
+    )
+
+    for t in range(t_start, t_end + 1):
+        x_t = env.get_context(t)
+        available = env.get_available_experts(t)
+        r_t, cache = router.select_expert(x_t, available)
+
+        loss_all = env.losses(t)
+        loss_r = float(loss_all[r_t])
+        cost_t = loss_r + router.beta[r_t]
+
+        costs.append(cost_t)
+        choices.append(int(r_t))
+
+        if router.feedback_mode == "partial":
+            router.update_beliefs(
+                r_t=r_t,
+                loss_obs=loss_r,
+                losses_full=None,
+                available_experts=available,
+                cache=cache,
+            )
+        else:
+            router.update_beliefs(
+                r_t=r_t,
+                loss_obs=loss_r,
+                losses_full=loss_all,
+                available_experts=available,
+                cache=cache,
+            )
+
+    if has_training_mode:
+        router.training_mode = old_mode
+
+    return np.asarray(costs, dtype=float), np.asarray(choices, dtype=int)
+
+
+def run_router_on_env_expanding(
+    router: SLDSIMMRouter,
+    env: SyntheticTimeSeriesEnv,
+    training_cfg: dict,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Expanding-window / periodic retraining evaluation protocol.
+
+    Configuration (training_cfg):
+      use_expanding_window : bool
+      initial_window       : int  (N_init)
+      retrain_interval     : int  (N_retrain)
+      sliding_window       : bool
+      sliding_window_size  : int  (used when sliding_window is True)
+
+    For routers without any training hooks (no training_mode attribute),
+    this function falls back to a single-pass run.
+    """
+    use_ew = bool(training_cfg.get("use_expanding_window", False))
+    if not use_ew:
+        return run_router_on_env(router, env)
+
+    T = env.T
+    N_init = int(training_cfg.get("initial_window", 300))
+    N_retrain = int(training_cfg.get("retrain_interval", 100))
+    sliding = bool(training_cfg.get("sliding_window", False))
+    sliding_size_cfg = training_cfg.get("sliding_window_size", None)
+    sliding_size = int(sliding_size_cfg) if sliding and sliding_size_cfg is not None else None
+
+    has_training_mode = hasattr(router, "training_mode")
+    # If the router cannot be trained, revert to single-pass evaluation.
+    if not has_training_mode:
+        return run_router_on_env(router, env)
+
+    # Phase 1: initial offline training on [1, N_init].
+    t_train_end = min(max(N_init, 1), T - 1)
+    _train_router_offline(
+        router,
+        env,
+        t_train_end=t_train_end,
+        sliding_window=sliding,
+        sliding_window_size=sliding_size,
+    )
+
+    costs_all: list[float] = []
+    choices_all: list[int] = []
+
+    t = t_train_end + 1
+    while t < T:
+        # Phase 2: online deployment over next interval.
+        eval_end = min(t + N_retrain - 1, T - 1)
+        costs_win, choices_win = _run_router_online_window(router, env, t, eval_end)
+        if costs_win.size > 0:
+            costs_all.extend(costs_win.tolist())
+            choices_all.extend(choices_win.tolist())
+
+        t_train_end = eval_end
+        t = eval_end + 1
+
+        if t >= T:
+            break
+
+        # Phase 3: offline retraining on expanded (or sliding) window
+        # up to t_train_end.
+        _train_router_offline(
+            router,
+            env,
+            t_train_end=t_train_end,
+            sliding_window=sliding,
+            sliding_window_size=sliding_size,
+        )
+
+    return np.asarray(costs_all, dtype=float), np.asarray(choices_all, dtype=int)
 def run_router_on_env(
     router: SLDSIMMRouter,
     env: SyntheticTimeSeriesEnv,

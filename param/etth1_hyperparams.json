@@ -1,0 +1,28 @@
+{
+  "partial": {
+    "num_regimes": 2,
+    "lambda_risk": -1.5,
+    "q_g": 0.1,
+    "q_u": 1.0,
+    "r": 2.0,
+    "feature_mode": "learnable",
+    "feature_learning_rate": 0.001,
+    "feature_arch": "mlp",
+    "shared_dim": 1,
+    "idiosyncratic_dim": 2,
+    "avg_cost": 1.2221756886454682
+  },
+  "full": {
+    "num_regimes": 3,
+    "lambda_risk": -1.5,
+    "q_g": 0.01,
+    "q_u": 2.0,
+    "r": 0.001,
+    "feature_mode": "learnable",
+    "feature_learning_rate": 0.001,
+    "feature_arch": "mlp",
+    "shared_dim": 1,
+    "idiosyncratic_dim": 2,
+    "avg_cost": 1.034358856839751
+  }
+}
