@@ -6,7 +6,6 @@ import numpy as np
 from router_model import SLDSIMMRouter, feature_phi
 from router_model_corr import SLDSIMMRouter_Corr
 from router_model_corr_em import SLDSIMMRouter_Corr_EM
-from neural_SSM import NeuralSSMRouter
 from synthetic_env import SyntheticTimeSeriesEnv
 from etth1_env import ETTh1TimeSeriesEnv
 from l2d_baseline import L2D, L2D_SW
@@ -28,7 +27,7 @@ except Exception:  # pragma: no cover - optional dependency
 def _load_config(path: str = "config.yaml") -> dict:
     if not os.path.exists(path):
         return {}
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f: # "r" means read mode
         text = f.read()
     if yaml is not None:
         data = yaml.safe_load(text)
@@ -42,10 +41,14 @@ def _load_config(path: str = "config.yaml") -> dict:
 
 
 def _resolve_vector(value, default_scalar: float, length: int) -> np.ndarray:
+    """
+    Turn vatious types of configuration input into a Numpy vector with correct length.
+    """
     if value is None:
         return np.full(length, default_scalar, dtype=float)
+    # value provided: parse and validate
     arr = np.asarray(value, dtype=float)
-    if arr.shape == ():
+    if arr.shape == (): # scalar
         return np.full(length, float(arr), dtype=float)
     if arr.shape != (length,):
         raise ValueError(f"Expected vector of length {length}, got shape {arr.shape}.")
@@ -89,9 +92,11 @@ if __name__ == "__main__":
     args = _parse_args()
     cfg = _load_config(args.config)
     env_cfg = cfg.get("environment", {})
+
     routers_cfg = cfg.get("routers", {})
     slds_cfg = routers_cfg.get("slds_imm", {}) or {}
     slds_corr_cfg = routers_cfg.get("slds_imm_corr", {}) or {}
+
     baselines_cfg = cfg.get("baselines", {})
     l2d_cfg = baselines_cfg.get("l2d", {})
     l2d_sw_cfg = baselines_cfg.get("l2d_sw", {})
@@ -118,7 +123,8 @@ if __name__ == "__main__":
         else:
             M = max(int(raw_M), default_M)
     else:
-        M = int(env_cfg.get("num_regimes", 2))
+        M = int(env_cfg.get("num_regimes", 2)) # set as 5
+
     # Risk sensitivity λ; can be scalar or length-M vector. If a
     # 2-element vector is provided while num_regimes > 2, we interpret
     # it as [λ_0, λ_other] and broadcast λ_other to regimes 1,...,M-1.
@@ -126,7 +132,7 @@ if __name__ == "__main__":
     lambda_arr = np.asarray(lambda_cfg, dtype=float)
     if lambda_arr.shape == ():
         lambda_risk = float(lambda_arr)
-    elif lambda_arr.shape == (M,):
+    elif lambda_arr.shape == (M,): # one dimension array with length M
         lambda_risk = lambda_arr
     elif lambda_arr.size == 2 and M > 2:
         lambda_broadcast = np.empty(M, dtype=float)
@@ -151,6 +157,7 @@ if __name__ == "__main__":
         A = np.asarray(A_cfg, dtype=float)
     else:
         A = np.tile(np.eye(d, dtype=float)[None, :, :], (M, 1, 1))
+        # shape (M, d, d)
 
     # Process noise covariances Q_k: use full matrix if given; otherwise
     # build diagonal covariances from per-regime scales Q_scales.

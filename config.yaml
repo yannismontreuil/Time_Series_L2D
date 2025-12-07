@@ -1,3 +1,4 @@
+# not specify data_source thus uses synthetic data generation in slds_imm_router.py
 environment:
   # Main experiment environment (slds_imm_router.py)
   num_experts: 5
@@ -19,8 +20,10 @@ environment:
   # noise_scale: 0.6
   # State dimension d = dim φ(x). The current feature map returns 2D features.
   state_dim: 2
+  # Time horizon T
   T: 1000
   seed: 42
+  # expert 1 is unavailable in these intervals
   unavailable_expert_idx: 1
   unavailable_intervals:
     - [300, 350]
@@ -29,6 +32,7 @@ environment:
     - [600, 650]
     - [700, 750]
     - [800, 850]
+  # expert 4 has arrivals only in these intervals
   arrival_expert_idx: 4
   arrival_intervals:
     - [90, 300]
@@ -49,9 +53,11 @@ routers:
   # Optional configuration for the independent-expert SLDS-IMM router.
   slds_imm:
     # Optional: full A_k matrices; default is identity per regime.
-    # A:
-    #   - [[1.0, 0.0], [0.0, 1.0]]
-    #   - [[1.0, 0.0], [0.0, 1.0]]
+    A:
+      - [[1.0, 0.0],
+         [0.0, 1.0]]
+      - [[1.0, 0.0],
+         [0.0, 1.0]]
     # Process noise covariances Q_k are built from per-regime scales.
     # Can be:
     #   - a single scalar (same scale for all regimes),
@@ -180,13 +186,20 @@ baselines:
     alpha: 1.0
     beta: null
 
+  #  Models used in the field of Contextual Multi-Armed Bandits (CMAB)
+  #  maximizing cumulative rewards by intelligently balancing
+  #  exploration (trying new actions) and
+  #  exploitation (choosing the best known action) based on observed context.
   linucb:
     # LinUCB baseline (contextual bandit on losses).
+    # UCB_α = x^T θ_hat - α * sqrt(x^T Α_a^-1 x)
     # alpha_ucb controls the optimism bonus; larger values explore more.
     alpha_ucb: 1.0
     # Ridge regularization strength for per-expert linear models.
     lambda_reg: 1.0
 
+  # First transform the context features via a neural network to feature space,
+  # then apply LinUCB in that feature space.
   neural_ucb:
     # NeuralUCB baseline (NeuralLinear approximation).
     alpha_ucb: 1.0

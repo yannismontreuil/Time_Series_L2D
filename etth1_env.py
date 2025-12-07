@@ -83,7 +83,7 @@ class ETTh1TimeSeriesEnv:
         if T is None:
             T_eff = y_arr.shape[0]
         else:
-            T_eff = int(T)
+            # T_eff = int(T)
             T_eff = max(2, min(T_eff, y_arr.shape[0]))
             y_arr = y_arr[:T_eff]
 
