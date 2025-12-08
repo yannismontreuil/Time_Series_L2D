@@ -8,6 +8,7 @@ from typing import Dict, Tuple, List, Any
 import numpy as np
 
 from router_model_corr import SLDSIMMRouter_Corr, feature_phi
+from router_model_recurrent import RecurrentSLDSRouter
 from synthetic_env import SyntheticTimeSeriesEnv
 from etth1_env import ETTh1TimeSeriesEnv
 from router_eval import run_router_on_env
@@ -87,6 +88,78 @@ def _get_dims_from_config(cfg: Dict, override_M: int | None = None) -> Tuple[int
             M = int(env_cfg.get("num_regimes", 2))
 
     return N, d, M, setting
+
+
+def _build_base_slds_params(
+    cfg: Dict,
+    N: int,
+    d: int,
+    M: int,
+    q_scale: float,
+    r_scale: float,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Reuse the main experiment defaults for A, Q, R, and Pi, with optional
+    scaling for process/observation noise.
+    """
+    routers_cfg = cfg.get("routers", {})
+    slds_cfg = routers_cfg.get("slds_imm", {}) or {}
+
+    # Transition matrices A_k
+    A_cfg = slds_cfg.get("A", None)
+    if A_cfg is not None:
+        A = np.asarray(A_cfg, dtype=float)
+    else:
+        A = np.tile(np.eye(d, dtype=float)[None, :, :], (M, 1, 1))
+
+    # Process noise Q_k
+    Q_cfg = slds_cfg.get("Q", None)
+    if Q_cfg is not None:
+        Q_base = np.asarray(Q_cfg, dtype=float)
+    else:
+        q_scales_cfg = slds_cfg.get("Q_scales", None)
+        if q_scales_cfg is None:
+            q_scales_cfg = 1.0
+        q_arr = np.asarray(q_scales_cfg, dtype=float)
+        if q_arr.shape == ():
+            q_vec = np.full(M, float(q_arr), dtype=float)
+        elif q_arr.shape == (M,):
+            q_vec = q_arr.astype(float)
+        elif q_arr.size == 2 and M > 2:
+            q_vec = np.empty(M, dtype=float)
+            q_vec[0] = float(q_arr[0])
+            q_vec[1:] = float(q_arr[1])
+        else:
+            q_vec = np.full(M, float(q_arr.mean()), dtype=float)
+        Q_base = np.zeros((M, d, d), dtype=float)
+        for k in range(M):
+            Q_base[k] = q_vec[k] * np.eye(d, dtype=float)
+    Q = Q_base * float(q_scale)
+
+    # Observation noise R_{k,j}
+    R_cfg = slds_cfg.get("R", None)
+    if R_cfg is not None:
+        R_base = np.asarray(R_cfg, dtype=float)
+    else:
+        r_scalar = float(slds_cfg.get("R_scalar", 0.5))
+        R_base = np.full((M, N), r_scalar, dtype=float)
+    R = R_base * float(r_scale)
+
+    # Regime transition matrix Π
+    Pi_cfg = slds_cfg.get("Pi", None)
+    if Pi_cfg is not None:
+        Pi_raw = np.asarray(Pi_cfg, dtype=float)
+        if Pi_raw.shape == (M, M):
+            Pi = Pi_raw
+        else:
+            Pi = np.full((M, M), 1.0 / M, dtype=float)
+    else:
+        if M == 2:
+            Pi = np.array([[0.9, 0.1], [0.2, 0.8]], dtype=float)
+        else:
+            Pi = np.full((M, M), 1.0 / M, dtype=float)
+
+    return A, Q, R, Pi
 
 
 def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
@@ -443,6 +516,132 @@ def build_correlated_routers(
     return router_partial_corr, router_full_corr
 
 
+def build_recurrent_routers(
+    lambda_risk: float,
+    q_scale: float,
+    r_scale: float,
+    c_scale: float,
+    stick_gamma_scale: float,
+    cfg: Dict,
+    num_regimes: int | None = None,
+) -> Tuple[RecurrentSLDSRouter, RecurrentSLDSRouter]:
+    """
+    Construct partial- and full-feedback RecurrentSLDSRouter instances
+    with scaled noise, recurrence, and optional stick-breaking gating.
+    """
+    N, d, M, _ = _get_dims_from_config(cfg, override_M=num_regimes)
+    routers_cfg = cfg.get("routers", {})
+    slds_recurrent_cfg = routers_cfg.get("slds_imm_recurrent", {}) or {}
+
+    beta = _resolve_vector(routers_cfg.get("beta", None), 0.0, N)
+
+    # Base SLDS params
+    A, Q, R, Pi = _build_base_slds_params(
+        cfg=cfg, N=N, d=d, M=M, q_scale=q_scale, r_scale=r_scale
+    )
+
+    # Recurrent bias C
+    C_cfg = slds_recurrent_cfg.get("C", None)
+    if C_cfg is not None:
+        C_base = np.asarray(C_cfg, dtype=float)
+        if C_base.shape != (M, N, d):
+            C_base = np.zeros((M, N, d), dtype=float)
+    else:
+        C_base = np.zeros((M, N, d), dtype=float)
+    C = C_base * float(c_scale)
+
+    # Stick-breaking parameters (optional)
+    stick_gamma_cfg = slds_recurrent_cfg.get("stick_gamma", None)
+    stick_kappa_cfg = slds_recurrent_cfg.get("stick_kappa", None)
+    if stick_gamma_cfg is not None and stick_kappa_cfg is not None:
+        stick_gamma = np.asarray(stick_gamma_cfg, dtype=float) * float(
+            stick_gamma_scale
+        )
+        stick_kappa = np.asarray(stick_kappa_cfg, dtype=float)
+    else:
+        stick_gamma = None
+        stick_kappa = None
+
+    eps = float(slds_recurrent_cfg.get("eps", routers_cfg.get("eps", 1e-8)))
+
+    router_partial_rec = RecurrentSLDSRouter(
+        num_experts=N,
+        num_regimes=M,
+        state_dim=d,
+        feature_fn=feature_phi,
+        A=A,
+        Q=Q,
+        R=R,
+        Pi=Pi,
+        C=C,
+        beta=beta,
+        lambda_risk=lambda_risk,
+        feedback_mode="partial",
+        eps=eps,
+        stick_gamma=stick_gamma,
+        stick_kappa=stick_kappa,
+    )
+
+    router_full_rec = RecurrentSLDSRouter(
+        num_experts=N,
+        num_regimes=M,
+        state_dim=d,
+        feature_fn=feature_phi,
+        A=A,
+        Q=Q,
+        R=R,
+        Pi=Pi,
+        C=C,
+        beta=beta,
+        lambda_risk=lambda_risk,
+        feedback_mode="full",
+        eps=eps,
+        stick_gamma=stick_gamma,
+        stick_kappa=stick_kappa,
+    )
+
+    return router_partial_rec, router_full_rec
+
+
+def evaluate_config_recurrent(
+    lambda_risk: float,
+    q_scale: float,
+    r_scale: float,
+    c_scale: float,
+    stick_gamma_scale: float,
+    num_regimes: int,
+    seeds: List[int],
+    cfg: Dict,
+) -> Tuple[float, float]:
+    """
+    Average recurrent-router costs over a list of seeds for one configuration.
+
+    Returns (avg_cost_partial_rec, avg_cost_full_rec).
+    """
+    costs_partial: List[float] = []
+    costs_full: List[float] = []
+
+    for seed in seeds:
+        env = build_environment(seed, cfg, num_regimes=num_regimes)
+        router_partial_rec, router_full_rec = build_recurrent_routers(
+            lambda_risk=lambda_risk,
+            q_scale=q_scale,
+            r_scale=r_scale,
+            c_scale=c_scale,
+            stick_gamma_scale=stick_gamma_scale,
+            cfg=cfg,
+            num_regimes=num_regimes,
+        )
+
+        c_partial, _ = run_router_on_env(router_partial_rec, env)  # type: ignore[arg-type]
+        c_full, _ = run_router_on_env(router_full_rec, env)  # type: ignore[arg-type]
+
+        costs_partial.append(float(c_partial.mean()))
+        costs_full.append(float(c_full.mean()))
+
+    return float(np.mean(costs_partial)), float(np.mean(costs_full))
+
+
 def evaluate_config(
     lambda_risk: float,
     q_g_scale: float,
@@ -482,8 +681,8 @@ def evaluate_config(
             idiosyncratic_dim=idiosyncratic_dim,
         )
 
-        c_partial, _ = run_router_on_env(router_partial_corr, env)
-        c_full, _ = run_router_on_env(router_full_corr, env)
+        c_partial, _ = run_router_on_env(router_partial_corr, env)  # type: ignore[arg-type]
+        c_full, _ = run_router_on_env(router_full_corr, env)  # type: ignore[arg-type]
 
         costs_partial.append(float(c_partial.mean()))
         costs_full.append(float(c_full.mean()))
@@ -506,7 +705,7 @@ def _eval_hyperparam_task(
         List[int],
         Dict,
     ],
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """
     Worker function for parallel hyperparameter evaluation.
 
@@ -563,6 +762,50 @@ def _eval_hyperparam_task(
         "feature_arch": str(feature_arch),
         "shared_dim": int(shared_dim),
         "idiosyncratic_dim": int(id_dim),
+        "avg_cost_partial": float(avg_partial),
+        "avg_cost_full": float(avg_full),
+    }
+
+
+def _eval_rec_task(
+    task: Tuple[
+        int,
+        float,
+        float,
+        float,
+        float,
+        float,
+        List[int],
+        Dict,
+    ]
+) -> Dict[str, float]:
+    (
+        M_rec,
+        lambda_risk_rec,
+        q_scale_rec,
+        r_scale_rec,
+        c_scale_rec,
+        stick_scale_rec,
+        seeds_rec,
+        cfg_rec,
+    ) = task
+    avg_partial, avg_full = evaluate_config_recurrent(
+        lambda_risk=lambda_risk_rec,
+        q_scale=q_scale_rec,
+        r_scale=r_scale_rec,
+        c_scale=c_scale_rec,
+        stick_gamma_scale=stick_scale_rec,
+        num_regimes=M_rec,
+        seeds=seeds_rec,
+        cfg=cfg_rec,
+    )
+    return {
+        "num_regimes": float(M_rec),
+        "lambda_risk": float(lambda_risk_rec),
+        "q_scale": float(q_scale_rec),
+        "r_scale": float(r_scale_rec),
+        "c_scale": float(c_scale_rec),
+        "stick_gamma_scale": float(stick_scale_rec),
         "avg_cost_partial": float(avg_partial),
         "avg_cost_full": float(avg_full),
     }
@@ -673,7 +916,26 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
         else:
             num_workers = nw_raw
 
-    # Prepare all tasks
+    # r-SLDS grid (optional)
+    rec_cfg = search_cfg.get("r_slds", {})
+    lambda_risk_grid_rec = rec_cfg.get(
+        "lambda_risk_grid", [-0.2, 0.0, 0.2]
+    )
+    q_scale_grid_rec = rec_cfg.get("q_scale_grid", [0.5, 1.0, 2.0])
+    r_scale_grid_rec = rec_cfg.get("r_scale_grid", [0.5, 1.0, 2.0])
+    c_scale_grid_rec = rec_cfg.get("c_scale_grid", [0.2, 0.5, 1.0])
+    stick_gamma_scale_grid = rec_cfg.get(
+        "stick_gamma_scale_grid", [0.0, 0.5, 1.0]
+    )
+    num_regimes_grid_rec_raw = rec_cfg.get("num_regimes_grid", None)
+    if num_regimes_grid_rec_raw is None:
+        num_regimes_grid_rec = num_regimes_grid
+    else:
+        num_regimes_grid_rec = sorted({max(2, int(m)) for m in num_regimes_grid_rec_raw})
+        if not num_regimes_grid_rec:
+            num_regimes_grid_rec = num_regimes_grid
+
+    # Prepare correlated-router tasks
     tasks: List[Tuple[
         int,
         float,
@@ -732,46 +994,59 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
                 )
             )
 
+    # Prepare r-SLDS tasks
+    tasks_rec: List[Tuple[
+        int,
+        float,
+        float,
+        float,
+        float,
+        float,
+        List[int],
+        Dict,
+    ]] = []
+    for M_rec in num_regimes_grid_rec:
+        for (
+            lambda_risk_rec,
+            q_scale_rec,
+            r_scale_rec,
+            c_scale_rec,
+            stick_scale_rec,
+        ) in itertools.product(
+            lambda_risk_grid_rec,
+            q_scale_grid_rec,
+            r_scale_grid_rec,
+            c_scale_grid_rec,
+            stick_gamma_scale_grid,
+        ):
+            tasks_rec.append(
+                (
+                    int(M_rec),
+                    float(lambda_risk_rec),
+                    float(q_scale_rec),
+                    float(r_scale_rec),
+                    float(c_scale_rec),
+                    float(stick_scale_rec),
+                    seeds,
+                    cfg,
+                )
+            )
+
     results: List[Dict[str, float]] = []
 
-    if not tasks:
+    if not tasks and not tasks_rec:
         print("No valid hyperparameter combinations to evaluate.")
         return
 
-    total_tasks = len(tasks)
-
-    # Parallel or sequential evaluation across all hyperparameter
-    # combinations, depending on num_workers. We print each result as
-    # soon as it is available so long runs do not appear stuck.
-    if num_workers <= 1:
-        for idx, task in enumerate(tasks, start=1):
-            result = _eval_hyperparam_task(task)
-            results.append(result)
-            print(
-                f"[{idx}/{total_tasks}] Config:",
-                f"M={int(result['num_regimes']):d},",
-                f"lambda_risk={result['lambda_risk']:+.2f},",
-                f"q_g_scale={result['q_g_scale']:.4f},",
-                f"q_u_scale={result['q_u_scale']:.4f},",
-                f"r_scale={result['r_scale']:.4f},",
-                f"feature_mode={result['feature_mode']},",
-                f"feature_lr={result['feature_learning_rate']:.4e},",
-                f"feature_arch={result['feature_arch']},",
-                f"shared_dim={result['shared_dim']},",
-                f"id_dim={result['idiosyncratic_dim']}",
-                "|",
-                f"partial_corr={result['avg_cost_partial']:.4f}, "
-                f"full_corr={result['avg_cost_full']:.4f}",
-            )
-    else:
-        max_workers = min(num_workers, total_tasks)
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            for idx, result in enumerate(
-                executor.map(_eval_hyperparam_task, tasks), start=1
-            ):
+    # Evaluate correlated-router tasks
+    if tasks:
+        total_tasks = len(tasks)
+        if num_workers <= 1:
+            for idx, task in enumerate(tasks, start=1):
+                result = _eval_hyperparam_task(task)
                 results.append(result)
                 print(
-                    f"[{idx}/{total_tasks}] Config:",
+                    f"[{idx}/{total_tasks}] Corr Config:",
                     f"M={int(result['num_regimes']):d},",
                     f"lambda_risk={result['lambda_risk']:+.2f},",
                     f"q_g_scale={result['q_g_scale']:.4f},",
@@ -786,86 +1061,234 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
                     f"partial_corr={result['avg_cost_partial']:.4f}, "
                     f"full_corr={result['avg_cost_full']:.4f}",
                 )
+        else:
+            max_workers = min(num_workers, len(tasks))
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                for idx, result in enumerate(
+                    executor.map(_eval_hyperparam_task, tasks), start=1
+                ):
+                    results.append(result)
+                    print(
+                        f"[{idx}/{len(tasks)}] Corr Config:",
+                        f"M={int(result['num_regimes']):d},",
+                        f"lambda_risk={result['lambda_risk']:+.2f},",
+                        f"q_g_scale={result['q_g_scale']:.4f},",
+                        f"q_u_scale={result['q_u_scale']:.4f},",
+                        f"r_scale={result['r_scale']:.4f},",
+                        f"feature_mode={result['feature_mode']},",
+                        f"feature_lr={result['feature_learning_rate']:.4e},",
+                        f"feature_arch={result['feature_arch']},",
+                        f"shared_dim={result['shared_dim']},",
+                        f"id_dim={result['idiosyncratic_dim']}",
+                        "|",
+                        f"partial_corr={result['avg_cost_partial']:.4f}, "
+                        f"full_corr={result['avg_cost_full']:.4f}",
+                    )
 
-    # Sort results by partial-feedback correlated router performance
-    results_sorted_partial = sorted(
-        results,
-        key=lambda r: r["avg_cost_partial"],
-    )
-    best_partial = results_sorted_partial[0]
+    # Evaluate r-SLDS tasks
+    results_rec: List[Dict[str, Any]] = []
+    if tasks_rec:
+        if num_workers <= 1:
+            for idx, task in enumerate(tasks_rec, start=1):
+                (
+                    M_rec,
+                    lambda_risk_rec,
+                    q_scale_rec,
+                    r_scale_rec,
+                    c_scale_rec,
+                    stick_scale_rec,
+                    seeds_rec,
+                    cfg_rec,
+                ) = task
+                avg_partial, avg_full = evaluate_config_recurrent(
+                    lambda_risk=lambda_risk_rec,
+                    q_scale=q_scale_rec,
+                    r_scale=r_scale_rec,
+                    c_scale=c_scale_rec,
+                    stick_gamma_scale=stick_scale_rec,
+                    num_regimes=M_rec,
+                    seeds=seeds_rec,
+                    cfg=cfg_rec,
+                )
+                result_rec = {
+                    "num_regimes": int(M_rec),
+                    "lambda_risk": float(lambda_risk_rec),
+                    "q_scale": float(q_scale_rec),
+                    "r_scale": float(r_scale_rec),
+                    "c_scale": float(c_scale_rec),
+                    "stick_gamma_scale": float(stick_scale_rec),
+                    "avg_cost_partial": float(avg_partial),
+                    "avg_cost_full": float(avg_full),
+                }
+                results_rec.append(result_rec)
+                print(
+                    f"[{idx}/{len(tasks_rec)}] r-SLDS Config:",
+                    f"M={int(M_rec):d},",
+                    f"lambda_risk={lambda_risk_rec:+.2f},",
+                    f"q_scale={q_scale_rec:.3f},",
+                    f"r_scale={r_scale_rec:.3f},",
+                    f"c_scale={c_scale_rec:.3f},",
+                    f"stick_gamma_scale={stick_scale_rec:.3f}",
+                    "|",
+                    f"partial_r_slds={avg_partial:.4f}, "
+                    f"full_r_slds={avg_full:.4f}",
+                )
+        else:
+            max_workers_rec = min(num_workers, len(tasks_rec))
+            with ProcessPoolExecutor(max_workers=max_workers_rec) as executor:
+                for idx, result_rec in enumerate(
+                    executor.map(_eval_rec_task, tasks_rec), start=1
+                ):
+                    results_rec.append(result_rec)
+                    print(
+                        f"[{idx}/{len(tasks_rec)}] r-SLDS Config:",
+                        f"M={int(result_rec['num_regimes']):d},",
+                        f"lambda_risk={result_rec['lambda_risk']:+.2f},",
+                        f"q_scale={result_rec['q_scale']:.3f},",
+                        f"r_scale={result_rec['r_scale']:.3f},",
+                        f"c_scale={result_rec['c_scale']:.3f},",
+                        f"stick_gamma_scale={result_rec['stick_gamma_scale']:.3f}",
+                        "|",
+                        f"partial_r_slds={result_rec['avg_cost_partial']:.4f}, "
+                        f"full_r_slds={result_rec['avg_cost_full']:.4f}",
+                    )
 
-    # Sort results by full-feedback correlated router performance
-    results_sorted_full = sorted(
-        results,
-        key=lambda r: r["avg_cost_full"],
-    )
-    best_full = results_sorted_full[0]
+    if results:
+        results_sorted_partial = sorted(
+            results,
+            key=lambda r: r["avg_cost_partial"],
+        )
+        best_partial = results_sorted_partial[0]
 
-    print("\n=== Best config (correlated, partial feedback) ===")
-    print(
-        f"M={int(best_partial['num_regimes'])}, "
-        f"lambda_risk={best_partial['lambda_risk']:+.2f}, "
-        f"q_g_scale={best_partial['q_g_scale']:.4f}, "
-        f"q_u_scale={best_partial['q_u_scale']:.4f}, "
-        f"r_scale={best_partial['r_scale']:.4f}, "
-        f"feature_mode={best_partial['feature_mode']}, "
-        f"feature_lr={best_partial['feature_learning_rate']:.4e}, "
-        f"feature_arch={best_partial['feature_arch']}, "
-        f"shared_dim={best_partial['shared_dim']}, "
-        f"idiosyncratic_dim={best_partial['idiosyncratic_dim']} | "
-        f"avg_cost_partial_corr={best_partial['avg_cost_partial']:.4f}"
-    )
+        results_sorted_full = sorted(
+            results,
+            key=lambda r: r["avg_cost_full"],
+        )
+        best_full = results_sorted_full[0]
 
-    print("\n=== Best config (correlated, full feedback) ===")
-    print(
-        f"M={int(best_full['num_regimes'])}, "
-        f"lambda_risk={best_full['lambda_risk']:+.2f}, "
-        f"q_g_scale={best_full['q_g_scale']:.4f}, "
-        f"q_u_scale={best_full['q_u_scale']:.4f}, "
-        f"r_scale={best_full['r_scale']:.4f}, "
-        f"feature_mode={best_full['feature_mode']}, "
-        f"feature_lr={best_full['feature_learning_rate']:.4e}, "
-        f"feature_arch={best_full['feature_arch']}, "
-        f"shared_dim={best_full['shared_dim']}, "
-        f"idiosyncratic_dim={best_full['idiosyncratic_dim']} | "
-        f"avg_cost_full_corr={best_full['avg_cost_full']:.4f}"
-    )
+        print("\n=== Best config (correlated, partial feedback) ===")
+        print(
+            f"M={int(best_partial['num_regimes'])}, "
+            f"lambda_risk={best_partial['lambda_risk']:+.2f}, "
+            f"q_g_scale={best_partial['q_g_scale']:.4f}, "
+            f"q_u_scale={best_partial['q_u_scale']:.4f}, "
+            f"r_scale={best_partial['r_scale']:.4f}, "
+            f"feature_mode={best_partial['feature_mode']}, "
+            f"feature_lr={best_partial['feature_learning_rate']:.4e}, "
+            f"feature_arch={best_partial['feature_arch']}, "
+            f"shared_dim={best_partial['shared_dim']}, "
+            f"idiosyncratic_dim={best_partial['idiosyncratic_dim']} | "
+            f"avg_cost_partial_corr={best_partial['avg_cost_partial']:.4f}"
+        )
 
-    # Save best hyperparameters to a dedicated file for later use.
-    best_params = {
-        "partial": {
-            "num_regimes": int(best_partial["num_regimes"]),
-            "lambda_risk": float(best_partial["lambda_risk"]),
-            "q_g": float(best_partial["q_g_scale"]),
-            "q_u": float(best_partial["q_u_scale"]),
-            "r": float(best_partial["r_scale"]),
-            "feature_mode": str(best_partial["feature_mode"]),
-            "feature_learning_rate": float(best_partial["feature_learning_rate"]),
-            "feature_arch": str(best_partial["feature_arch"]),
-            "shared_dim": int(best_partial["shared_dim"]),
-            "idiosyncratic_dim": int(best_partial["idiosyncratic_dim"]),
-            "avg_cost": float(best_partial["avg_cost_partial"]),
-        },
-        "full": {
-            "num_regimes": int(best_full["num_regimes"]),
-            "lambda_risk": float(best_full["lambda_risk"]),
-            "q_g": float(best_full["q_g_scale"]),
-            "q_u": float(best_full["q_u_scale"]),
-            "r": float(best_full["r_scale"]),
-            "feature_mode": str(best_full["feature_mode"]),
-            "feature_learning_rate": float(best_full["feature_learning_rate"]),
-            "feature_arch": str(best_full["feature_arch"]),
-            "shared_dim": int(best_full["shared_dim"]),
-            "idiosyncratic_dim": int(best_full["idiosyncratic_dim"]),
-            "avg_cost": float(best_full["avg_cost_full"]),
-        },
-    }
-    os.makedirs("param", exist_ok=True)
-    out_path = os.path.join("param", "best_corr_hyperparams.json")
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(best_params, f, indent=2)
+        print("\n=== Best config (correlated, full feedback) ===")
+        print(
+            f"M={int(best_full['num_regimes'])}, "
+            f"lambda_risk={best_full['lambda_risk']:+.2f}, "
+            f"q_g_scale={best_full['q_g_scale']:.4f}, "
+            f"q_u_scale={best_full['q_u_scale']:.4f}, "
+            f"r_scale={best_full['r_scale']:.4f}, "
+            f"feature_mode={best_full['feature_mode']}, "
+            f"feature_lr={best_full['feature_learning_rate']:.4e}, "
+            f"feature_arch={best_full['feature_arch']}, "
+            f"shared_dim={best_full['shared_dim']}, "
+            f"idiosyncratic_dim={best_full['idiosyncratic_dim']} | "
+            f"avg_cost_full_corr={best_full['avg_cost_full']:.4f}"
+        )
 
-    print(f"\nSaved best hyperparameters to {out_path}")
+        best_params = {
+            "partial": {
+                "num_regimes": int(best_partial["num_regimes"]),
+                "lambda_risk": float(best_partial["lambda_risk"]),
+                "q_g": float(best_partial["q_g_scale"]),
+                "q_u": float(best_partial["q_u_scale"]),
+                "r": float(best_partial["r_scale"]),
+                "feature_mode": str(best_partial["feature_mode"]),
+                "feature_learning_rate": float(best_partial["feature_learning_rate"]),
+                "feature_arch": str(best_partial["feature_arch"]),
+                "shared_dim": int(best_partial["shared_dim"]),
+                "idiosyncratic_dim": int(best_partial["idiosyncratic_dim"]),
+                "avg_cost": float(best_partial["avg_cost_partial"]),
+            },
+            "full": {
+                "num_regimes": int(best_full["num_regimes"]),
+                "lambda_risk": float(best_full["lambda_risk"]),
+                "q_g": float(best_full["q_g_scale"]),
+                "q_u": float(best_full["q_u_scale"]),
+                "r": float(best_full["r_scale"]),
+                "feature_mode": str(best_full["feature_mode"]),
+                "feature_learning_rate": float(best_full["feature_learning_rate"]),
+                "feature_arch": str(best_full["feature_arch"]),
+                "shared_dim": int(best_full["shared_dim"]),
+                "idiosyncratic_dim": int(best_full["idiosyncratic_dim"]),
+                "avg_cost": float(best_full["avg_cost_full"]),
+            },
+        }
+        os.makedirs("param", exist_ok=True)
+        out_path = os.path.join("param", "best_corr_hyperparams.json")
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(best_params, f, indent=2)
+
+        print(f"\nSaved best hyperparameters to {out_path}")
+
+    if results_rec:
+        results_rec_sorted_partial = sorted(
+            results_rec, key=lambda r: r["avg_cost_partial"]
+        )
+        best_rec_partial = results_rec_sorted_partial[0]
+
+        results_rec_sorted_full = sorted(
+            results_rec, key=lambda r: r["avg_cost_full"]
+        )
+        best_rec_full = results_rec_sorted_full[0]
+
+        print("\n=== Best config (r-SLDS, partial feedback) ===")
+        print(
+            f"M={int(best_rec_partial['num_regimes'])}, "
+            f"lambda_risk={best_rec_partial['lambda_risk']:+.2f}, "
+            f"q_scale={best_rec_partial['q_scale']:.4f}, "
+            f"r_scale={best_rec_partial['r_scale']:.4f}, "
+            f"c_scale={best_rec_partial['c_scale']:.4f}, "
+            f"stick_gamma_scale={best_rec_partial['stick_gamma_scale']:.4f} | "
+            f"avg_cost_partial_r_slds={best_rec_partial['avg_cost_partial']:.4f}"
+        )
+
+        print("\n=== Best config (r-SLDS, full feedback) ===")
+        print(
+            f"M={int(best_rec_full['num_regimes'])}, "
+            f"lambda_risk={best_rec_full['lambda_risk']:+.2f}, "
+            f"q_scale={best_rec_full['q_scale']:.4f}, "
+            f"r_scale={best_rec_full['r_scale']:.4f}, "
+            f"c_scale={best_rec_full['c_scale']:.4f}, "
+            f"stick_gamma_scale={best_rec_full['stick_gamma_scale']:.4f} | "
+            f"avg_cost_full_r_slds={best_rec_full['avg_cost_full']:.4f}"
+        )
+
+        best_params_rec = {
+            "partial": {
+                "num_regimes": int(best_rec_partial["num_regimes"]),
+                "lambda_risk": float(best_rec_partial["lambda_risk"]),
+                "q": float(best_rec_partial["q_scale"]),
+                "r": float(best_rec_partial["r_scale"]),
+                "c_scale": float(best_rec_partial["c_scale"]),
+                "stick_gamma_scale": float(best_rec_partial["stick_gamma_scale"]),
+                "avg_cost": float(best_rec_partial["avg_cost_partial"]),
+            },
+            "full": {
+                "num_regimes": int(best_rec_full["num_regimes"]),
+                "lambda_risk": float(best_rec_full["lambda_risk"]),
+                "q": float(best_rec_full["q_scale"]),
+                "r": float(best_rec_full["r_scale"]),
+                "c_scale": float(best_rec_full["c_scale"]),
+                "stick_gamma_scale": float(best_rec_full["stick_gamma_scale"]),
+                "avg_cost": float(best_rec_full["avg_cost_full"]),
+            },
+        }
+        out_path_rec = os.path.join("param", "best_r_slds_hyperparams.json")
+        with open(out_path_rec, "w", encoding="utf-8") as f:
+            json.dump(best_params_rec, f, indent=2)
+
+        print(f"\nSaved best r-SLDS hyperparameters to {out_path_rec}")
 
 
 if __name__ == "__main__":
@@ -879,7 +1302,7 @@ if __name__ == "__main__":
         "--config",
         "-c",
         type=str,
-        default="config.yaml",
+        default="config_trial.yaml",
         help="Path to YAML/JSON configuration file (default: config.yaml).",
     )
     args = parser.parse_args()

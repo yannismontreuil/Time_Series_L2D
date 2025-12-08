@@ -103,14 +103,13 @@ routers:
   # Optional configuration for the correlated-expert SLDS-IMM router.
   # If omitted, defaults matching the original example are used.
   slds_imm_corr:
-    # Base configuration (used as-is for the partial-feedback correlated
-    # router, unless partial_overrides are provided).
-    exploration_mode: "ids"
-    feature_mode: "learnable"
-    feature_learning_rate: 0.001
-    # Learnable feature architecture: "linear" or "mlp".
+    # Base configuration aligned to best partial-feedback correlated router.
+    exploration_mode: "greedy"
+    feature_mode: "fixed"
+    feature_learning_rate: 0.0
+    # Feature architecture: "linear" (no hidden layers in fixed mode).
     feature_arch: "linear"
-    # Hidden size for MLP features (used when feature_arch: "mlp").
+    # Hidden size for MLP features (only relevant if feature_arch: "mlp").
     feature_hidden_dim: 4
     # Nonlinearity for MLP features: "tanh" or "relu".
     feature_activation: "tanh"
@@ -119,13 +118,14 @@ routers:
     idiosyncratic_dim: 2
     # Shared-factor dynamics A_gk default to identity; Q_gk built from scales.
     # Hyperparameter-tuned absolute value for shared-factor process noise
-    # (updated from param/best_corr_hyperparams.json: q_g=0.001).
-    Q_g_scales: 0.001
+    # (best partial: q_g = 0.01).
+    Q_g_scales: 0.01
     # Idiosyncratic dynamics A_uk default to identity; Q_uk built from scales.
-    # Hyperparameter-tuned absolute value for idiosyncratic process noise.
+    # Hyperparameter-tuned absolute value for idiosyncratic process noise
+    # (best partial: q_u = 0.001).
     Q_u_scales: 0.001
     # Observation noise R_{k,j} for the correlated router (base/partial mode).
-    # Partial best hyperparameters use r = 1.0.
+    # Best partial uses r = 1.0.
     R_scalar: 1.0
     # Shared-factor loadings B_j: first feature loads on shared factor with
     # this scalar (same for all experts).
@@ -147,41 +147,30 @@ routers:
     # structure. Any field set here overrides the corresponding field
     # above for that mode only.
 
-    # For the current best hyperparameters (see param/best_corr_hyperparams.json):
-    #   - partial: shared_dim=1, idiosyncratic_dim=2, Q_g=0.001, Q_u=0.001,
-    #              feature_arch="linear", r=1.0
-    #   - full:    shared_dim=2, idiosyncratic_dim=4, Q_g=0.001, Q_u=0.01,
-    #              feature_arch="mlp", r=0.1
-    #
-    # We explicitly mirror both here so you can edit either mode
-    # independently without touching the base block above.
+    # Best hyperparameters (see param/best_corr_hyperparams.json):
+    #   partial: M=2, lambda_risk=0.0, q_g=0.01, q_u=0.001, r=1.0,
+    #            feature_mode=fixed, feature_lr=0.0, feature_arch=linear,
+    #            shared_dim=1, idiosyncratic_dim=2
+    #   full:    M=2, lambda_risk=0.0, q_g=1.0, q_u=0.001, r=0.1,
+    #            feature_mode=fixed, feature_lr=0.0, feature_arch=linear,
+    #            shared_dim=1, idiosyncratic_dim=2
     partial_overrides:
-      feature_mode: "learnable"
-      feature_learning_rate: 0.001
+      feature_mode: "fixed"
+      feature_learning_rate: 0.0
       shared_dim: 1
       idiosyncratic_dim: 2
-      Q_g_scales: 0.001
+      Q_g_scales: 0.01
       Q_u_scales: 0.001
       feature_arch: "linear"
       R_scalar: 1.0
     full_overrides:
-      feature_mode: "learnable"
-      feature_learning_rate: 0.001
-      g_mean0: [0.0, 0.0]
-      g_cov0:
-        - [1.0, 0.0]
-        - [0.0, 1.0]
-      u_mean0: [0.0, 0.0, 0.0, 0.0]
-      u_cov0:
-        - [1.0, 0.0, 0.0, 0.0]
-        - [0.0, 1.0, 0.0, 0.0]
-        - [0.0, 0.0, 1.0, 0.0]
-        - [0.0, 0.0, 0.0, 1.0]
-      shared_dim: 2
-      idiosyncratic_dim: 4
-      Q_g_scales: 0.001
-      Q_u_scales: 0.01
-      feature_arch: "mlp"
+      feature_mode: "fixed"
+      feature_learning_rate: 0.0
+      shared_dim: 1
+      idiosyncratic_dim: 2
+      Q_g_scales: 1.0
+      Q_u_scales: 0.001
+      feature_arch: "linear"
       R_scalar: 0.1
 
   # Optional configuration for the recurrent SLDS-IMM router.
@@ -194,6 +183,7 @@ routers:
     # stick_gamma:
     #   - [0.5, 0.0]
     #   - [-0.5, 0.0]
+    # size: (M, d)
     stick_gamma:
       - [0.2, 0.0]
       - [-0.2, 0.0]
