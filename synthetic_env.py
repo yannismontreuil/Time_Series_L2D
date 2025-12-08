@@ -14,8 +14,8 @@ class SyntheticTimeSeriesEnv:
             y_hat^{(j)}_t = w_j * x_t + b_j
       - Loss is squared error.
 
-    This is deliberately simple: the router’s SLDS model does not need to
-    match this true generative process exactly; it just infers from losses.
+    This is deliberately simple: the router's SLDS model does not need to
+    match this true generative process exactsyly; it just infers from losses.
     """
 
     def __init__(
@@ -52,6 +52,14 @@ class SyntheticTimeSeriesEnv:
             for k in range(M):
                 self.Pi_true[k, :] = 0.05 / max(M - 1, 1)
                 self.Pi_true[k, k] = 0.95
+        """
+        example: when M=3,
+        Pi_true = [[0.95, 0.025, 0.025],
+                   [0.025, 0.95, 0.025],
+                   [0.025, 0.025, 0.95]]
+        so that the system has a high probability of staying in the current regime 
+        and a low, equally distributed probability of switching to any other regime.
+        """
 
         # Sample regime path z_t.
         #   - "easy_setting": first half regime 0, second half regime 1.
@@ -145,7 +153,9 @@ class SyntheticTimeSeriesEnv:
                     block_len = max(1, T // M)
                     t = 0
                     for k in range(M):
+                        print(f"Regime {k}: time {t} to ", end="")
                         t_end = T if k == M - 1 else min(T, t + block_len)
+                        print(t_end)
                         z[t:t_end] = k
                         t = t_end
             else:
@@ -167,6 +177,9 @@ class SyntheticTimeSeriesEnv:
         #   the observable time series a step function.
         self.y = np.zeros(T, dtype=float)
         if setting == "sidekick_trap":
+            """
+            Regime Mapping: z_t = 0 => y_t = 0 (Day), z_t = 1 => y_t = 10 (Night)
+            """
             g = 10.0 * z.astype(float)
             self.y[:] = g
 
@@ -178,7 +191,8 @@ class SyntheticTimeSeriesEnv:
             loss_2 = rng.normal(loc=0.0, scale=0.05, size=T)
             loss_3 = rng.normal(loc=1.0, scale=0.05, size=T)
 
-            # Regime 0 (Day): Expert 3 bad; Regime 1 (Night): Experts 1 & 2 bad.
+            # Regime 0 (Day): Expert 3 bad; 
+            # Regime 1 (Night): Experts 1 & 2 bad.
             loss_3[z == 0] += penalty      # Expert 3 ~ 11.0 during Day
             loss_1[z == 1] += penalty      # Expert 1 ~ 10.0 during Night
             loss_2[z == 1] += penalty      # Expert 2 ~ 10.0 during Night
@@ -207,8 +221,8 @@ class SyntheticTimeSeriesEnv:
             else:
                 noise = float(noise_scale)
 
-            if setting == "noisy_forgetting" and M > 2:
-                # For noisy_forgetting with more than 2 regimes, assign a
+            if (setting == "noisy_forgetting" and M > 2) or (setting == "division_by_M" and M > 2):
+                # For noisy_forgetting or division_by_M with more than 2 regimes, assign a
                 # distinct drift level to each regime so that the time
                 # series exhibits visibly different regime-dependent
                 # behavior. Drift levels increase smoothly from 0 to 2.
@@ -218,6 +232,16 @@ class SyntheticTimeSeriesEnv:
                     drift = drift_levels[int(k)]
                     y = 0.8 * y + drift + rng.normal(scale=noise)
                     self.y[t] = y
+                    """
+                    Assume M = 5, then drift_levels = [0.0, 0.5, 1.0, 1.5, 2.0]
+                    Thus, each regime k has a distinct drift level:
+                    Regime 0: drift ~ 0.0, y_0 = 0.0 + noise
+                    Regime 1: drift ~ 0.5, y_1 = 0.8*y_0 + 0.5 + noise
+                    Regime 2: drift ~ 1.0, y_2 = 0.8*y_1 + 1.0 + noise
+                    Regime 3: drift ~ 1.5, y_3 = 0.8*y_2 + 1.5 + noise
+                    Regime 4: drift ~ 2.0, y_4 = 0.8*y_3 + 2.0 + noise
+                    Assume noise = 0, then y_4 = 
+                    """
             else:
                 # Original two-regime AR(1): drift 0 in regime 0, 1 in regime 1.
                 for t in range(T):
