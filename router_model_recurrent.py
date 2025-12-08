@@ -31,7 +31,7 @@ class RecurrentSLDSRouter:
     in expert performance and adapt more quickly to regime changes.
 
     Setup (per expert j and regime k):
-        α_{j,t} ∈ R^d  : latent reliability state
+        α_{j,t} ∈ R^d  : latent reliability state, reliability of expert j at time t
         z_t ∈ {0,...,M-1}  : discrete regime
         r_{t-1} ∈ {0,...,N-1} : previously selected expert (recurrence)
         φ_t = φ(x_t) ∈ R^d : feature vector
@@ -60,6 +60,7 @@ class RecurrentSLDSRouter:
         Q: np.ndarray,
         R: np.ndarray,
         Pi: np.ndarray,
+        # Recurrent dynamics parameters
         C: Optional[np.ndarray] = None,
         beta: Optional[np.ndarray] = None,
         lambda_risk: float | np.ndarray = 0.0,
@@ -112,7 +113,7 @@ class RecurrentSLDSRouter:
 
         # Recurrent dynamics: C[k, j, :] is the input bias when transitioning
         # from expert j under regime k. Shape: (M, N, d)
-        if C is None:
+        if C is None: # default to zero recurrent input, then no recurrence
             C = np.zeros((self.M, self.N, self.d), dtype=float)
         else:
             C = np.asarray(C, dtype=float)
@@ -159,6 +160,8 @@ class RecurrentSLDSRouter:
         self.eps = float(eps)
 
         # Track which experts have ever been available (dynamic addition).
+        # An expert that appears for the first time in the availability set
+        # is initialized from the population prior at that time.
         self._has_joined = np.zeros(self.N, dtype=bool)
 
         # Recurrent state: track the previously selected expert
@@ -199,11 +202,12 @@ class RecurrentSLDSRouter:
 
     def _stick_breaking(self, nu: np.ndarray) -> np.ndarray:
         """
-        Convert stick-breaking logits ν ∈ R^M to a probability vector π ∈ Δ^{M-1}.
-        π_k = σ(ν_k) ∏_{j<k} (1-σ(ν_j)), with remainder on the last stick.
+        Convert stick-breaking logits ν ∈ R^M to a probability vector π ∈ [0,1]^{M-1}.
+        π^(k) (ν) = σ(ν_k) ∏_{j<k} (1-σ(ν_j)), with remainder on the last stick.
+        σ is the logistic function e^x / (1+e^x).
         """
         M = self.M
-        assert nu.shape == (M,)
+        assert nu.shape == (M,) # the logits for M regimes
         sigma = 1.0 / (1.0 + np.exp(-nu))
         pi = np.zeros(M, dtype=float)
         remaining = 1.0
@@ -216,6 +220,7 @@ class RecurrentSLDSRouter:
         s = pi.sum()
         if s <= 0:
             return np.ones(M, dtype=float) / M
+        # In theory s should be 1.0 here, but numerical issues may arise.
         return pi / s
 
     def _compute_transition_matrix(self, b: np.ndarray, m: np.ndarray) -> np.ndarray:
@@ -233,6 +238,8 @@ class RecurrentSLDSRouter:
 
         # Aggregate latent state: belief-weighted across regimes, then average across experts.
         x_bar = (b.reshape(M, 1, 1) * m).sum(axis=0).mean(axis=0)  # shape (d,)
+        # ν = κ + Γ x̄_t
+        # same as the ν = r + R x̄_t in Linderman et al. 2017
         nu = self.stick_kappa + self.stick_gamma @ x_bar
         pi_vec = self._stick_breaking(nu)
         # Same row for all current regimes (standard rSLDS gating on x_t).
