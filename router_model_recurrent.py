@@ -1,6 +1,15 @@
 import numpy as np
 from typing import Callable, List, Optional, Sequence, Tuple
 
+"""
+Recurrent Switching Linear Dynamical System (r-SLDS) router for Learning-to-Defer
+What is new:
+- Time update using C[k, r_{t-1}]. Including expert choice r_prev shift the latent dynamic
+- If stick_gamma and stick_kappa are provided, the transition matrix Π_t is rebuilt at each time step
+  via a deterministic stick-breaking transformation on the belief-weighted mean latent state
+  **Note**: No Pólya-Gamma augmentation is used here (though it is used in Linderman et al. 2017); 
+            the stick-breaking is deterministic.
+"""
 
 def feature_phi(x: np.ndarray) -> np.ndarray:
     """
