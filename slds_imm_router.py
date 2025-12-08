@@ -304,6 +304,19 @@ if __name__ == "__main__":
         else None
     )
 
+    stick_gamma_rows_cfg = slds_recurrent_cfg.get("stick_gamma_rows", None)
+    stick_kappa_rows_cfg = slds_recurrent_cfg.get("stick_kappa_rows", None)
+    stick_gamma_rows = (
+        np.asarray(stick_gamma_rows_cfg, dtype=float)
+        if stick_gamma_rows_cfg is not None
+        else None
+    )
+    stick_kappa_rows = (
+        np.asarray(stick_kappa_rows_cfg, dtype=float)
+        if stick_kappa_rows_cfg is not None
+        else None
+    )
+
     router_partial_rec = RecurrentSLDSRouter(
         num_experts=N,
         num_regimes=M,
@@ -322,6 +335,8 @@ if __name__ == "__main__":
         eps=eps_slds,
         stick_gamma=stick_gamma,
         stick_kappa=stick_kappa,
+        stick_gamma_rows=stick_gamma_rows,
+        stick_kappa_rows=stick_kappa_rows,
     )
 
     router_full_rec = RecurrentSLDSRouter(
@@ -342,6 +357,8 @@ if __name__ == "__main__":
         eps=eps_slds,
         stick_gamma=stick_gamma,
         stick_kappa=stick_kappa,
+        stick_gamma_rows=stick_gamma_rows,
+        stick_kappa_rows=stick_kappa_rows,
     )
 
     # --------------------------------------------------------

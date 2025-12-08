@@ -562,6 +562,16 @@ def build_recurrent_routers(
         stick_gamma = None
         stick_kappa = None
 
+    # Optional row-conditioned stick-breaking parameters
+    stick_gamma_rows_cfg = slds_recurrent_cfg.get("stick_gamma_rows", None)
+    stick_kappa_rows_cfg = slds_recurrent_cfg.get("stick_kappa_rows", None)
+    if stick_gamma_rows_cfg is not None and stick_kappa_rows_cfg is not None:
+        stick_gamma_rows = np.asarray(stick_gamma_rows_cfg, dtype=float)
+        stick_kappa_rows = np.asarray(stick_kappa_rows_cfg, dtype=float)
+    else:
+        stick_gamma_rows = None
+        stick_kappa_rows = None
+
     eps = float(slds_recurrent_cfg.get("eps", routers_cfg.get("eps", 1e-8)))
 
     router_partial_rec = RecurrentSLDSRouter(
@@ -580,6 +590,8 @@ def build_recurrent_routers(
         eps=eps,
         stick_gamma=stick_gamma,
         stick_kappa=stick_kappa,
+        stick_gamma_rows=stick_gamma_rows,
+        stick_kappa_rows=stick_kappa_rows,
     )
 
     router_full_rec = RecurrentSLDSRouter(
@@ -598,6 +610,8 @@ def build_recurrent_routers(
         eps=eps,
         stick_gamma=stick_gamma,
         stick_kappa=stick_kappa,
+        stick_gamma_rows=stick_gamma_rows,
+        stick_kappa_rows=stick_kappa_rows,
     )
 
     return router_partial_rec, router_full_rec

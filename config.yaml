@@ -80,18 +80,24 @@ routers:
     # Observation noise R_{k,j}: single scalar broadcast to all regimes/experts.
     R_scalar: 0.5
     # Regime transition matrix Π (shape [num_regimes, num_regimes]).
+    # Some note on specifying Π:
+    # - If omitted, defaults to uniform transitions.
+    # - If regimes is sticky, Π will be blended with identity
+    # - If expect frequent regime switches, lower diagonal values in Π.
     # Pi:
     #   - [1.0, 0.0, 0.0, 0.0, 0.0]
     #   - [0.0, 1.0, 0.0, 0.0, 0.0]
     #   - [0.0, 0.0, 1.0, 0.0, 0.0]
     #   - [0.0, 0.0, 0.0, 1.0, 0.0]
     #   - [0.0, 0.0, 0.0, 0.0, 1.0]
-      # Example of more dynamic transitions:
-      # - [0.5, 0.3, 0.2, 0.0, 0.0]
-      # - [0.2, 0.3, 0.3, 0.2, 0.0]
-      # - [0.1, 0.2, 0.3, 0.1, 0.3]
-      # - [0.1, 0.2, 0.3, 0.1, 0.3]
-      # - [0.1, 0.2, 0.3, 0.1, 0.3]
+    # Example of more dynamic transitions:
+    # Pi:
+    #   - [0.7, 0.1, 0.1, 0.05, 0.05]
+    #   - [0.1, 0.7, 0.1, 0.05, 0.05]
+    #   - [0.1, 0.1, 0.7, 0.05, 0.05]
+    #   - [0.05, 0.05, 0.05, 0.7, 0.15]
+    #   - [0.05, 0.05, 0.05, 0.15, 0.7]
+    # Prior for initial regime distribution π_0
     # Prior on reliability states α_{j,t} (shape [d] and [d,d]).
     pop_mean: [0.0, 0.0]
     pop_cov:
@@ -188,6 +194,14 @@ routers:
       - [0.2, 0.0]
       - [-0.2, 0.0]
     stick_kappa: [0.0, 0.0]
+    # Optional row-conditioned stick-breaking params (shape M x M x d and M x M).
+    # When set, Π_t rows differ by previous regime. Example for M=2, d=2:
+    stick_gamma_rows:
+      - [[0.2, 0.0], [0.1, 0.0]]
+      - [[-0.2, 0.0], [-0.1, 0.0]]
+    stick_kappa_rows:
+      - [0.0, 0.0]
+      - [0.0, 0.0]
 
   # Registry pruning threshold for correlated router (in decision epochs).
   # If null, pruning is disabled.

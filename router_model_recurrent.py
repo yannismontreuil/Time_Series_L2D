@@ -73,6 +73,11 @@ class RecurrentSLDSRouter:
         # where x̄_t is the belief-weighted mean latent state aggregated across experts.
         stick_gamma: Optional[np.ndarray] = None,  # shape (M, d)
         stick_kappa: Optional[np.ndarray] = None,  # shape (M,)
+        # Optional row-conditioned dynamic transitions Π_t(z_{t-1}, x̄_t).
+        # If provided, each previous regime i has its own stick-breaking
+        # parameters, so rows differ (Π_t is not row-tied).
+        stick_gamma_rows: Optional[np.ndarray] = None,  # shape (M, M, d)
+        stick_kappa_rows: Optional[np.ndarray] = None,  # shape (M, M)
     ):
         self.N = int(num_experts)
         self.M = int(num_regimes)
@@ -110,6 +115,19 @@ class RecurrentSLDSRouter:
             assert stick_kappa.shape == (self.M,)
             self.stick_gamma = stick_gamma
             self.stick_kappa = stick_kappa
+
+        # Row-conditioned stick-breaking params (optional). When set,
+        # Π_t rows depend on the previous regime i; otherwise rows are tied.
+        if stick_gamma_rows is None or stick_kappa_rows is None:
+            self.stick_gamma_rows: Optional[np.ndarray] = None
+            self.stick_kappa_rows: Optional[np.ndarray] = None
+        else:
+            s_gr = np.asarray(stick_gamma_rows, dtype=float)
+            s_kr = np.asarray(stick_kappa_rows, dtype=float)
+            assert s_gr.shape == (self.M, self.M, self.d)
+            assert s_kr.shape == (self.M, self.M)
+            self.stick_gamma_rows = s_gr
+            self.stick_kappa_rows = s_kr
 
         # Recurrent dynamics: C[k, j, :] is the input bias when transitioning
         # from expert j under regime k. Shape: (M, N, d)
@@ -227,7 +245,9 @@ class RecurrentSLDSRouter:
         """
         If stick-breaking params are provided, build a time-varying Π_t that depends on
         the belief-weighted mean latent state x̄_t (aggregated across experts).
-        Otherwise return the static Π.
+
+        - If row-conditioned params are set, each row i is π_t(z_{t-1}=i, x̄_t).
+        - Otherwise rows are tied (standard rSLDS gating on x̄_t only).
         """
         if self.stick_gamma is None or self.stick_kappa is None:
             return self.Pi
@@ -238,22 +258,43 @@ class RecurrentSLDSRouter:
 
         # Aggregate latent state: belief-weighted across regimes, then average across experts.
         x_bar = (b.reshape(M, 1, 1) * m).sum(axis=0).mean(axis=0)  # shape (d,)
-        # ν = κ + Γ x̄_t
-        # same as the ν = r + R x̄_t in Linderman et al. 2017
-        nu = self.stick_kappa + self.stick_gamma @ x_bar
-        pi_vec = self._stick_breaking(nu)
-        # Same row for all current regimes (standard rSLDS gating on x_t).
-        Pi_dyn = np.tile(pi_vec.reshape(1, M), (M, 1))
-        return Pi_dyn
+
+        # Row-conditioned variant: Π_t rows depend on previous regime i.
+        if self.stick_gamma_rows is not None and self.stick_kappa_rows is not None:
+            Pi_dyn = np.zeros((M, M), dtype=float)
+            for i in range(M):
+                # ν_i = κ_i + Γ_i x̄_t
+                # κ_i is the i-th row of stick_kappa_rows, which depends on previous regime i
+                nu_i = self.stick_kappa_rows[i] + self.stick_gamma_rows[i] @ x_bar
+                Pi_dyn[i] = self._stick_breaking(nu_i)
+            return Pi_dyn
+
+        elif self.stick_gamma is not None and self.stick_kappa is not None:
+            # ν = κ + Γ x̄_t
+            # same as the ν = r + R x̄_t in Linderman et al. 2017
+            nu = self.stick_kappa + self.stick_gamma @ x_bar
+            pi_vec = self._stick_breaking(nu)
+
+            # example of rSLDS(ro), note all rows are identical, since the transition only depends on x_t not on previous z_t
+            # Π_dyn =   [[π_1, π_2, ..., π_M],
+            #            [π_1, π_2, ..., π_M],
+            #            [..., ..., ..., ...],
+            #            [π_1, π_2, ..., π_M]]
+
+            Pi_dyn = np.tile(pi_vec.reshape(1, M), (M, 1))
+            return Pi_dyn
+        
+        else:
+            print("Warning: Inconsistent stick-breaking parameters. Use static Pi.")
+            return self.Pi
 
     # --------------------------------------------------------
     # IMM interaction + recurrent time update
     # --------------------------------------------------------
 
     def _interaction_and_time_update(self):
-        return self._interaction_and_time_update_state(
-            self.b, self.m, self.P, self.r_prev
-        )
+        return self._interaction_and_time_update_state(self.b, self.m, self.P,
+                                                       self.r_prev)
 
     def _interaction_and_time_update_state(
         self,
@@ -269,6 +310,7 @@ class RecurrentSLDSRouter:
         P = np.asarray(P, dtype=float).reshape(M, N, d, d)
 
         # Predict regime distribution using static Π or dynamic stick-breaking Π_t.
+        # Π is updated each time step if stick-breaking params are provided.
         Pi_t = self._compute_transition_matrix(b, m)
         b_pred = b @ Pi_t
         s = b_pred.sum()
