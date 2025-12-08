@@ -15,6 +15,7 @@ environment:
   # choose from: 
   # easy_setting,
   # noisy_forgetting,
+  #   currently unsupported for M = 5:
   # sidekick_trap,
   #   Note: must have T >= 1000 for sidekick_trap since regime switch at t=1000
   # theoretical_trap,
@@ -52,7 +53,7 @@ routers:
   # Risk sensitivity for SLDS-IMM routers.
   # Can be a scalar (regime-independent) or a list
   # of length num_regimes for regime-specific λ_k.
-  lambda_risk: -2.0
+  lambda_risk: 0.0
 
   # Consultation costs for routers (β_j).
   # Can be a single scalar (broadcast to all experts) or
@@ -75,9 +76,9 @@ routers:
     #   - for num_regimes > 2, a 2-element list [q_0, q_other] which is
     #     interpreted as one scale for regime 0 and one shared scale for
     #     all other regimes.
-    Q_scales: [0.005, 0.05]
+    Q_scales: [0.002, 0.02]
     # Observation noise R_{k,j}: single scalar broadcast to all regimes/experts.
-    R_scalar: 1.0
+    R_scalar: 0.5
     # Regime transition matrix Π (shape [num_regimes, num_regimes]).
     # Pi:
     #   - [1.0, 0.0, 0.0, 0.0, 0.0]
@@ -182,6 +183,21 @@ routers:
       Q_u_scales: 0.01
       feature_arch: "mlp"
       R_scalar: 0.1
+
+  # Optional configuration for the recurrent SLDS-IMM router.
+  # If omitted, defaults matching the non-recurrent example are used.
+  slds_imm_recurrent:
+    C:
+      # shape (M, N, d); example for M=2, N=5, d=2
+      - [[0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0]]
+      - [[-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0]]
+    # stick_gamma:
+    #   - [0.5, 0.0]
+    #   - [-0.5, 0.0]
+    stick_gamma:
+      - [0.2, 0.0]
+      - [-0.2, 0.0]
+    stick_kappa: [0.0, 0.0]
 
   # Registry pruning threshold for correlated router (in decision epochs).
   # If null, pruning is disabled.

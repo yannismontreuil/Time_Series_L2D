@@ -18,7 +18,7 @@ class SLDSIMMRouter:
     router for Learning-to-Defer in time series with multiple experts.
 
     Setup (per expert j and regime k):
-        α_{j,t} ∈ R^d  : latent reliability state
+        α_{j,t} ∈ R^d  : latent reliability state, which is continuous
         z_t ∈ {0,...,M-1}  : discrete regime
         φ_t = φ(x_t) ∈ R^d : feature vector
         ℓ_{j,t}            : observed loss

@@ -97,6 +97,8 @@ class RecurrentSLDSRouter:
         # rSLDS stick-breaking gating params (optional). When set, they produce
         # a time-varying transition matrix Π_t via stick-breaking on the
         # aggregated continuous latent state; otherwise Π is static.
+        # stick_gamma is R in paper Linderman et al. 2017.
+        # stick_kappa is r in paper Linderman et al. 2017.
         if stick_gamma is None or stick_kappa is None:
             self.stick_gamma: Optional[np.ndarray] = None
             self.stick_kappa: Optional[np.ndarray] = None
