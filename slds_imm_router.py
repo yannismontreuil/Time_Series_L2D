@@ -4,6 +4,7 @@ import os
 import numpy as np
 
 from router_model import SLDSIMMRouter, feature_phi
+from router_model_recurrent import RecurrentSLDSRouter
 from router_model_corr import SLDSIMMRouter_Corr
 from router_model_corr_em import SLDSIMMRouter_Corr_EM
 from synthetic_env import SyntheticTimeSeriesEnv
@@ -278,6 +279,69 @@ if __name__ == "__main__":
         pop_mean=pop_mean,
         pop_cov=pop_cov,
         eps=eps_slds,
+    )
+
+    # --------------------------------------------------------
+    # Recurrent SLDS (r-SLDS) routers with stick-breaking gating
+    # --------------------------------------------------------
+    slds_recurrent_cfg = routers_cfg.get("slds_imm_recurrent", {}) or {}
+    C_cfg = slds_recurrent_cfg.get("C", None)
+    if C_cfg is not None:
+        C_rec = np.asarray(C_cfg, dtype=float)
+    else:
+        C_rec = np.zeros((M, N, d), dtype=float)
+
+    stick_gamma_cfg = slds_recurrent_cfg.get("stick_gamma", None)
+    stick_kappa_cfg = slds_recurrent_cfg.get("stick_kappa", None)
+    stick_gamma = (
+        np.asarray(stick_gamma_cfg, dtype=float)
+        if stick_gamma_cfg is not None
+        else None
+    )
+    stick_kappa = (
+        np.asarray(stick_kappa_cfg, dtype=float)
+        if stick_kappa_cfg is not None
+        else None
+    )
+
+    router_partial_rec = RecurrentSLDSRouter(
+        num_experts=N,
+        num_regimes=M,
+        state_dim=d,
+        feature_fn=feature_phi,
+        A=A,
+        Q=Q,
+        R=R,
+        Pi=Pi,
+        C=C_rec,
+        beta=beta,
+        lambda_risk=lambda_risk,
+        feedback_mode="partial",
+        pop_mean=pop_mean,
+        pop_cov=pop_cov,
+        eps=eps_slds,
+        stick_gamma=stick_gamma,
+        stick_kappa=stick_kappa,
+    )
+
+    router_full_rec = RecurrentSLDSRouter(
+        num_experts=N,
+        num_regimes=M,
+        state_dim=d,
+        feature_fn=feature_phi,
+        A=A,
+        Q=Q,
+        R=R,
+        Pi=Pi,
+        C=C_rec,
+        beta=beta,
+        lambda_risk=lambda_risk,
+        feedback_mode="full",
+        pop_mean=pop_mean,
+        pop_cov=pop_cov,
+        eps=eps_slds,
+        stick_gamma=stick_gamma,
+        stick_kappa=stick_kappa,
     )
 
     # --------------------------------------------------------
@@ -871,7 +935,7 @@ if __name__ == "__main__":
 
     # Plot the true series and expert predictions
     plot_time_series(env)
-'''
+
     # L2D baselines (configurable MLP/RNN, with and without sliding window)
     alpha_l2d = _resolve_vector(l2d_cfg.get("alpha", 1.0), 1.0, N)
     beta_l2d_cfg = l2d_cfg.get("beta", None)
@@ -894,7 +958,7 @@ if __name__ == "__main__":
     )
 
     l2d_sw_baseline = None
-    if l2d_sw_cfg:
+    if l2d_sw_cfg: # overridden with RNN architecture with sliding window
         alpha_l2d_sw = _resolve_vector(l2d_sw_cfg.get("alpha", 1.0), 1.0, N)
         beta_l2d_sw_cfg = l2d_sw_cfg.get("beta", None)
         beta_l2d_sw = beta.copy() if beta_l2d_sw_cfg is None else _resolve_vector(
@@ -915,6 +979,10 @@ if __name__ == "__main__":
             hidden_dim=hidden_dim_l2d_sw,
             window_size=window_size_sw,
         )
+
+    # --------------------------------------------------------
+    # Four UCB-style baselines routers
+    # --------------------------------------------------------
 
     # LinUCB baselines (partial and full feedback)
     linucb_partial = None
@@ -989,12 +1057,14 @@ if __name__ == "__main__":
         # router_full_neural=router_full_neural,
     )
 
+    
     # Optional: analyze reaction to a late-arriving expert. This can be
     # enabled either via the command-line flag --late-arrival-analysis
     # or via the top-level config key `late_arrival_analysis: true`.
     do_late_arrival = bool(cfg.get("late_arrival_analysis", False)) or getattr(
         args, "late_arrival_analysis", False
     )
+    # In config.yaml, disabled
     if do_late_arrival:
         arrival_idx_cfg = env_cfg.get("arrival_expert_idx", None)
         if arrival_idx_cfg is None:
@@ -1074,40 +1144,42 @@ if __name__ == "__main__":
         window_size=1,
     )
 
-    evaluate_horizon_planning(
-        env=env,
-        router_partial=router_partial,
-        router_full=router_full,
-        beta=beta,
-        t0=t0,
-        H=H,
-        experts_predict=experts_predict,
-        context_update=context_update,
-        l2d_baseline=l2d_baseline_horizon,
-        router_partial_corr=router_partial_corr,
-        router_full_corr=router_full_corr,
-        router_partial_corr_em=router_partial_corr_em,
-        router_full_corr_em=router_full_corr_em,
-        # router_partial_neural=router_partial_neural,
-        # router_full_neural=router_full_neural,
-        planning_method=planning_method,
-        scenario_generator_cfg=scenario_generator_cfg,
-    )
+    # evaluate_horizon_planning(
+    #     env=env,
+    #     router_partial=router_partial,
+    #     router_full=router_full,
+    #     beta=beta,
+    #     t0=t0,
+    #     H=H,
+    #     experts_predict=experts_predict,
+    #     context_update=context_update,
+    #     l2d_baseline=l2d_baseline_horizon,
+    #     router_partial_corr=router_partial_corr,
+    #     router_full_corr=router_full_corr,
+    #     router_partial_corr_em=router_partial_corr_em,
+    #     router_full_corr_em=router_full_corr_em,
+    #     # router_partial_neural=router_partial_neural,
+    #     # router_full_neural=router_full_neural,
+    #     planning_method=planning_method,
+    #     scenario_generator_cfg=scenario_generator_cfg,
+    # )
+    
     # NeuralUCB baseline (single policy; partial feedback by default)
-    neuralucb_baseline = None
-    if neuralucb_cfg:
-        alpha_ucb_nn = float(neuralucb_cfg.get("alpha_ucb", 1.0))
-        lambda_reg_nn = float(neuralucb_cfg.get("lambda_reg", 1.0))
-        hidden_dim_nn = int(neuralucb_cfg.get("hidden_dim", 16))
-        nn_lr = float(neuralucb_cfg.get("nn_learning_rate", 1e-3))
-        neuralucb_baseline = NeuralUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb_nn,
-            lambda_reg=lambda_reg_nn,
-            beta=beta,
-            hidden_dim=hidden_dim_nn,
-            nn_learning_rate=nn_lr,
-            feedback_mode="partial",
-        )
-'''
+    # neuralucb_baseline = None
+    # if neuralucb_cfg:
+    #     alpha_ucb_nn = float(neuralucb_cfg.get("alpha_ucb", 1.0))
+    #     lambda_reg_nn = float(neuralucb_cfg.get("lambda_reg", 1.0))
+    #     hidden_dim_nn = int(neuralucb_cfg.get("hidden_dim", 16))
+    #     nn_lr = float(neuralucb_cfg.get("nn_learning_rate", 1e-3))
+    #     neuralucb_baseline = NeuralUCB(
+    #         num_experts=N,
+    #         feature_fn=feature_phi,
+    #         alpha_ucb=alpha_ucb_nn,
+    #         lambda_reg=lambda_reg_nn,
+    #         beta=beta,
+    #         hidden_dim=hidden_dim_nn,
+    #         nn_learning_rate=nn_lr,
+    #         feedback_mode="partial",
+    #     )
+        
+

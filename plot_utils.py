@@ -1,7 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 from typing import Optional
 
+from etth1_env import ETTh1TimeSeriesEnv
 from router_model import SLDSIMMRouter
 from synthetic_env import SyntheticTimeSeriesEnv
 from l2d_baseline import L2D
@@ -87,7 +89,9 @@ def get_model_color(name: str) -> str:
     return mapping.get(name, "tab:purple")
 
 
-def add_unavailability_regions(ax: plt.Axes, env: SyntheticTimeSeriesEnv) -> None:
+def add_unavailability_regions(
+    ax: Axes, env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv
+) -> None:
     """
     Shade time intervals where experts are unavailable in a given axis.
 
@@ -117,16 +121,23 @@ def add_unavailability_regions(ax: plt.Axes, env: SyntheticTimeSeriesEnv) -> Non
                 in_block = True
                 start_t = t
             elif in_block and val == 1:
+                if start_t is None:
+                    # Should not happen, but guard for type safety.
+                    in_block = False
+                    continue
                 end_t = t
                 color = get_expert_color(j)
+                # here f means float
+                start_f = float(start_t)
+                end_f = float(end_t)
                 ax.axvspan(
-                    start_t,
-                    end_t,
+                    start_f,
+                    end_f,
                     facecolor=color,
                     alpha=0.08,
                     zorder=0,
                 )
-                mid = 0.5 * (start_t + end_t)
+                mid = 0.5 * (start_f + end_f)
                 ax.text(
                     mid,
                     y_min + 0.05 * height,
@@ -142,14 +153,16 @@ def add_unavailability_regions(ax: plt.Axes, env: SyntheticTimeSeriesEnv) -> Non
         if in_block and start_t is not None:
             end_t = T - 1
             color = get_expert_color(j)
+            start_f = float(start_t)
+            end_f = float(end_t)
             ax.axvspan(
-                start_t,
-                end_t,
+                start_f,
+                end_f,
                 facecolor=color,
                 alpha=0.08,
                 zorder=0,
             )
-            mid = 0.5 * (start_t + end_t)
+            mid = 0.5 * (start_f + end_f)
             ax.text(
                 mid,
                 y_min + 0.05 * height,
@@ -167,7 +180,7 @@ def add_unavailability_regions(ax: plt.Axes, env: SyntheticTimeSeriesEnv) -> Non
 
 
 def plot_time_series(
-    env: SyntheticTimeSeriesEnv,
+    env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,
     num_points: Optional[int] = None,
 ) -> None:
     """
@@ -258,10 +271,12 @@ def plot_time_series(
 
 
 def evaluate_routers_and_baselines(
-    env: SyntheticTimeSeriesEnv,
+    env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,
     router_partial: SLDSIMMRouter,
     router_full: SLDSIMMRouter,
     l2d_baseline: Optional[L2D] = None,
+    router_partial_rec=None,
+    router_full_rec=None,
     router_partial_corr=None,
     router_full_corr=None,
     router_partial_corr_em=None,
@@ -282,6 +297,21 @@ def evaluate_routers_and_baselines(
     # Run both base routers to obtain costs and choices
     costs_partial, choices_partial = run_router_on_env(router_partial, env)
     costs_full, choices_full = run_router_on_env(router_full, env)
+
+    # Recurrent routers (if provided)
+    if router_partial_rec is not None:
+        costs_partial_rec, choices_partial_rec = run_router_on_env(
+            router_partial_rec, env
+        )
+    else:
+        costs_partial_rec, choices_partial_rec = None, None
+
+    if router_full_rec is not None:
+        costs_full_rec, choices_full_rec = run_router_on_env(
+            router_full_rec, env
+        )
+    else:
+        costs_full_rec, choices_full_rec = None, None
 
     # Neural routers (if provided)
     if router_partial_neural is not None:
@@ -379,6 +409,16 @@ def evaluate_routers_and_baselines(
     # Prediction series induced by router and L2D choices
     preds_partial = compute_predictions_from_choices(env, choices_partial)
     preds_full = compute_predictions_from_choices(env, choices_full)
+    preds_partial_rec = (
+        compute_predictions_from_choices(env, choices_partial_rec)
+        if choices_partial_rec is not None
+        else None
+    )
+    preds_full_rec = (
+        compute_predictions_from_choices(env, choices_full_rec)
+        if choices_full_rec is not None
+        else None
+    )
     preds_partial_corr = (
         compute_predictions_from_choices(env, choices_partial_corr)
         if choices_partial_corr is not None
@@ -958,18 +998,20 @@ def evaluate_routers_and_baselines(
         fig_reg, ax_reg = plt.subplots(1, 1, figsize=(10, 4))
         ax_reg.axhline(0.0, color="black", linestyle="--", linewidth=1.0)
 
-        ax_reg.plot(
-            t_reg,
-            reg_partial,
-            label="Router (partial)",
-            color=get_model_color("partial"),
-        )
-        ax_reg.plot(
-            t_reg,
-            reg_full,
-            label="Router (full)",
-            color=get_model_color("full"),
-        )
+        if reg_partial is not None:
+            ax_reg.plot(
+                t_reg,
+                reg_partial,
+                label="Router (partial)",
+                color=get_model_color("partial"),
+            )
+        if reg_full is not None:
+            ax_reg.plot(
+                t_reg,
+                reg_full,
+                label="Router (full)",
+                color=get_model_color("full"),
+            )
         if reg_partial_corr is not None:
             ax_reg.plot(
                 t_reg,
@@ -1259,7 +1301,7 @@ def evaluate_routers_and_baselines(
 
 
 def analysis_late_arrival(
-    env: SyntheticTimeSeriesEnv,
+    env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,
     router_partial: SLDSIMMRouter,
     router_full: SLDSIMMRouter,
     l2d_baseline: Optional[L2D] = None,

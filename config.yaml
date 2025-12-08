@@ -4,14 +4,23 @@ environment:
   # Main experiment environment (slds_imm_router.py)
   num_experts: 5
   # Tuned number of regimes for correlated router (from best_corr_hyperparams.json)
-  num_regimes: 5
+  num_regimes: 2
   # Dataset setting for the synthetic environment.
   #   - "easy_setting": default, moderate noise, single regime switch.
   #   - "noisy_forgetting": higher noise and regime 0 → 1 → 0 pattern
   #                        (or a multi-regime 0 → 1 → 2 → … → M-1 → 0
   #                        pattern when num_regimes > 2) to highlight
   #                        potential catastrophic forgetting.
-  setting: "division_by_M"
+  setting: "noisy_forgetting"
+  # choose from: 
+  # easy_setting,
+  # noisy_forgetting,
+  # sidekick_trap,
+  #   Note: must have T >= 1000 for sidekick_trap since regime switch at t=1000
+  # theoretical_trap,
+  # cluster_transfer,
+  # division_by_M
+  #
   # When setting: noisy_forgetting, slds_imm_router.py will
   # automatically use at least 5 regimes (num_regimes ≥ 5) to create a
   # more challenging Markovian pattern. You can override this by
@@ -22,7 +31,7 @@ environment:
   # State dimension d = dim φ(x). The current feature map returns 2D features.
   state_dim: 2
   # Time horizon T
-  T: 1000
+  T: 2000
   seed: 42
   # expert 1 is unavailable in these intervals
   unavailable_expert_idx: 1
@@ -70,12 +79,12 @@ routers:
     # Observation noise R_{k,j}: single scalar broadcast to all regimes/experts.
     R_scalar: 1.0
     # Regime transition matrix Π (shape [num_regimes, num_regimes]).
-    Pi:
-      - [1.0, 0.0, 0.0, 0.0, 0.0]
-      - [0.0, 1.0, 0.0, 0.0, 0.0]
-      - [0.0, 0.0, 1.0, 0.0, 0.0]
-      - [0.0, 0.0, 0.0, 1.0, 0.0]
-      - [0.0, 0.0, 0.0, 0.0, 1.0]
+    # Pi:
+    #   - [1.0, 0.0, 0.0, 0.0, 0.0]
+    #   - [0.0, 1.0, 0.0, 0.0, 0.0]
+    #   - [0.0, 0.0, 1.0, 0.0, 0.0]
+    #   - [0.0, 0.0, 0.0, 1.0, 0.0]
+    #   - [0.0, 0.0, 0.0, 0.0, 1.0]
       # Example of more dynamic transitions:
       # - [0.5, 0.3, 0.2, 0.0, 0.0]
       # - [0.2, 0.3, 0.3, 0.2, 0.0]
@@ -200,6 +209,7 @@ baselines:
     # By default we use an RNN policy here to contrast with the MLP L2D.
     arch: "rnn"
     learning_rate: 0.01
+    # model's internal  hidden dimension, larger means more capacity
     hidden_dim: 8
     window_size: 5
 

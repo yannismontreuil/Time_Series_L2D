@@ -124,7 +124,7 @@ class SyntheticTimeSeriesEnv:
                 phase1_end = min(1000, T - 1)
                 if phase1_end < 0:
                     phase1_end = 0
-                if phase1_end + 1 < T:
+                if phase1_end + 1 <= T:
                     z[phase1_end + 1 :] = 1
             elif setting == "theoretical_trap":
                 # Same two-regime structure as sidekick_trap: first 1000
@@ -132,7 +132,7 @@ class SyntheticTimeSeriesEnv:
                 phase1_end = min(1000, T - 1)
                 if phase1_end < 0:
                     phase1_end = 0
-                if phase1_end + 1 < T:
+                if phase1_end + 1 <= T:
                     z[phase1_end + 1 :] = 1
             elif setting == "cluster_transfer":
                 # Two-regime pattern: first half regime 0, second half regime 1.

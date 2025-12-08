@@ -12,29 +12,33 @@ def feature_phi(x: np.ndarray) -> np.ndarray:
     return np.array([1.0, x[0]], dtype=float)
 
 
-class SLDSIMMRouter:
+class RecurrentSLDSRouter:
     """
-    Switching Linear Dynamical System (SLDS) + Interacting Multiple Model (IMM)
-    router for Learning-to-Defer in time series with multiple experts.
+    Recurrent Switching Linear Dynamical System (r-SLDS) router for Learning-to-Defer
+    in time series with multiple experts.
+
+    This extends the standard SLDS by incorporating recurrent dependencies on the
+    previously selected expert r_{t-1}, allowing the router to learn temporal patterns
+    in expert performance and adapt more quickly to regime changes.
 
     Setup (per expert j and regime k):
         α_{j,t} ∈ R^d  : latent reliability state
         z_t ∈ {0,...,M-1}  : discrete regime
+        r_{t-1} ∈ {0,...,N-1} : previously selected expert (recurrence)
         φ_t = φ(x_t) ∈ R^d : feature vector
         ℓ_{j,t}            : observed loss
 
-        α_{j,t+1} | (α_{j,t}, z_t = k) ~ N(A_k α_{j,t}, Q_k)
+        α_{j,t+1} | (α_{j,t}, z_t = k, r_{t-1}) ~ N(A_k α_{j,t} + C_k[r_{t-1}], Q_k)
         ℓ_{j,t}   | (α_{j,t}, z_t = k) = φ_t^T α_{j,t} + v_{j,t},
                                             v_{j,t} ~ N(0, R_{k,j})
 
-    IMM approximation:
-        b_t(k) = P(z_t = k | I_t)
-        α_{j,t} | {z_t = k, I_t} ~ N(m_{j,t|t}^{(k)}, P_{j,t|t}^{(k)})
+    where C_k[r_{t-1}] is a recurrent input that depends on the previous expert choice.
 
     This class:
+      - maintains recurrent state based on past expert selections,
       - selects a single expert r_t ∈ E_t at each time t,
       - handles partial or full feedback on losses,
-      - can perform horizon-H planning using expert-driven context updates.
+      - can perform horizon-H planning with recurrent context propagation.
     """
 
     def __init__(
@@ -47,12 +51,18 @@ class SLDSIMMRouter:
         Q: np.ndarray,
         R: np.ndarray,
         Pi: np.ndarray,
+        C: Optional[np.ndarray] = None,
         beta: Optional[np.ndarray] = None,
         lambda_risk: float | np.ndarray = 0.0,
         pop_mean: Optional[np.ndarray] = None,
         pop_cov: Optional[np.ndarray] = None,
         feedback_mode: str = "partial",
         eps: float = 1e-8,
+        # Optional dynamic stick-breaking transitions (rSLDS; Linderman et al. 2017).
+        # If provided, Pi becomes time-varying: π_t = stick_break(κ + Γ x̄_t),
+        # where x̄_t is the belief-weighted mean latent state aggregated across experts.
+        stick_gamma: Optional[np.ndarray] = None,  # shape (M, d)
+        stick_kappa: Optional[np.ndarray] = None,  # shape (M,)
     ):
         self.N = int(num_experts)
         self.M = int(num_regimes)
@@ -75,6 +85,29 @@ class SLDSIMMRouter:
         self.R = R
         self.Pi = Pi
 
+        # rSLDS stick-breaking gating params (optional). When set, they produce
+        # a time-varying transition matrix Π_t via stick-breaking on the
+        # aggregated continuous latent state; otherwise Π is static.
+        if stick_gamma is None or stick_kappa is None:
+            self.stick_gamma: Optional[np.ndarray] = None
+            self.stick_kappa: Optional[np.ndarray] = None
+        else:
+            stick_gamma = np.asarray(stick_gamma, dtype=float)
+            stick_kappa = np.asarray(stick_kappa, dtype=float)
+            assert stick_gamma.shape == (self.M, self.d)
+            assert stick_kappa.shape == (self.M,)
+            self.stick_gamma = stick_gamma
+            self.stick_kappa = stick_kappa
+
+        # Recurrent dynamics: C[k, j, :] is the input bias when transitioning
+        # from expert j under regime k. Shape: (M, N, d)
+        if C is None:
+            C = np.zeros((self.M, self.N, self.d), dtype=float)
+        else:
+            C = np.asarray(C, dtype=float)
+            assert C.shape == (self.M, self.N, self.d)
+        self.C = C
+
         if beta is None:
             beta = np.zeros(self.N, dtype=float)
         else:
@@ -93,7 +126,6 @@ class SLDSIMMRouter:
         else:
             assert lambda_arr.shape == (self.M,)
             self.lambda_risk_vec = lambda_arr
-            # Scalar kept for backward-compatibility; not used when vec present.
             self.lambda_risk = 0.0
 
         if pop_mean is None:
@@ -116,9 +148,10 @@ class SLDSIMMRouter:
         self.eps = float(eps)
 
         # Track which experts have ever been available (dynamic addition).
-        # An expert that appears for the first time in the availability set
-        # is initialized from the population prior at that time.
         self._has_joined = np.zeros(self.N, dtype=bool)
+
+        # Recurrent state: track the previously selected expert
+        self.r_prev: Optional[int] = None
 
         self.reset_beliefs()
 
@@ -139,8 +172,8 @@ class SLDSIMMRouter:
             assert s > 0
             self.b = b0 / s
 
-        # When resetting beliefs, forget which experts have joined so far.
         self._has_joined[:] = False
+        self.r_prev = None
 
         self.m = np.zeros((self.M, self.N, self.d), dtype=float)
         self.P = np.zeros((self.M, self.N, self.d, self.d), dtype=float)
@@ -150,17 +183,66 @@ class SLDSIMMRouter:
                 self.P[k, j] = self.pop_cov
 
     # --------------------------------------------------------
-    # IMM interaction + time update
+    # Dynamic stick-breaking transition (Linderman et al. 2017)
+    # --------------------------------------------------------
+
+    def _stick_breaking(self, nu: np.ndarray) -> np.ndarray:
+        """
+        Convert stick-breaking logits ν ∈ R^M to a probability vector π ∈ Δ^{M-1}.
+        π_k = σ(ν_k) ∏_{j<k} (1-σ(ν_j)), with remainder on the last stick.
+        """
+        M = self.M
+        assert nu.shape == (M,)
+        sigma = 1.0 / (1.0 + np.exp(-nu))
+        pi = np.zeros(M, dtype=float)
+        remaining = 1.0
+        for k in range(M):
+            if k == M - 1:
+                pi[k] = remaining
+            else:
+                pi[k] = remaining * sigma[k]
+                remaining = remaining * (1.0 - sigma[k])
+        s = pi.sum()
+        if s <= 0:
+            return np.ones(M, dtype=float) / M
+        return pi / s
+
+    def _compute_transition_matrix(self, b: np.ndarray, m: np.ndarray) -> np.ndarray:
+        """
+        If stick-breaking params are provided, build a time-varying Π_t that depends on
+        the belief-weighted mean latent state x̄_t (aggregated across experts).
+        Otherwise return the static Π.
+        """
+        if self.stick_gamma is None or self.stick_kappa is None:
+            return self.Pi
+
+        M, N, d = self.M, self.N, self.d
+        b = np.asarray(b, dtype=float).reshape(M)
+        m = np.asarray(m, dtype=float).reshape(M, N, d)
+
+        # Aggregate latent state: belief-weighted across regimes, then average across experts.
+        x_bar = (b.reshape(M, 1, 1) * m).sum(axis=0).mean(axis=0)  # shape (d,)
+        nu = self.stick_kappa + self.stick_gamma @ x_bar
+        pi_vec = self._stick_breaking(nu)
+        # Same row for all current regimes (standard rSLDS gating on x_t).
+        Pi_dyn = np.tile(pi_vec.reshape(1, M), (M, 1))
+        return Pi_dyn
+
+    # --------------------------------------------------------
+    # IMM interaction + recurrent time update
     # --------------------------------------------------------
 
     def _interaction_and_time_update(self):
-        return self._interaction_and_time_update_state(self.b, self.m, self.P)
+        return self._interaction_and_time_update_state(
+            self.b, self.m, self.P, self.r_prev
+        )
 
     def _interaction_and_time_update_state(
         self,
         b: np.ndarray,
         m: np.ndarray,
         P: np.ndarray,
+        r_prev: Optional[int] = None,
     ):
         M, N, d = self.M, self.N, self.d
 
@@ -168,8 +250,9 @@ class SLDSIMMRouter:
         m = np.asarray(m, dtype=float).reshape(M, N, d)
         P = np.asarray(P, dtype=float).reshape(M, N, d, d)
 
-        # Predict regime distribution: b_{t+1|t}(k) = sum_i b_t(i) Pi[i,k]
-        b_pred = b @ self.Pi
+        # Predict regime distribution using static Π or dynamic stick-breaking Π_t.
+        Pi_t = self._compute_transition_matrix(b, m)
+        b_pred = b @ Pi_t
         s = b_pred.sum()
         if s <= 0:
             b_pred = np.ones(M, dtype=float) / M
@@ -183,7 +266,7 @@ class SLDSIMMRouter:
             if denom <= self.eps:
                 mu[:, k] = 1.0 / M
             else:
-                mu[:, k] = self.Pi[:, k] * b
+                mu[:, k] = Pi_t[:, k] * b
                 s_k = mu[:, k].sum()
                 if s_k <= self.eps:
                     mu[:, k] = 1.0 / M
@@ -195,13 +278,11 @@ class SLDSIMMRouter:
         P_mixed = np.zeros_like(P)
         for k in range(M):
             for j in range(N):
-                # Mixed mean: sum_i μ_{i|k} m_{t|t}^{(i)}
                 m0 = np.zeros(d, dtype=float)
                 for i in range(M):
                     m0 += mu[i, k] * m[i, j]
                 m_mixed[k, j] = m0
 
-                # Mixed covariance: sum_i μ_{i|k}(P_i + (m_i-m0)(m_i-m0)^T)
                 P0 = np.zeros((d, d), dtype=float)
                 for i in range(M):
                     diff = (m[i, j] - m0).reshape(d, 1)
@@ -209,14 +290,19 @@ class SLDSIMMRouter:
                 P0 += self.eps * np.eye(d)
                 P_mixed[k, j] = P0
 
-        # Time update under A_k, Q_k
+        # Time update with recurrent dynamics: α_{j,t+1|t} = A_k α_{j,t|t} + C_k[r_prev]
         m_pred = np.zeros_like(m_mixed)
         P_pred = np.zeros_like(P_mixed)
         for k in range(M):
             A_k = self.A[k]
             Q_k = self.Q[k]
             for j in range(N):
-                m_pred[k, j] = A_k @ m_mixed[k, j]
+                # Recurrent input: if r_prev is set, use C_k[r_prev] as an additive bias
+                c_input = np.zeros(d, dtype=float)
+                if r_prev is not None and 0 <= r_prev < N:
+                    c_input = self.C[k, r_prev]
+                
+                m_pred[k, j] = A_k @ m_mixed[k, j] + c_input
                 P_pred[k, j] = A_k @ P_mixed[k, j] @ A_k.T + Q_k
                 P_pred[k, j] = (
                     0.5 * (P_pred[k, j] + P_pred[k, j].T) + self.eps * np.eye(d)
@@ -238,14 +324,6 @@ class SLDSIMMRouter:
         """
         Apply the population prior to experts that become available for
         the first time at the current step.
-
-        For any j with j in available_experts and _has_joined[j] == False,
-        set for all regimes k:
-            m_pred[k, j] = pop_mean
-            P_pred[k, j] = pop_cov.
-
-        This matches the "Expert Addition (New Expert Joins)" rule in the
-        dynamic availability section of the theory document.
         """
         available_experts = np.asarray(available_experts, dtype=int)
         if available_experts.size == 0:
@@ -278,10 +356,8 @@ class SLDSIMMRouter:
         M, N, d = self.M, self.N, self.d
         phi_t = np.asarray(phi_t, dtype=float).reshape(d)
 
-        # Regime-conditional mean/variance for log-transformed loss
-        #   \tilde ℓ_{j,t} = log(ℓ_{j,t} + obs_log_eps).
-        mu_kj = np.zeros((M, N), dtype=float)  # mean of log-loss
-        S_kj = np.zeros((M, N), dtype=float)   # var of log-loss
+        mu_kj = np.zeros((M, N), dtype=float)
+        S_kj = np.zeros((M, N), dtype=float)
         for k in range(M):
             for j in range(N):
                 m_kj = m_pred[k, j]
@@ -291,7 +367,6 @@ class SLDSIMMRouter:
                 S_kj[k, j] = max(S, self.eps)
                 mu_kj[k, j] = mu
 
-        # Mixture mean/variance over regimes in original loss space.
         mean_ell = np.zeros(N, dtype=float)
         var_ell = np.zeros(N, dtype=float)
         for j in range(N):
@@ -315,17 +390,16 @@ class SLDSIMMRouter:
     ) -> Tuple[int, dict]:
         """
         One decision step: given context x_t and available experts E_t,
-        select r_t ∈ E_t using the myopic risk-adjusted score.
+        select r_t ∈ E_t using the myopic risk-adjusted score with
+        recurrent dynamics from r_{t-1}.
         """
         avail_arr = np.asarray(list(available_experts), dtype=int)
         phi_t = self.feature_fn(x_t)
 
-        # IMM prediction (b_{t+1|t}, m_{t+1|t}, P_{t+1|t})
+        # IMM prediction with recurrent input from r_prev
         b_pred, m_pred, P_pred = self._interaction_and_time_update()
 
-        # Dynamic expert availability: if an expert becomes available for the
-        # first time at this step, initialize its predicted state from the
-        # population prior before computing predictive losses.
+        # Dynamic expert availability
         self._apply_new_expert_prior(
             available_experts=avail_arr,
             m_pred=m_pred,
@@ -333,7 +407,7 @@ class SLDSIMMRouter:
             mark_joined=True,
         )
 
-        # Predictive distribution of losses at time t+1
+        # Predictive distribution of losses
         mean_ell, var_ell, mu_kj, S_kj = self._predict_loss_distribution(
             phi_t, b_pred, m_pred, P_pred
         )
@@ -395,10 +469,6 @@ class SLDSIMMRouter:
 
         avail_arr = np.asarray(list(available_experts), dtype=int)
 
-        # Safety: ensure that any expert that becomes available for the first
-        # time (e.g., if update_beliefs is called in a custom loop) starts
-        # from the population prior. In the standard online loop this is
-        # already handled in select_expert, so we do not mark_joined here.
         self._apply_new_expert_prior(
             available_experts=avail_arr,
             m_pred=m_pred,
@@ -477,36 +547,52 @@ class SLDSIMMRouter:
         self.b = b_post
         self.m = m_pred
         self.P = P_pred
+        
+        # Update recurrent state: remember which expert we just selected
+        self.r_prev = int(r_t)
 
     # --------------------------------------------------------
-    # Horizon-H open-loop prediction of (b_{t+h|t}, m_{t+h|t}, P_{t+h|t})
+    # Horizon-H open-loop prediction with recurrent state tracking
     # --------------------------------------------------------
 
     def precompute_horizon_states(
         self,
         H: int,
+        expert_sequence: Optional[List[int]] = None,
     ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
         """
         Starting from current posterior (b_t, m_{t|t}, P_{t|t}),
-        apply H times the IMM prediction to obtain:
-            (b_{t+h|t}, m_{t+h|t}, P_{t+h|t})  for h=1,...,H.
+        apply H times the IMM prediction with recurrent dynamics, optionally
+        conditioned on a provided expert sequence.
+
+        If expert_sequence is None, use zeros for recurrent input (no expert influence).
+        If expert_sequence is provided (length H), use r_{t+h-1} to influence α at step h.
         """
         b_curr = self.b.copy()
         m_curr = self.m.copy()
         P_curr = self.P.copy()
 
         b_list, m_list, P_list = [], [], []
-        for _ in range(H):
+        r_prev = self.r_prev  # Start with current recurrent state
+
+        for h in range(H):
             b_curr, m_curr, P_curr = self._interaction_and_time_update_state(
-                b_curr, m_curr, P_curr
+                b_curr, m_curr, P_curr, r_prev
             )
             b_list.append(b_curr.copy())
             m_list.append(m_curr.copy())
             P_list.append(P_curr.copy())
+
+            # Update recurrent state for next iteration
+            if expert_sequence is not None and h < len(expert_sequence):
+                r_prev = expert_sequence[h]
+            else:
+                r_prev = None
+
         return b_list, m_list, P_list
 
     # --------------------------------------------------------
-    # Horizon-H scheduling (planning with router-influenced contexts)
+    # Horizon-H scheduling with recurrent context propagation
     # --------------------------------------------------------
 
     def plan_horizon_schedule(
@@ -518,10 +604,10 @@ class SLDSIMMRouter:
         available_experts_per_h: Optional[Sequence[Sequence[int]]] = None,
     ) -> Tuple[List[int], List[np.ndarray], List[float]]:
         """
-        Horizon-H planning: given current context x_t and belief (b_t, m_t, P_t),
-        compute a greedy open-loop schedule of expert indices (r_{t+1},...,r_{t+H}),
-        assuming that at each future step we update the context according to
-        the chosen expert's forecast.
+        Horizon-H planning with recurrent dynamics: given current context x_t,
+        belief (b_t, m_t, P_t), and previous expert r_{t-1}, compute a greedy
+        open-loop schedule (r_{t+1},...,r_{t+H}) that accounts for recurrent
+        state propagation.
 
         This does NOT change the internal belief state; it is a planning tool.
         """
@@ -530,12 +616,6 @@ class SLDSIMMRouter:
             available_experts_per_h = [list(range(N)) for _ in range(H)]
         assert len(available_experts_per_h) == H
 
-        # Precompute open-loop latent states (no observation updates)
-        b_list, m_list, P_list = self.precompute_horizon_states(H)
-
-        # Local copy of which experts have joined so far. This allows the
-        # planner to apply the population prior to experts that first appear
-        # in the provided availability sets at some future step.
         seen_future = self._has_joined.copy()
 
         x_curr = x_t
@@ -543,24 +623,33 @@ class SLDSIMMRouter:
         contexts: List[np.ndarray] = []
         scores: List[float] = []
 
+        # Local recurrent state for planning
+        r_plan = self.r_prev
+
         for h in range(1, H + 1):
-            b_h = b_list[h - 1]
-            m_h = m_list[h - 1].copy()
-            P_h = P_list[h - 1].copy()
+            # Time update with recurrent input from r_plan
+            b_curr = self.b.copy()
+            m_curr = self.m.copy()
+            P_curr = self.P.copy()
+
+            # Apply h-1 prediction steps to reach time t+h
+            for _ in range(h - 1):
+                b_curr, m_curr, P_curr = self._interaction_and_time_update_state(
+                    b_curr, m_curr, P_curr, r_plan
+                )
+
+            b_h = b_curr
+            m_h = m_curr.copy()
+            P_h = P_curr.copy()
 
             avail = np.asarray(list(available_experts_per_h[h - 1]), dtype=int)
             if avail.size == 0:
                 raise ValueError(f"No available experts for planning step {h}")
 
-            # Planning-time risk parameter: we use risk-neutral planning
-            # (λ_plan = 0) to minimize expected cost, independently of
-            # the online λ used for bandit routing.
+            # Planning-time risk parameter: risk-neutral
             lambda_eff_h = 0.0
 
-            # Apply population prior to experts that become available for the
-            # first time on this future step (planning analogue of online
-            # dynamic addition). We use a local mask so the router's live
-            # state is not mutated by planning.
+            # Apply population prior to new experts
             if avail.size > 0:
                 mask_new = ~seen_future[avail]
                 if np.any(mask_new):
@@ -570,6 +659,7 @@ class SLDSIMMRouter:
                             m_h[k, j] = self.pop_mean
                             P_h[k, j] = self.pop_cov
                     seen_future[new_indices] = True
+
             best_score: Optional[float] = None
             best_j: Optional[int] = None
             best_x_next: Optional[np.ndarray] = None
@@ -610,6 +700,9 @@ class SLDSIMMRouter:
             schedule.append(best_j)
             contexts.append(best_x_next)
             scores.append(float(best_score))
+
+            # Update planning state for next iteration
             x_curr = best_x_next
+            r_plan = best_j
 
         return schedule, contexts, scores

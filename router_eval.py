@@ -3,14 +3,17 @@ from typing import Optional, Sequence, Tuple
 
 from router_model import SLDSIMMRouter
 from synthetic_env import SyntheticTimeSeriesEnv
+from etth1_env import ETTh1TimeSeriesEnv
 from l2d_baseline import L2D
 from linucb_baseline import LinUCB
 from neuralucb_baseline import NeuralUCB
 
+TimeSeriesEnv = SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv
+
 
 def _train_router_offline(
     router: SLDSIMMRouter,
-    env: SyntheticTimeSeriesEnv,
+    env: TimeSeriesEnv,
     t_train_end: int,
     sliding_window: bool = False,
     sliding_window_size: Optional[int] = None,
@@ -84,7 +87,7 @@ def _train_router_offline(
 
 def _run_router_online_window(
     router: SLDSIMMRouter,
-    env: SyntheticTimeSeriesEnv,
+    env: TimeSeriesEnv,
     t_start: int,
     t_end: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -150,7 +153,7 @@ def _run_router_online_window(
 
 def run_router_on_env_expanding(
     router: SLDSIMMRouter,
-    env: SyntheticTimeSeriesEnv,
+    env: TimeSeriesEnv,
     training_cfg: dict,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -223,7 +226,7 @@ def run_router_on_env_expanding(
     return np.asarray(costs_all, dtype=float), np.asarray(choices_all, dtype=int)
 def run_router_on_env(
     router: SLDSIMMRouter,
-    env: SyntheticTimeSeriesEnv,
+    env: TimeSeriesEnv,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run the router on the synthetic environment.
@@ -284,7 +287,7 @@ def run_router_on_env(
 
 def run_l2d_on_env(
     baseline: L2D,
-    env: SyntheticTimeSeriesEnv,
+    env: TimeSeriesEnv,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run the usual learning-to-defer baseline on the synthetic environment.
@@ -328,7 +331,7 @@ def run_l2d_on_env(
 
 def run_linucb_on_env(
     baseline: LinUCB,
-    env: SyntheticTimeSeriesEnv,
+    env: TimeSeriesEnv,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run a LinUCB baseline on the synthetic environment.
@@ -366,7 +369,7 @@ def run_linucb_on_env(
 
 def run_neuralucb_on_env(
     baseline: NeuralUCB,
-    env: SyntheticTimeSeriesEnv,
+    env: TimeSeriesEnv,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run a NeuralUCB baseline on the synthetic environment.
@@ -403,7 +406,7 @@ def run_neuralucb_on_env(
 
 
 def run_random_on_env(
-    env: SyntheticTimeSeriesEnv,
+    env: TimeSeriesEnv,
     beta: np.ndarray,
     seed: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -452,7 +455,7 @@ def run_random_on_env(
 
 
 def run_oracle_on_env(
-    env: SyntheticTimeSeriesEnv,
+    env: TimeSeriesEnv,
     beta: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -499,7 +502,7 @@ def run_oracle_on_env(
 
 
 def compute_predictions_from_choices(
-    env: SyntheticTimeSeriesEnv,
+    env: TimeSeriesEnv,
     choices: np.ndarray,
 ) -> np.ndarray:
     """
