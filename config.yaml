@@ -11,7 +11,7 @@ environment:
   #                        (or a multi-regime 0 → 1 → 2 → … → M-1 → 0
   #                        pattern when num_regimes > 2) to highlight
   #                        potential catastrophic forgetting.
-  setting: "noisy_forgetting"
+  setting: "easy_setting"
   # choose from: 
   # easy_setting,
   # noisy_forgetting,

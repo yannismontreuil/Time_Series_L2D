@@ -77,6 +77,8 @@ def get_model_color(name: str) -> str:
         "full_corr": "tab:olive",
         "partial_corr_em": "tab:blue",
         "full_corr_em": "tab:red",
+        "partial_rec": "tab:purple",
+        "full_rec": "tab:brown",
         "neural_partial": "tab:brown",
         "neural_full": "tab:purple",
         "l2d": "tab:red",
@@ -495,6 +497,12 @@ def evaluate_routers_and_baselines(
 
     avg_cost_partial = costs_partial.mean()
     avg_cost_full = costs_full.mean()
+    avg_cost_partial_rec = (
+        costs_partial_rec.mean() if costs_partial_rec is not None else None
+    )
+    avg_cost_full_rec = (
+        costs_full_rec.mean() if costs_full_rec is not None else None
+    )
     avg_cost_partial_corr = (
         costs_partial_corr.mean() if costs_partial_corr is not None else None
     )
@@ -537,6 +545,14 @@ def evaluate_routers_and_baselines(
     print("=== Average costs ===")
     print(f"Router (partial feedback):      {avg_cost_partial:.4f}")
     print(f"Router (full feedback):         {avg_cost_full:.4f}")
+    if avg_cost_partial_rec is not None:
+        print(
+            f"Router r-SLDS (partial fb):    {avg_cost_partial_rec:.4f}"
+        )
+    if avg_cost_full_rec is not None:
+        print(
+            f"Router r-SLDS (full fb):       {avg_cost_full_rec:.4f}"
+        )
     if avg_cost_partial_corr is not None:
         print(
             f"Router Corr (partial feedback): {avg_cost_partial_corr:.4f}"
@@ -581,6 +597,10 @@ def evaluate_routers_and_baselines(
         ("partial", choices_partial),
         ("full", choices_full),
     ]
+    if choices_partial_rec is not None:
+        entries.append(("partial_rec", choices_partial_rec))
+    if choices_full_rec is not None:
+        entries.append(("full_rec", choices_full_rec))
     if choices_partial_corr is not None:
         entries.append(("partial_corr", choices_partial_corr))
     if choices_full_corr is not None:
@@ -647,6 +667,24 @@ def evaluate_routers_and_baselines(
         linestyle="-",
         alpha=0.8,
     )
+    if preds_partial_rec is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_partial_rec,
+            label="Router r-SLDS (partial)",
+            color=get_model_color("partial_rec"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_full_rec is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_full_rec,
+            label="Router r-SLDS (full)",
+            color=get_model_color("full_rec"),
+            linestyle="-",
+            alpha=0.8,
+        )
     if preds_partial_neural is not None:
         ax_pred.plot(
             t_grid,
@@ -746,6 +784,14 @@ def evaluate_routers_and_baselines(
     denom = np.arange(1, T, dtype=float)
     avg_partial_t = np.cumsum(costs_partial) / denom
     avg_full_t = np.cumsum(costs_full) / denom
+    avg_partial_rec_t = (
+        np.cumsum(costs_partial_rec) / denom
+        if costs_partial_rec is not None
+        else None
+    )
+    avg_full_rec_t = (
+        np.cumsum(costs_full_rec) / denom if costs_full_rec is not None else None
+    )
     avg_partial_corr_t = (
         np.cumsum(costs_partial_corr) / denom
         if costs_partial_corr is not None
@@ -817,6 +863,22 @@ def evaluate_routers_and_baselines(
         color=get_model_color("full"),
         linestyle="-",
     )
+    if avg_partial_rec_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_partial_rec_t,
+            label="r-SLDS partial (avg cost)",
+            color=get_model_color("partial_rec"),
+            linestyle="-",
+        )
+    if avg_full_rec_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_full_rec_t,
+            label="r-SLDS full (avg cost)",
+            color=get_model_color("full_rec"),
+            linestyle="-",
+        )
     if avg_neural_partial_t is not None:
         ax_cost.plot(
             t_grid,
@@ -1305,6 +1367,8 @@ def analysis_late_arrival(
     router_partial: SLDSIMMRouter,
     router_full: SLDSIMMRouter,
     l2d_baseline: Optional[L2D] = None,
+    router_partial_rec=None,
+    router_full_rec=None,
     router_partial_corr=None,
     router_full_corr=None,
     router_partial_corr_em=None,
