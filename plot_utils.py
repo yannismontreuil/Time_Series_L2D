@@ -75,6 +75,8 @@ def get_model_color(name: str) -> str:
         "full": "tab:orange",
         "partial_corr": "tab:cyan",
         "full_corr": "tab:olive",
+        "partial_corr_rec": "tab:red",
+        "full_corr_rec": "tab:olive",
         "partial_corr_em": "tab:blue",
         "full_corr_em": "tab:red",
         "partial_rec": "tab:purple",
@@ -281,6 +283,8 @@ def evaluate_routers_and_baselines(
     router_full_rec=None,
     router_partial_corr=None,
     router_full_corr=None,
+    router_partial_corr_rec=None,
+    router_full_corr_rec=None,
     router_partial_corr_em=None,
     router_full_corr_em=None,
     l2d_sw_baseline: Optional[L2D] = None,
@@ -299,6 +303,30 @@ def evaluate_routers_and_baselines(
     # Run both base routers to obtain costs and choices
     costs_partial, choices_partial = run_router_on_env(router_partial, env)
     costs_full, choices_full = run_router_on_env(router_full, env)
+
+    costs_partial_corr_rec, choices_partial_corr_rec = None, None
+    if router_partial_corr_rec is not None:
+        costs_partial_corr_rec, choices_partial_corr_rec = run_router_on_env(
+            router_partial_corr_rec, env
+        )
+
+    costs_full_corr_rec, choices_full_corr_rec = None, None
+    if router_full_corr_rec is not None:
+        costs_full_corr_rec, choices_full_corr_rec = run_router_on_env(
+            router_full_corr_rec, env
+        )
+
+    costs_partial_corr_rec, choices_partial_corr_rec = None, None
+    if router_partial_corr_rec is not None:
+        costs_partial_corr_rec, choices_partial_corr_rec = run_router_on_env(
+            router_partial_corr_rec, env
+        )
+
+    costs_full_corr_rec, choices_full_corr_rec = None, None
+    if router_full_corr_rec is not None:
+        costs_full_corr_rec, choices_full_corr_rec = run_router_on_env(
+            router_full_corr_rec, env
+        )
 
     # Recurrent routers (if provided)
     if router_partial_rec is not None:
@@ -344,6 +372,21 @@ def evaluate_routers_and_baselines(
         )
     else:
         costs_full_corr, choices_full_corr = None, None
+
+    # Recurrent + correlated routers (if provided)
+    if router_partial_corr_rec is not None:
+        costs_partial_corr_rec, choices_partial_corr_rec = run_router_on_env(
+            router_partial_corr_rec, env
+        )
+    else:
+        costs_partial_corr_rec, choices_partial_corr_rec = None, None
+
+    if router_full_corr_rec is not None:
+        costs_full_corr_rec, choices_full_corr_rec = run_router_on_env(
+            router_full_corr_rec, env
+        )
+    else:
+        costs_full_corr_rec, choices_full_corr_rec = None, None
 
     # EM-capable correlated routers (if provided)
     if router_partial_corr_em is not None:
@@ -431,6 +474,16 @@ def evaluate_routers_and_baselines(
         if choices_full_corr is not None
         else None
     )
+    preds_partial_corr_rec = (
+        compute_predictions_from_choices(env, choices_partial_corr_rec)
+        if choices_partial_corr_rec is not None
+        else None
+    )
+    preds_full_corr_rec = (
+        compute_predictions_from_choices(env, choices_full_corr_rec)
+        if choices_full_corr_rec is not None
+        else None
+    )
     preds_partial_corr_em = (
         compute_predictions_from_choices(env, choices_partial_corr_em)
         if choices_partial_corr_em is not None
@@ -509,6 +562,12 @@ def evaluate_routers_and_baselines(
     avg_cost_full_corr = (
         costs_full_corr.mean() if costs_full_corr is not None else None
     )
+    avg_cost_partial_corr_rec = (
+        costs_partial_corr_rec.mean() if costs_partial_corr_rec is not None else None
+    )
+    avg_cost_full_corr_rec = (
+        costs_full_corr_rec.mean() if costs_full_corr_rec is not None else None
+    )
     avg_cost_partial_corr_em = (
         costs_partial_corr_em.mean() if costs_partial_corr_em is not None else None
     )
@@ -559,6 +618,14 @@ def evaluate_routers_and_baselines(
         )
     if avg_cost_full_corr is not None:
         print(f"Router Corr (full feedback):    {avg_cost_full_corr:.4f}")
+    if avg_cost_partial_corr_rec is not None:
+        print(
+            f"Router Corr+Rec (partial fb): {avg_cost_partial_corr_rec:.4f}"
+        )
+    if avg_cost_full_corr_rec is not None:
+        print(
+            f"Router Corr+Rec (full fb):    {avg_cost_full_corr_rec:.4f}"
+        )
     if avg_cost_partial_corr_em is not None:
         print(
             f"Router Corr EM (partial fb):   {avg_cost_partial_corr_em:.4f}"
@@ -605,6 +672,10 @@ def evaluate_routers_and_baselines(
         entries.append(("partial_corr", choices_partial_corr))
     if choices_full_corr is not None:
         entries.append(("full_corr", choices_full_corr))
+    if choices_partial_corr_rec is not None:
+        entries.append(("partial_corr_rec", choices_partial_corr_rec))
+    if choices_full_corr_rec is not None:
+        entries.append(("full_corr_rec", choices_full_corr_rec))
     if choices_partial_corr_em is not None:
         entries.append(("partial_corr_em", choices_partial_corr_em))
     if choices_full_corr_em is not None:
@@ -682,6 +753,60 @@ def evaluate_routers_and_baselines(
             preds_full_rec,
             label="Router r-SLDS (full)",
             color=get_model_color("full_rec"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_partial_corr is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_partial_corr,
+            label="Router Corr (partial)",
+            color=get_model_color("partial_corr"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_full_corr is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_full_corr,
+            label="Router Corr (full)",
+            color=get_model_color("full_corr"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_partial_corr_rec is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_partial_corr_rec,
+            label="Router Corr+Rec (partial)",
+            color=get_model_color("partial_corr_rec"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_full_corr_rec is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_full_corr_rec,
+            label="Router Corr+Rec (full)",
+            color=get_model_color("full_corr_rec"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_partial_corr_em is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_partial_corr_em,
+            label="Router Corr EM (partial)",
+            color=get_model_color("partial_corr_em"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_full_corr_em is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_full_corr_em,
+            label="Router Corr EM (full)",
+            color=get_model_color("full_corr_em"),
             linestyle="-",
             alpha=0.8,
         )
@@ -800,6 +925,16 @@ def evaluate_routers_and_baselines(
     avg_full_corr_t = (
         np.cumsum(costs_full_corr) / denom if costs_full_corr is not None else None
     )
+    avg_partial_corr_rec_t = (
+        np.cumsum(costs_partial_corr_rec) / denom
+        if costs_partial_corr_rec is not None
+        else None
+    )
+    avg_full_corr_rec_t = (
+        np.cumsum(costs_full_corr_rec) / denom
+        if costs_full_corr_rec is not None
+        else None
+    )
     avg_partial_corr_em_t = (
         np.cumsum(costs_partial_corr_em) / denom
         if costs_partial_corr_em is not None
@@ -877,6 +1012,54 @@ def evaluate_routers_and_baselines(
             avg_full_rec_t,
             label="r-SLDS full (avg cost)",
             color=get_model_color("full_rec"),
+            linestyle="-",
+        )
+    if avg_partial_corr_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_partial_corr_t,
+            label="Corr partial (avg cost)",
+            color=get_model_color("partial_corr"),
+            linestyle="-",
+        )
+    if avg_full_corr_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_full_corr_t,
+            label="Corr full (avg cost)",
+            color=get_model_color("full_corr"),
+            linestyle="-",
+        )
+    if avg_partial_corr_rec_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_partial_corr_rec_t,
+            label="Corr+Rec partial (avg cost)",
+            color=get_model_color("partial_corr_rec"),
+            linestyle="-",
+        )
+    if avg_full_corr_rec_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_full_corr_rec_t,
+            label="Corr+Rec full (avg cost)",
+            color=get_model_color("full_corr_rec"),
+            linestyle="-",
+        )
+    if avg_partial_corr_em_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_partial_corr_em_t,
+            label="Corr EM partial (avg cost)",
+            color=get_model_color("partial_corr_em"),
+            linestyle="-",
+        )
+    if avg_full_corr_em_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_full_corr_em_t,
+            label="Corr EM full (avg cost)",
+            color=get_model_color("full_corr_em"),
             linestyle="-",
         )
     if avg_neural_partial_t is not None:
@@ -1371,6 +1554,8 @@ def analysis_late_arrival(
     router_full_rec=None,
     router_partial_corr=None,
     router_full_corr=None,
+    router_partial_corr_rec=None,
+    router_full_corr_rec=None,
     router_partial_corr_em=None,
     router_full_corr_em=None,
     l2d_sw_baseline: Optional[L2D] = None,
@@ -1490,6 +1675,10 @@ def analysis_late_arrival(
         router_partial_corr.reset_beliefs()
     if router_full_corr is not None:
         router_full_corr.reset_beliefs()
+    if router_partial_corr_rec is not None:
+        router_partial_corr_rec.reset_beliefs()
+    if router_full_corr_rec is not None:
+        router_full_corr_rec.reset_beliefs()
     if router_partial_corr_em is not None:
         router_partial_corr_em.reset_beliefs()
     if router_full_corr_em is not None:
@@ -1505,6 +1694,18 @@ def analysis_late_arrival(
     # Run routers and baselines to obtain costs and choices.
     costs_partial, choices_partial = run_router_on_env(router_partial, env)
     costs_full, choices_full = run_router_on_env(router_full, env)
+
+    costs_partial_corr_rec, choices_partial_corr_rec = None, None
+    if router_partial_corr_rec is not None:
+        costs_partial_corr_rec, choices_partial_corr_rec = run_router_on_env(
+            router_partial_corr_rec, env
+        )
+
+    costs_full_corr_rec, choices_full_corr_rec = None, None
+    if router_full_corr_rec is not None:
+        costs_full_corr_rec, choices_full_corr_rec = run_router_on_env(
+            router_full_corr_rec, env
+        )
 
     costs_partial_corr, choices_partial_corr = None, None
     if router_partial_corr is not None:
@@ -1577,6 +1778,12 @@ def analysis_late_arrival(
         methods.append(("partial_corr", costs_partial_corr, choices_partial_corr))
     if costs_full_corr is not None and choices_full_corr is not None:
         methods.append(("full_corr", costs_full_corr, choices_full_corr))
+    if costs_partial_corr_rec is not None and choices_partial_corr_rec is not None:
+        methods.append(
+            ("partial_corr_rec", costs_partial_corr_rec, choices_partial_corr_rec)
+        )
+    if costs_full_corr_rec is not None and choices_full_corr_rec is not None:
+        methods.append(("full_corr_rec", costs_full_corr_rec, choices_full_corr_rec))
     if costs_partial_corr_em is not None and choices_partial_corr_em is not None:
         methods.append(("partial_corr_em", costs_partial_corr_em, choices_partial_corr_em))
     if costs_full_corr_em is not None and choices_full_corr_em is not None:

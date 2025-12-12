@@ -105,16 +105,17 @@ class RecurrentSLDSRouter:
         # aggregated continuous latent state; otherwise Π is static.
         # stick_gamma is R in paper Linderman et al. 2017.
         # stick_kappa is r in paper Linderman et al. 2017.
-        if stick_gamma is None or stick_kappa is None:
-            self.stick_gamma: Optional[np.ndarray] = None
-            self.stick_kappa: Optional[np.ndarray] = None
-        else:
-            stick_gamma = np.asarray(stick_gamma, dtype=float)
-            stick_kappa = np.asarray(stick_kappa, dtype=float)
-            assert stick_gamma.shape == (self.M, self.d)
-            assert stick_kappa.shape == (self.M,)
-            self.stick_gamma = stick_gamma
-            self.stick_kappa = stick_kappa
+
+        # if stick_gamma is None or stick_kappa is None:
+        #     self.stick_gamma: Optional[np.ndarray] = None
+        #     self.stick_kappa: Optional[np.ndarray] = None
+        # else:
+        #     stick_gamma = np.asarray(stick_gamma, dtype=float)
+        #     stick_kappa = np.asarray(stick_kappa, dtype=float)
+        #     assert stick_gamma.shape == (self.M, self.d)
+        #     assert stick_kappa.shape == (self.M,)
+        #     self.stick_gamma = stick_gamma
+        #     self.stick_kappa = stick_kappa
 
         # Row-conditioned stick-breaking params (optional). When set,
         # Π_t rows depend on the previous regime i; otherwise rows are tied.
@@ -249,8 +250,6 @@ class RecurrentSLDSRouter:
         - If row-conditioned params are set, each row i is π_t(z_{t-1}=i, x̄_t).
         - Otherwise rows are tied (standard rSLDS gating on x̄_t only).
         """
-        if self.stick_gamma is None or self.stick_kappa is None:
-            return self.Pi
 
         M, N, d = self.M, self.N, self.d
         b = np.asarray(b, dtype=float).reshape(M)
@@ -269,20 +268,20 @@ class RecurrentSLDSRouter:
                 Pi_dyn[i] = self._stick_breaking(nu_i)
             return Pi_dyn
 
-        elif self.stick_gamma is not None and self.stick_kappa is not None:
-            # ν = κ + Γ x̄_t
-            # same as the ν = r + R x̄_t in Linderman et al. 2017
-            nu = self.stick_kappa + self.stick_gamma @ x_bar
-            pi_vec = self._stick_breaking(nu)
+        # elif self.stick_gamma is not None and self.stick_kappa is not None:
+        #     # ν = κ + Γ x̄_t
+        #     # same as the ν = r + R x̄_t in Linderman et al. 2017
+        #     nu = self.stick_kappa + self.stick_gamma @ x_bar
+        #     pi_vec = self._stick_breaking(nu)
 
-            # example of rSLDS(ro), note all rows are identical, since the transition only depends on x_t not on previous z_t
-            # Π_dyn =   [[π_1, π_2, ..., π_M],
-            #            [π_1, π_2, ..., π_M],
-            #            [..., ..., ..., ...],
-            #            [π_1, π_2, ..., π_M]]
+        #     # example of rSLDS(ro), note all rows are identical, since the transition only depends on x_t not on previous z_t
+        #     # Π_dyn =   [[π_1, π_2, ..., π_M],
+        #     #            [π_1, π_2, ..., π_M],
+        #     #            [..., ..., ..., ...],
+        #     #            [π_1, π_2, ..., π_M]]
 
-            Pi_dyn = np.tile(pi_vec.reshape(1, M), (M, 1))
-            return Pi_dyn
+        #     Pi_dyn = np.tile(pi_vec.reshape(1, M), (M, 1))
+        #     return Pi_dyn
         
         else:
             print("Warning: Inconsistent stick-breaking parameters. Use static Pi.")

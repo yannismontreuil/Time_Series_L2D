@@ -11,6 +11,17 @@ except Exception:  # pragma: no cover - optional dependency
     torch = None
 
 
+def _select_torch_device():
+    """Pick a torch device, preferring CUDA, then MPS, else CPU."""
+    if torch is None:
+        return None
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 class ETTh1TimeSeriesEnv:
     """
     Environment that wraps the ETTh1 dataset (electricity transformer
@@ -298,7 +309,7 @@ class ETTh1TimeSeriesEnv:
                 # Prefer PyTorch training when available.
                 if torch is not None:
                     # Construct a simple 1-hidden-layer MLP with tanh.
-                    device = torch.device("cpu")
+                    device = _select_torch_device() or torch.device("cpu")
 
                     class _MLP(nn.Module):  # type: ignore[misc]
                         def __init__(self, in_dim: int, hid_dim: int):

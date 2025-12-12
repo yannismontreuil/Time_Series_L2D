@@ -300,8 +300,11 @@ class SLDSIMMRouter_Corr:
         phi_base = self._compute_base_feature(x)
         if self.feature_mode == "learnable":
             if self.feature_arch == "linear":
+                assert self.feature_W is not None
                 phi = self.feature_W @ phi_base
             else:
+                assert self.feature_W1 is not None and self.feature_b1 is not None
+                assert self.feature_W2 is not None and self.feature_b2 is not None
                 z1 = self.feature_W1 @ phi_base + self.feature_b1
                 h1 = self._feature_activation(z1)
                 phi = self.feature_W2 @ h1 + self.feature_b2
@@ -470,7 +473,6 @@ class SLDSIMMRouter_Corr:
         available_experts = np.asarray(available_experts, dtype=int)
         if available_experts.size == 0:
             return
-
         mask_new = ~self._has_joined[available_experts]
         if not np.any(mask_new):
             return
@@ -1027,14 +1029,6 @@ class SLDSIMMRouter_Corr:
             E_{j,t}^{(k)}(θ) to obtain ∂Q/∂φ_t, then map to θ via the
             linear relation φ_t = W φ_base_t.
         """
-        if self.feature_learning_rate <= 0.0:
-            return
-
-        # If a freeze-after threshold is specified, stop adapting
-        # features once the internal time counter exceeds it.
-        if self.feature_freeze_after is not None and self._time > self.feature_freeze_after:
-            return
-
         phi_t = phi_t.reshape(self.du)
         phi_base_t = phi_base_t.reshape(self.d_feat)
         M = self.M
@@ -1047,6 +1041,7 @@ class SLDSIMMRouter_Corr:
             obs_experts = np.asarray(available_experts, dtype=int)
             if losses_full is None:
                 return
+            assert losses_full is not None
             losses_full = np.asarray(losses_full, dtype=float)
 
         grad_phi = np.zeros_like(phi_t)
@@ -1116,10 +1111,13 @@ class SLDSIMMRouter_Corr:
         if self.feature_arch == "linear":
             # φ_t = W φ_base_t  ⇒  ∂Q/∂W = grad_phi ⊗ φ_base_t
             grad_W = np.outer(grad_phi, phi_base_t)
+            assert self.feature_W is not None
             self.feature_W += self.feature_learning_rate * grad_W
             W_norm = float(np.linalg.norm(self.feature_W))
         else:
             # Two-layer MLP: φ = W2 σ(W1 φ_base + b1) + b2
+            assert self.feature_W1 is not None and self.feature_b1 is not None
+            assert self.feature_W2 is not None and self.feature_b2 is not None
             z1 = self.feature_W1 @ phi_base_t + self.feature_b1
             h1 = self._feature_activation(z1)
             act_deriv = self._feature_activation_deriv(z1)
@@ -1150,3 +1148,67 @@ class SLDSIMMRouter_Corr:
                     f"[SLDSIMMRouter_Corr] t={self._time}, "
                     f"||feature_W||_F = {W_norm:.6f}"
                 )
+
+
+class RecurrentSLDSIMMRouter_Corr(SLDSIMMRouter_Corr):
+    """
+    Correlated SLDS-IMM router with a simple recurrent bias on the
+    previously selected expert's idiosyncratic state u_{j,t}.
+
+    Differences vs SLDSIMMRouter_Corr:
+      - tracks r_prev (expert chosen at t-1), initialized to None
+      - optional C_u[k, j, :] bias added to u_j dynamics when r_prev=j
+      - reset_beliefs clears r_prev
+
+    The bias is applied after the base IMM interaction+time update, by
+    shifting the u_j slice of the joint mean for the previous expert.
+    Covariances are left unchanged for simplicity (additive mean shift).
+    """
+
+    def __init__(
+        self,
+        *args,
+        C_u: Optional[np.ndarray] = None,  # shape (M, N, d_u)
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+
+        if C_u is None:
+            self.C_u = np.zeros((self.M, self.N, self.du), dtype=float)
+        else:
+            C_u_arr = np.asarray(C_u, dtype=float)
+            assert C_u_arr.shape == (self.M, self.N, self.du)
+            self.C_u = C_u_arr
+
+        self.r_prev: Optional[int] = None
+
+    def reset_beliefs(self, b0: Optional[np.ndarray] = None) -> None:
+        super().reset_beliefs(b0)
+        self.r_prev = None
+
+    def _interaction_and_time_update_state(
+        self,
+        b: np.ndarray,
+        m: np.ndarray,
+        P: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        b_pred, m_pred, P_pred = super()._interaction_and_time_update_state(b, m, P)
+
+        # Apply recurrent bias to u_{r_prev} if available.
+        if self.r_prev is not None and 0 <= self.r_prev < self.N:
+            u_slice_prev = self._u_slice(self.r_prev)
+            for k in range(self.M):
+                m_pred[k, u_slice_prev] += self.C_u[k, self.r_prev]
+
+        return b_pred, m_pred, P_pred
+
+    def update_beliefs(
+        self,
+        r_t: int,
+        loss_obs: float,
+        losses_full: Optional[np.ndarray],
+        available_experts: Sequence[int],
+        cache: dict,
+    ) -> None:
+        super().update_beliefs(r_t, loss_obs, losses_full, available_experts, cache)
+        self.r_prev = int(r_t)

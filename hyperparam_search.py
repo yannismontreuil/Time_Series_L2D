@@ -566,7 +566,9 @@ def build_recurrent_routers(
     stick_gamma_rows_cfg = slds_recurrent_cfg.get("stick_gamma_rows", None)
     stick_kappa_rows_cfg = slds_recurrent_cfg.get("stick_kappa_rows", None)
     if stick_gamma_rows_cfg is not None and stick_kappa_rows_cfg is not None:
-        stick_gamma_rows = np.asarray(stick_gamma_rows_cfg, dtype=float)
+        stick_gamma_rows = np.asarray(stick_gamma_rows_cfg, dtype=float) * float(
+            stick_gamma_scale
+        )
         stick_kappa_rows = np.asarray(stick_kappa_rows_cfg, dtype=float)
     else:
         stick_gamma_rows = None
@@ -939,7 +941,7 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
     r_scale_grid_rec = rec_cfg.get("r_scale_grid", [0.5, 1.0, 2.0])
     c_scale_grid_rec = rec_cfg.get("c_scale_grid", [0.2, 0.5, 1.0])
     stick_gamma_scale_grid = rec_cfg.get(
-        "stick_gamma_scale_grid", [0.0, 0.5, 1.0]
+        "stick_gamma_scale_grid", [0.0, 0.25, 0.5, 1.0]
     )
     num_regimes_grid_rec_raw = rec_cfg.get("num_regimes_grid", None)
     if num_regimes_grid_rec_raw is None:
@@ -1052,6 +1054,7 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
         print("No valid hyperparameter combinations to evaluate.")
         return
 
+    '''
     # Evaluate correlated-router tasks
     if tasks:
         total_tasks = len(tasks)
@@ -1098,6 +1101,7 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
                         f"partial_corr={result['avg_cost_partial']:.4f}, "
                         f"full_corr={result['avg_cost_full']:.4f}",
                     )
+    '''
 
     # Evaluate r-SLDS tasks
     results_rec: List[Dict[str, Any]] = []

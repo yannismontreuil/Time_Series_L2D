@@ -17,6 +17,23 @@ from torch import nn
 import torch.nn.functional as F
 
 
+def _resolve_device(device: str | None = None) -> torch.device:
+    """Choose a torch device with auto fallback to CUDA → MPS → CPU."""
+    if device is None or str(device).lower() == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return torch.device("mps")
+        return torch.device("cpu")
+
+    dev = str(device).lower()
+    if dev == "cuda" and torch.cuda.is_available():
+        return torch.device("cuda")
+    if dev == "mps" and hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device(dev)
+
+
 class SetEncoder(nn.Module):
     """
     DeepSets-style set encoder for available experts:
@@ -483,7 +500,7 @@ class NeuralSSMRouter:
         beta=None,
         lambda_risk: float = 0.0,
         feedback_mode: str = "partial",
-        device: str = "cpu",
+        device: str = "auto",
         **kwargs,
     ):
         assert feedback_mode in ("partial", "full")
@@ -498,7 +515,7 @@ class NeuralSSMRouter:
             beta = np.zeros(self.N, dtype=float)
         self.beta = beta
 
-        self.device = torch.device(device)
+        self.device = _resolve_device(device)
 
         # Optional Gamma shape from kwargs (for compatibility with config)
         gamma_shape = float(kwargs.get("gamma_shape", 10.0))

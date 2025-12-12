@@ -3,18 +3,18 @@
     "num_regimes": 2,
     "lambda_risk": 0.0,
     "q": 0.5,
-    "r": 2.0,
-    "c_scale": 0.2,
+    "r": 1.0,
+    "c_scale": 0.5,
     "stick_gamma_scale": 0.0,
-    "avg_cost": 0.181256314071026
+    "avg_cost": 0.43652237858862286
   },
   "full": {
     "num_regimes": 2,
     "lambda_risk": 0.2,
-    "q": 1.0,
+    "q": 0.5,
     "r": 1.0,
-    "c_scale": 0.2,
+    "c_scale": 0.5,
     "stick_gamma_scale": 0.0,
-    "avg_cost": 0.1364922483657924
+    "avg_cost": 0.42757449401720615
   }
 }

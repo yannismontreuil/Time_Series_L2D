@@ -1,17 +1,18 @@
 # not specify data_source thus uses synthetic data generation in slds_imm_router.py
 environment:
+  # dataset to use; if not specified, synthetic data is generated, choose from: etth1 and synthetic
   data_source: "synthetic"
   # Main experiment environment (slds_imm_router.py)
   num_experts: 5
   # Tuned number of regimes for correlated router (from best_corr_hyperparams.json)
-  num_regimes: 2
+  num_regimes: 5
   # Dataset setting for the synthetic environment.
   #   - "easy_setting": default, moderate noise, single regime switch.
   #   - "noisy_forgetting": higher noise and regime 0 → 1 → 0 pattern
   #                        (or a multi-regime 0 → 1 → 2 → … → M-1 → 0
   #                        pattern when num_regimes > 2) to highlight
   #                        potential catastrophic forgetting.
-  setting: "easy_setting"
+  setting: "noisy_forgetting"
   # choose from: 
   # easy_setting,
   # noisy_forgetting,
@@ -91,12 +92,12 @@ routers:
     #   - [0.0, 0.0, 0.0, 1.0, 0.0]
     #   - [0.0, 0.0, 0.0, 0.0, 1.0]
     # Example of more dynamic transitions:
-    # Pi:
-    #   - [0.7, 0.1, 0.1, 0.05, 0.05]
-    #   - [0.1, 0.7, 0.1, 0.05, 0.05]
-    #   - [0.1, 0.1, 0.7, 0.05, 0.05]
-    #   - [0.05, 0.05, 0.05, 0.7, 0.15]
-    #   - [0.05, 0.05, 0.05, 0.15, 0.7]
+    Pi:
+      - [0.7, 0.1, 0.1, 0.05, 0.05]
+      - [0.1, 0.7, 0.1, 0.05, 0.05]
+      - [0.1, 0.1, 0.7, 0.05, 0.05]
+      - [0.05, 0.05, 0.05, 0.7, 0.15]
+      - [0.05, 0.05, 0.05, 0.15, 0.7]
     # Prior for initial regime distribution π_0
     # Prior on reliability states α_{j,t} (shape [d] and [d,d]).
     pop_mean: [0.0, 0.0]
@@ -179,6 +180,28 @@ routers:
       feature_arch: "linear"
       R_scalar: 0.1
 
+  # Recurrent + correlated router: same as slds_imm_corr but with an
+  # optional recurrent bias C_u[k, j, :] added to the u_{j,t} dynamics
+  # when expert j was selected at t-1. Defaults to zero bias.
+  slds_imm_corr_recurrent:
+    shared_dim: 1
+    idiosyncratic_dim: 2
+    Q_g_scales: 0.01
+    Q_u_scales: 0.001
+    R_scalar: 1.0
+    B_intercept_load: 1.0
+    feature_mode: "fixed"
+    feature_learning_rate: 0.0
+    feature_arch: "linear"
+    # Optional bias tensor C_u with shape (M, N, d_u). Example shown
+    # for M=5, N=5, d_u=2; tweak as needed.
+    C_u:
+      - [[0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0]]
+      - [[-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0]]
+      - [[0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0]]
+      - [[-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0]]
+      - [[0.005, 0.0], [0.005, 0.0], [0.005, 0.0], [0.005, 0.0], [0.005, 0.0]]
+
   # Optional configuration for the recurrent SLDS-IMM router.
   # If omitted, defaults matching the non-recurrent example are used.
   slds_imm_recurrent:
@@ -186,6 +209,10 @@ routers:
       # shape (M, N, d); example for M=2, N=5, d=2
       - [[0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0]]
       - [[-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0]]
+      - [[0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0]]
+      - [[-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0]]
+      - [[0.005, 0.0], [0.005, 0.0], [0.005, 0.0], [0.005, 0.0], [0.005, 0.0]]
+    d: 2
     # stick_gamma:
     #   - [0.5, 0.0]
     #   - [-0.5, 0.0]
@@ -197,11 +224,19 @@ routers:
     # Optional row-conditioned stick-breaking params (shape M x M x d and M x M).
     # When set, Π_t rows differ by previous regime. Example for M=2, d=2:
     stick_gamma_rows:
-      - [[0.2, 0.0], [0.1, 0.0]]
-      - [[-0.2, 0.0], [-0.1, 0.0]]
-    stick_kappa_rows:
-      - [0.0, 0.0]
-      - [0.0, 0.0]
+      - [[0.005, 0.001], [0.001, 0.005], [0.001, 0.002], [0.002, 0.001], [0.001, 0.001]]
+      - [[-0.005, 0.01], [-0.01, 0.005], [-0.002, 0.001], [-0.001, 0.002], [-0.001, 0.001]]
+      - [[0.003, -0.002], [0.002, -0.003], [0.001, -0.001], [0.0015, -0.002], [0.001, -0.001]]
+      - [[-0.002, -0.005], [-0.003, -0.002], [-0.001, -0.001], [-0.0015, -0.002], [-0.001, -0.001]]
+      - [[0.001, 0.002], [0.002, 0.001], [0.001, 0.001], [0.0015, 0.002], [0.001, 0.001]]
+    stick_kappa_rows: # size (M, M)
+      - [0.002, 0.001, 0.001, 0.0015, 0.001]
+      - [0.002, 0.0015, 0.001, 0.001, 0.001]
+      - [0.001, 0.002, 0.001, 0.0015, 0.001]
+      - [0.0015, 0.001, 0.002, 0.001, 0.001]
+      - [0.001, 0.0015, 0.001, 0.002, 0.001]
+    # In hyperparam_search, stick_gamma_rows is multiplied by stick_gamma_scale;
+    # keep base values small (e.g., 0.05–0.2) and sweep stick_gamma_scale.
 
   # Registry pruning threshold for correlated router (in decision epochs).
   # If null, pruning is disabled.
@@ -280,3 +315,26 @@ horizon_planning:
     sigma0: 0.1
     # Innovation covariance Q ≈ (q_scale^2 I).
     q_scale: 0.1
+
+hyperparam_search:
+  num_workers: 8
+  lambda_risk_grid: [-0.5, -0.2, 0.0, 0.2]
+  # default q_g_scale are 1e-3, 1e-2 etc
+  q_g_scale_grid: [0.25, 0.5, 1.0]
+  q_u_scale_grid: [0.25, 0.5, 1.0, 2.0]
+  r_scale_grid: [0.5, 1.0, 2.0]
+  feature_mode_grid: ["fixed", "learnable"]
+  feature_learning_rate_grid: [0.0, 0.001, 0.01]
+  feature_arch_grid: ["linear", "mlp"]
+  shared_dim_grid: [1, 2]
+  idiosyncratic_dim_grid: [1, 2, 3]
+  num_regimes_grid: [2, 3]
+  seeds: [42, 43, 44, 45, 46]
+  r_slds:
+    num_regimes_grid: [2]
+    lambda_risk_grid: [-0.2, 0.0, 0.2]
+    q_scale_grid: [0.5, 1.0]
+    r_scale_grid: [0.5, 1.0]
+    c_scale_grid: [0.2, 0.5]
+    stick_gamma_scale_grid: [0.0, 0.25, 0.5]
+    seeds: [42, 43]
