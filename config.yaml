@@ -44,7 +44,7 @@ environment:
     - [600, 650]
     - [700, 750]
     - [800, 850]
-  # expert 4 has arrivals only in these intervals
+  # expert 4 has arrivals only in these intervals, active 30.5% of the time
   arrival_expert_idx: 4
   arrival_intervals:
     - [90, 300]
@@ -93,11 +93,11 @@ routers:
     #   - [0.0, 0.0, 0.0, 0.0, 1.0]
     # Example of more dynamic transitions:
     Pi:
-      - [0.7, 0.1, 0.1, 0.05, 0.05]
-      - [0.1, 0.7, 0.1, 0.05, 0.05]
-      - [0.1, 0.1, 0.7, 0.05, 0.05]
-      - [0.05, 0.05, 0.05, 0.7, 0.15]
-      - [0.05, 0.05, 0.05, 0.15, 0.7]
+      - [0.4, 0.2, 0.2, 0.1, 0.1]
+      - [0.2, 0.4, 0.2, 0.1, 0.1]
+      - [0.2, 0.2, 0.4, 0.1, 0.1]
+      - [0.1, 0.1, 0.1, 0.4, 0.3]
+      - [0.1, 0.1, 0.1, 0.3, 0.4]
     # Prior for initial regime distribution π_0
     # Prior on reliability states α_{j,t} (shape [d] and [d,d]).
     pop_mean: [0.0, 0.0]
@@ -111,7 +111,7 @@ routers:
   # If omitted, defaults matching the original example are used.
   slds_imm_corr:
     # Base configuration aligned to best partial-feedback correlated router.
-    exploration_mode: "greedy"
+    exploration_mode: "ids"
     feature_mode: "fixed"
     feature_learning_rate: 0.0
     # Feature architecture: "linear" (no hidden layers in fixed mode).
