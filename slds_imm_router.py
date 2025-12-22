@@ -6,15 +6,17 @@ import json
 import os
 import numpy as np
 
+from etth1_env import ETTh1TimeSeriesEnv
+
 from router_model import SLDSIMMRouter, feature_phi
 from router_model_recurrent import RecurrentSLDSRouter
 from router_model_corr import SLDSIMMRouter_Corr, RecurrentSLDSIMMRouter_Corr
 from router_model_corr_em import SLDSIMMRouter_Corr_EM
 from synthetic_env import SyntheticTimeSeriesEnv
-from etth1_env import ETTh1TimeSeriesEnv
 from l2d_baseline import L2D, L2D_SW
 from linucb_baseline import LinUCB
 from neuralucb_baseline import NeuralUCB
+
 from plot_utils import (
     plot_time_series,
     evaluate_routers_and_baselines,
@@ -32,7 +34,7 @@ def _load_config(path: str = "config.yaml") -> dict:
     if not os.path.exists(path):
         return {}
     with open(path, "r", encoding="utf-8") as f: # "r" means read mode
-        text = f.read()
+        text = f.read() # by default reads config.yaml
     if yaml is not None:
         data = yaml.safe_load(text)
         print(f"Loaded configuration from {path} using YAML parser.")
@@ -286,6 +288,7 @@ if __name__ == "__main__":
     # --------------------------------------------------------
     # Recurrent SLDS (r-SLDS) routers with stick-breaking gating
     # --------------------------------------------------------
+
     slds_recurrent_cfg = routers_cfg.get("slds_imm_recurrent", {}) or {}
     C_cfg = slds_recurrent_cfg.get("C", None)
     if C_cfg is not None:
@@ -362,70 +365,6 @@ if __name__ == "__main__":
         stick_gamma_rows=stick_gamma_rows,
         stick_kappa_rows=stick_kappa_rows,
     )
-
-    # --------------------------------------------------------
-    # Neural SSM routers (neural replacement of SLDS routing)
-    # --------------------------------------------------------
-
-    '''
-    See Section 10.3/4, deprecated.
-    '''
-
-    # neural_cfg = routers_cfg.get("neural_ssm", {}) or {}
-    # embed_dim = int(neural_cfg.get("embed_dim", 4))
-    # hidden_dim = int(neural_cfg.get("hidden_dim", 8))
-    # memory_dim = int(neural_cfg.get("memory_dim", 1))
-    # num_ensemble = int(neural_cfg.get("num_ensemble", 3))
-    # gamma_shape = float(neural_cfg.get("gamma_shape", 10.0))
-    # learning_rate = float(neural_cfg.get("learning_rate", 1e-2))
-    # delta_scale = float(neural_cfg.get("delta_scale", 0.1))
-    # staleness_c1 = float(neural_cfg.get("staleness_c1", 0.0))
-    # staleness_c2 = float(neural_cfg.get("staleness_c2", 0.0))
-    # k_neighbors = int(neural_cfg.get("k_neighbors", 3))
-    # exploration_mode = neural_cfg.get("exploration", "greedy")
-    # epsilon_explore = float(neural_cfg.get("epsilon", 0.0))
-
-    # router_partial_neural = NeuralSSMRouter(
-    #     num_experts=N,
-    #     feature_fn=feature_phi,
-    #     beta=beta,
-    #     lambda_risk=float(lambda_risk if np.isscalar(lambda_risk) else np.mean(lambda_risk)),
-    #     feedback_mode="partial",
-    #     embed_dim=embed_dim,
-    #     hidden_dim=hidden_dim,
-    #     memory_dim=memory_dim,
-    #     num_ensemble=num_ensemble,
-    #     gamma_shape=gamma_shape,
-    #     learning_rate=learning_rate,
-    #     delta_scale=delta_scale,
-    #     staleness_c1=staleness_c1,
-    #     staleness_c2=staleness_c2,
-    #     k_neighbors=k_neighbors,
-    #     exploration=exploration_mode,
-    #     epsilon=epsilon_explore,
-    #     seed=int(env_cfg.get("seed", 42)),
-    # )
-    #
-    # router_full_neural = NeuralSSMRouter(
-    #     num_experts=N,
-    #     feature_fn=feature_phi,
-    #     beta=beta,
-    #     lambda_risk=float(lambda_risk if np.isscalar(lambda_risk) else np.mean(lambda_risk)),
-    #     feedback_mode="full",
-    #     embed_dim=embed_dim,
-    #     hidden_dim=hidden_dim,
-    #     memory_dim=memory_dim,
-    #     num_ensemble=num_ensemble,
-    #     gamma_shape=gamma_shape,
-    #     learning_rate=learning_rate,
-    #     delta_scale=delta_scale,
-    #     staleness_c1=staleness_c1,
-    #     staleness_c2=staleness_c2,
-    #     k_neighbors=k_neighbors,
-    #     exploration=exploration_mode,
-    #     epsilon=epsilon_explore,
-    #     seed=int(env_cfg.get("seed", 42) + 1),
-    # )
 
     # --------------------------------------------------------
     # Correlated-expert SLDS-IMM routers (shared factor model)
@@ -653,6 +592,10 @@ if __name__ == "__main__":
             feature_hidden_dim=corr_feature_hidden_dim_local,
             feature_activation=corr_feature_activation_local,
         )
+    
+    # --------------------------------------------------------
+    # Recurrent + Correlated-expert SLDS-IMM routers
+    # --------------------------------------------------------
 
     def _build_corr_router_rec(
         corr_base_cfg: dict,
@@ -841,6 +784,10 @@ if __name__ == "__main__":
             feature_activation=corr_feature_activation_local,
             C_u=C_u_local,
         )
+    
+    # --------------------------------------------------------
+    # EM-capable Correlated-expert SLDS-IMM routers
+    # --------------------------------------------------------
 
     def _build_corr_router_em(
         corr_base_cfg: dict,
@@ -1110,49 +1057,6 @@ if __name__ == "__main__":
             feedback_mode="full",
         )
 
-    # Environment: either synthetic or ETTh1, depending on env_cfg.
-    if data_source == "etth1":
-        # Real-world ETTh1 experiment (oil temperature as target).
-        T_raw = env_cfg.get("T", None)
-        T_env = None if T_raw is None else int(T_raw)
-        csv_path = env_cfg.get("csv_path", "Data/ETTh1.csv")
-        target_column = env_cfg.get("target_column", "OT")
-
-        env = ETTh1TimeSeriesEnv(
-            csv_path=csv_path,
-            target_column=target_column,
-            num_experts=N,
-            num_regimes=M,
-            T=T_env,
-            seed=int(env_cfg.get("seed", 42)),
-            unavailable_expert_idx=env_cfg.get("unavailable_expert_idx", None),
-            unavailable_intervals=env_cfg.get("unavailable_intervals", None),
-            arrival_expert_idx=env_cfg.get("arrival_expert_idx", None),
-            arrival_intervals=env_cfg.get("arrival_intervals", None),
-        )
-    else:
-        # Synthetic environment with dynamic expert availability.
-        # - Expert 1: unavailable on [10, 50] and [200, 250] (inclusive).
-        # - Expert 4: arrives after t=100 and leaves at t=150, i.e.
-        #   available on [101, 150] and unavailable outside that window.
-        env = SyntheticTimeSeriesEnv(
-            num_experts=N,
-            num_regimes=M,
-            T=int(env_cfg.get("T", 300)),
-            seed=int(env_cfg.get("seed", 42)),
-            unavailable_expert_idx=int(env_cfg.get("unavailable_expert_idx", 1)),
-            unavailable_intervals=env_cfg.get(
-                "unavailable_intervals", [[10, 50], [200, 250]]
-            ),
-            arrival_expert_idx=int(env_cfg.get("arrival_expert_idx", 4)),
-            arrival_intervals=env_cfg.get("arrival_intervals", [[120, 200]]),
-            setting=setting,
-            noise_scale=env_cfg.get("noise_scale", None),
-        )
-
-    # Plot the true series and expert predictions
-    # plot_time_series(env)
-
     # L2D baselines (configurable MLP/RNN, with and without sliding window)
     alpha_l2d = _resolve_vector(l2d_cfg.get("alpha", 1.0), 1.0, N)
     beta_l2d_cfg = l2d_cfg.get("beta", None)
@@ -1253,6 +1157,53 @@ if __name__ == "__main__":
             nn_learning_rate=nn_lr,
             feedback_mode="full",
         )
+
+    # --------------------------------------------------------
+    # Environment and L2D baselines
+    # --------------------------------------------------------
+    
+    # Environment: either synthetic or ETTh1, depending on env_cfg.
+    if data_source == "etth1":
+        # Real-world ETTh1 experiment (oil temperature as target).
+        T_raw = env_cfg.get("T", None)
+        T_env = None if T_raw is None else int(T_raw)
+        csv_path = env_cfg.get("csv_path", "Data/ETTh1.csv")
+        target_column = env_cfg.get("target_column", "OT")
+
+        env = ETTh1TimeSeriesEnv(
+            csv_path=csv_path,
+            target_column=target_column,
+            num_experts=N,
+            num_regimes=M,
+            T=T_env,
+            seed=int(env_cfg.get("seed", 42)),
+            unavailable_expert_idx=env_cfg.get("unavailable_expert_idx", None),
+            unavailable_intervals=env_cfg.get("unavailable_intervals", None),
+            arrival_expert_idx=env_cfg.get("arrival_expert_idx", None),
+            arrival_intervals=env_cfg.get("arrival_intervals", None),
+        )
+    else:
+        # Synthetic environment with dynamic expert availability.
+        # - Expert 1: unavailable on [10, 50] and [200, 250] (inclusive).
+        # - Expert 4: arrives after t=100 and leaves at t=150, i.e.
+        #   available on [101, 150] and unavailable outside that window.
+        env = SyntheticTimeSeriesEnv(
+            num_experts=N,
+            num_regimes=M,
+            T=int(env_cfg.get("T", 300)),
+            seed=int(env_cfg.get("seed", 42)),
+            unavailable_expert_idx=int(env_cfg.get("unavailable_expert_idx", 1)),
+            unavailable_intervals=env_cfg.get(
+                "unavailable_intervals", [[10, 50], [200, 250]]
+            ),
+            arrival_expert_idx=int(env_cfg.get("arrival_expert_idx", 4)),
+            arrival_intervals=env_cfg.get("arrival_intervals", [[120, 200]]),
+            setting=setting,
+            noise_scale=env_cfg.get("noise_scale", None),
+        )
+
+    # Plot the true series and expert predictions
+    # plot_time_series(env)
 
     # Evaluate routers, L2D baseline, and constant-expert baselines,
     # and plot their induced prediction time series.
@@ -1406,5 +1357,3 @@ if __name__ == "__main__":
     #         nn_learning_rate=nn_lr,
     #         feedback_mode="partial",
     #     )
-        
-

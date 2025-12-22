@@ -702,12 +702,16 @@ def evaluate_routers_and_baselines(
         entries.append(("neuralucb_partial", choices_neuralucb_partial))
     if choices_neuralucb_full is not None:
         entries.append(("neuralucb_full", choices_neuralucb_full))
-    for name, choices in entries:
-        values, counts = np.unique(choices, return_counts=True)
-        freqs = counts / choices.shape[0]
-        print(f"Selection distribution ({name}):")
-        for v, c, f in zip(values, counts, freqs):
-            print(f"  expert {int(v)}: count={int(c)}, freq={f:.3f}")
+    
+    # ---------------------------------------------
+    # Uncomment the following lines to print selection distributions
+    # ---------------------------------------------
+    # for name, choices in entries:
+    #     values, counts = np.unique(choices, return_counts=True)
+    #     freqs = counts / choices.shape[0]
+    #     print(f"Selection distribution ({name}):")
+    #     for v, c, f in zip(values, counts, freqs):
+    #         print(f"  expert {int(v)}: count={int(c)}, freq={f:.3f}")
 
     # Plot true series vs router-based prediction series (top)
     # and cumulative costs over time for each baseline (bottom).

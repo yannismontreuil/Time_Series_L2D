@@ -5,14 +5,14 @@ environment:
   # Main experiment environment (slds_imm_router.py)
   num_experts: 5
   # Tuned number of regimes for correlated router (from best_corr_hyperparams.json)
-  num_regimes: 5 # For noisy_forgetting, this will be overridden to at least 5.
+  num_regimes: 2
   # Dataset setting for the synthetic environment.
   #   - "easy_setting": default, moderate noise, single regime switch.
   #   - "noisy_forgetting": higher noise and regime 0 → 1 → 0 pattern
   #                        (or a multi-regime 0 → 1 → 2 → … → M-1 → 0
   #                        pattern when num_regimes > 2) to highlight
   #                        potential catastrophic forgetting.
-  setting: "noisy_forgetting"
+  setting: "easy_setting"
   # choose from: 
   # easy_setting,
   # noisy_forgetting,
@@ -65,11 +65,7 @@ routers:
   # Optional configuration for the independent-expert SLDS-IMM router.
   slds_imm:
     # Optional: full A_k matrices; default is identity per regime. of size M x d x d
-#    A:
-#      - [[1.0, 0.0],
-#         [0.0, 1.0]]
-#      - [[1.0, 0.0],
-#         [0.0, 1.0]]
+
     # Process noise covariances Q_k are built from per-regime scales.
     # Can be:
     #   - a single scalar (same scale for all regimes),
@@ -85,25 +81,9 @@ routers:
     # - If omitted, defaults to uniform transitions.
     # - If regimes is sticky, Π will be blended with identity
     # - If expect frequent regime switches, lower diagonal values in Π.
-    # Pi:
-    #   - [1.0, 0.0, 0.0, 0.0, 0.0]
-    #   - [0.0, 1.0, 0.0, 0.0, 0.0]
-    #   - [0.0, 0.0, 1.0, 0.0, 0.0]
-    #   - [0.0, 0.0, 0.0, 1.0, 0.0]
-    #   - [0.0, 0.0, 0.0, 0.0, 1.0]
-    # Example of more dynamic transitions:
-    # Pi:
-    #   - [0.7, 0.1, 0.1, 0.05, 0.05]
-    #   - [0.1, 0.7, 0.1, 0.05, 0.05]
-    #   - [0.1, 0.1, 0.7, 0.05, 0.05]
-    #   - [0.05, 0.05, 0.05, 0.7, 0.15]
-    #   - [0.05, 0.05, 0.05, 0.15, 0.7]
-    # Pi:
-    #   - [0.4, 0.2, 0.2, 0.1, 0.1]
-    #   - [0.2, 0.4, 0.2, 0.1, 0.1]
-    #   - [0.2, 0.2, 0.4, 0.1, 0.1]
-    #   - [0.1, 0.1, 0.1, 0.4, 0.3]
-    #   - [0.1, 0.1, 0.1, 0.3, 0.4]
+    Pi: 
+      - [0.4, 0.6]
+      - [0.6, 0.4]
     # Prior for initial regime distribution π_0
     # Prior on reliability states α_{j,t} (shape [d] and [d,d]).
     pop_mean: [0.0, 0.0]
@@ -176,6 +156,7 @@ routers:
       Q_u_scales: 0.001
       feature_arch: "linear"
       R_scalar: 1.0
+      
     full_overrides:
       feature_mode: "fixed"
       feature_learning_rate: 0.0
@@ -192,32 +173,47 @@ routers:
   slds_imm_corr_recurrent:
     shared_dim: 1
     idiosyncratic_dim: 2
-    Q_g_scales: 0.01
+    # Full-feedback tuned values (kept as base); override below for partial.
+    Q_g_scales: 1.0
     Q_u_scales: 0.001
-    R_scalar: 1.0
+    R_scalar: 0.1
     B_intercept_load: 1.0
     feature_mode: "fixed"
     feature_learning_rate: 0.0
     feature_arch: "linear"
     # Optional bias tensor C_u with shape (M, N, d_u). Example shown
-    # for M=5, N=5, d_u=2; tweak as needed.
+    # for M=2, N=5, d_u=2; tweak as needed.
     C_u:
       - [[0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0]]
       - [[-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0]]
-      - [[0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0]]
-      - [[-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0]]
-      - [[0.005, 0.0], [0.005, 0.0], [0.005, 0.0], [0.005, 0.0], [0.005, 0.0]]
+    # Numerical stabilizer ε for joint covariances.
+    eps: 1.0e-8
+
+    # Partial-feedback overrides (matching best correlated partial hyperparams).
+    partial_overrides:
+      Q_g_scales: 0.01
+      Q_u_scales: 0.001
+      R_scalar: 1.0
+      shared_dim: 1
+      idiosyncratic_dim: 2
+      feature_mode: "fixed"
+      feature_learning_rate: 0.0
+      feature_arch: "linear"
+      # Softer recurrence for partial to reduce bias-induced drift.
+      C_u:
+        - [[0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0]]
+        - [[-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0]]
+
 
   # Optional configuration for the recurrent SLDS-IMM router.
   # If omitted, defaults matching the non-recurrent example are used.
   slds_imm_recurrent:
     C:
       # shape (M, N, d); example for M=2, N=5, d=2
-      - [[0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0]]
-      - [[-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0]]
-      - [[0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0]]
-      - [[-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0]]
-      - [[0.005, 0.0], [0.005, 0.0], [0.005, 0.0], [0.005, 0.0], [0.005, 0.0]]
+      - [[0.1, 0.0], [0.1, 0.0], [0.1, 0.0], [0.1, 0.0], [0.1, 0.0]]
+      - [[-0.1, 0.0], [-0.1, 0.0], [-0.1, 0.0], [-0.1, 0.0], [-0.1, 0.0]]
+    # Numerical stabilizer ε for covariances.
+    eps: 1.0e-8
     d: 2
     # stick_gamma:
     #   - [0.5, 0.0]
@@ -230,17 +226,11 @@ routers:
     # Optional row-conditioned stick-breaking params (shape M x M x d and M x M).
     # When set, Π_t rows differ by previous regime. Example for M=2, d=2:
     stick_gamma_rows:
-      - [[0.005, 0.001], [0.001, 0.005], [0.001, 0.002], [0.002, 0.001], [0.001, 0.001]]
-      - [[-0.005, 0.01], [-0.01, 0.005], [-0.002, 0.001], [-0.001, 0.002], [-0.001, 0.001]]
-      - [[0.003, -0.002], [0.002, -0.003], [0.001, -0.001], [0.0015, -0.002], [0.001, -0.001]]
-      - [[-0.002, -0.005], [-0.003, -0.002], [-0.001, -0.001], [-0.0015, -0.002], [-0.001, -0.001]]
-      - [[0.001, 0.002], [0.002, 0.001], [0.001, 0.001], [0.0015, 0.002], [0.001, 0.001]]
+      - [[0.2, 0.0], [0.0, 0.0]]
+      - [[0.0, 0.0], [-0.2, 0.0]]
     stick_kappa_rows: # size (M, M)
-      - [0.002, 0.001, 0.001, 0.0015, 0.001]
-      - [0.002, 0.0015, 0.001, 0.001, 0.001]
-      - [0.001, 0.002, 0.001, 0.0015, 0.001]
-      - [0.0015, 0.001, 0.002, 0.001, 0.001]
-      - [0.001, 0.0015, 0.001, 0.002, 0.001]
+      - [0.0, 0.0]
+      - [0.0, 0.0]
     # In hyperparam_search, stick_gamma_rows is multiplied by stick_gamma_scale;
     # keep base values small (e.g., 0.05–0.2) and sweep stick_gamma_scale.
 

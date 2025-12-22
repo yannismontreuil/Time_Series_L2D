@@ -222,16 +222,18 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
         )
         _ENV_CACHE[key] = env
         return env
-
-    # Synthetic environment (default)
-    T_env = int(env_cfg.get("T", 300))
-    unavailable_expert_idx = env_cfg.get("unavailable_expert_idx", 1)
-    unavailable_intervals = env_cfg.get(
-        "unavailable_intervals", [[10, 50], [200, 250]]
-    )
-    arrival_expert_idx = env_cfg.get("arrival_expert_idx", 4)
-    arrival_intervals = env_cfg.get("arrival_intervals", [[120, 200]])
-    noise_scale = env_cfg.get("noise_scale", None)
+    elif data_source == "synthetic":
+        # Synthetic environment (default)
+        T_env = int(env_cfg.get("T", 300))
+        unavailable_expert_idx = env_cfg.get("unavailable_expert_idx", 1)
+        unavailable_intervals = env_cfg.get(
+            "unavailable_intervals", [[10, 50], [200, 250]]
+        )
+        arrival_expert_idx = env_cfg.get("arrival_expert_idx", 4)
+        arrival_intervals = env_cfg.get("arrival_intervals", [[120, 200]])
+        noise_scale = env_cfg.get("noise_scale", None)
+    else:
+        raise ValueError(f"Unsupported environment.data_source: {data_source}")
 
     def _canon_intv_synth(intv):
         if intv is None:

@@ -255,8 +255,14 @@ class RecurrentSLDSRouter:
         b = np.asarray(b, dtype=float).reshape(M)
         m = np.asarray(m, dtype=float).reshape(M, N, d)
 
-        # Aggregate latent state: belief-weighted across regimes, then average across experts.
-        x_bar = (b.reshape(M, 1, 1) * m).sum(axis=0).mean(axis=0)  # shape (d,)
+        # Aggregate latent state for stick-breaking gating.
+        # In partial feedback, only the chosen expert gets updated each step;
+        # using all experts makes x̄_t drift due to stale states. Instead gate
+        # on the most recently updated expert when available.
+        if getattr(self, "feedback_mode", None) == "partial" and self.r_prev is not None:
+            x_bar = (b.reshape(M, 1) * m[:, int(self.r_prev)]).sum(axis=0)  # shape (d,)
+        else:
+            x_bar = (b.reshape(M, 1, 1) * m).sum(axis=0).mean(axis=0)  # shape (d,)
 
         # Row-conditioned variant: Π_t rows depend on previous regime i.
         if self.stick_gamma_rows is not None and self.stick_kappa_rows is not None:
