@@ -7,7 +7,11 @@ from typing import Dict, Tuple, List, Any
 
 import numpy as np
 
-from router_model_corr import SLDSIMMRouter_Corr, feature_phi
+from router_model_corr import (
+    SLDSIMMRouter_Corr,
+    RecurrentSLDSIMMRouter_Corr,
+    feature_phi,
+)
 from router_model_recurrent import RecurrentSLDSRouter
 from synthetic_env import SyntheticTimeSeriesEnv
 from etth1_env import ETTh1TimeSeriesEnv
@@ -518,6 +522,228 @@ def build_correlated_routers(
     return router_partial_corr, router_full_corr
 
 
+def build_correlated_recurrent_routers(
+    lambda_risk: float,
+    q_g_scale: float,
+    q_u_scale: float,
+    r_scale: float,
+    c_scale: float,
+    cfg: Dict,
+    num_regimes: int | None = None,
+    feature_mode: str | None = None,
+    feature_learning_rate: float | None = None,
+    feature_arch: str | None = None,
+    shared_dim: int | None = None,
+    idiosyncratic_dim: int | None = None,
+) -> Tuple[RecurrentSLDSIMMRouter_Corr, RecurrentSLDSIMMRouter_Corr]:
+    """
+    Construct partial/full RecurrentSLDSIMMRouter_Corr with separate
+    q_g/q_u scales and an optional recurrent bias C_u scaled by c_scale.
+    """
+
+    env_cfg = cfg.get("environment", {})
+    routers_cfg = cfg.get("routers", {})
+    slds_cfg = routers_cfg.get("slds_imm", {}) or {}
+    slds_corr_rec_cfg = routers_cfg.get("slds_imm_corr_recurrent", {}) or {}
+
+    N, d, M, _ = _get_dims_from_config(cfg, override_M=num_regimes)
+
+    beta = _resolve_vector(routers_cfg.get("beta", None), 0.0, N)
+
+    # Dimensions and feature settings
+    d_g_cfg = slds_corr_rec_cfg.get("shared_dim", 1)
+    d_u_cfg = slds_corr_rec_cfg.get("idiosyncratic_dim", d)
+    d_g = int(d_g_cfg if shared_dim is None else shared_dim)
+    d_u = int(d_u_cfg if idiosyncratic_dim is None else idiosyncratic_dim)
+
+    feature_mode_eff = (
+        slds_corr_rec_cfg.get("feature_mode", "fixed")
+        if feature_mode is None
+        else str(feature_mode)
+    )
+    feature_lr_eff = (
+        float(slds_corr_rec_cfg.get("feature_learning_rate", 0.0))
+        if feature_learning_rate is None
+        else float(feature_learning_rate)
+    )
+    feature_arch_eff = (
+        slds_corr_rec_cfg.get("feature_arch", "linear")
+        if feature_arch is None
+        else str(feature_arch)
+    )
+    feature_hidden_dim = slds_corr_rec_cfg.get("feature_hidden_dim", None)
+    feature_activation = slds_corr_rec_cfg.get("feature_activation", "tanh")
+
+    # Regime transition
+    Pi_cfg = slds_cfg.get("Pi", None)
+    if Pi_cfg is not None:
+        Pi_raw = np.asarray(Pi_cfg, dtype=float)
+        if Pi_raw.shape == (M, M):
+            Pi = Pi_raw
+        else:
+            raise ValueError("Pi must have shape (num_regimes, num_regimes)")
+    else:
+        if M == 2:
+            Pi = np.array([[0.95, 0.05], [0.05, 0.95]], dtype=float)
+        else:
+            Pi = np.full((M, M), 1.0 / M, dtype=float)
+
+    # Dynamics
+    A_g_cfg = slds_corr_rec_cfg.get("A_g", None)
+    A_g = (
+        np.asarray(A_g_cfg, dtype=float)
+        if A_g_cfg is not None
+        else np.tile(np.eye(d_g, dtype=float)[None, :, :], (M, 1, 1))
+    )
+
+    A_u_cfg = slds_corr_rec_cfg.get("A_u", None)
+    A_u = (
+        np.asarray(A_u_cfg, dtype=float)
+        if A_u_cfg is not None
+        else np.tile(np.eye(d_u, dtype=float)[None, :, :], (M, 1, 1))
+    )
+
+    # Process noise
+    Q_g = np.zeros((M, d_g, d_g), dtype=float)
+    for k in range(M):
+        Q_g[k] = float(q_g_scale) * np.eye(d_g, dtype=float)
+
+    Q_u = np.zeros((M, d_u, d_u), dtype=float)
+    for k in range(M):
+        Q_u[k] = float(q_u_scale) * np.eye(d_u, dtype=float)
+
+    # Shared-factor loadings
+    B_cfg = slds_corr_rec_cfg.get("B", None)
+    if B_cfg is not None:
+        B = np.asarray(B_cfg, dtype=float)
+    else:
+        load = float(slds_corr_rec_cfg.get("B_intercept_load", 1.0))
+        B = np.zeros((N, d_u, d_g), dtype=float)
+        for j in range(N):
+            B[j, 0, 0] = load
+
+    # Observation noise
+    R = np.full((M, N), float(r_scale), dtype=float)
+
+    eps_corr = float(slds_corr_rec_cfg.get("eps", 1e-8))
+
+    g_mean0_cfg = slds_corr_rec_cfg.get("g_mean0", None)
+    g_cov0_cfg = slds_corr_rec_cfg.get("g_cov0", None)
+    u_mean0_cfg = slds_corr_rec_cfg.get("u_mean0", None)
+    u_cov0_cfg = slds_corr_rec_cfg.get("u_cov0", None)
+
+    g_mean0 = (
+        np.asarray(g_mean0_cfg, dtype=float) if g_mean0_cfg is not None else None
+    )
+    g_cov0 = (
+        np.asarray(g_cov0_cfg, dtype=float) if g_cov0_cfg is not None else None
+    )
+    u_mean0 = (
+        np.asarray(u_mean0_cfg, dtype=float) if u_mean0_cfg is not None else None
+    )
+    u_cov0 = (
+        np.asarray(u_cov0_cfg, dtype=float) if u_cov0_cfg is not None else None
+    )
+
+    if g_mean0 is not None and g_mean0.shape != (d_g,):
+        g_mean0 = None
+        g_cov0 = None
+    if g_cov0 is not None and g_cov0.shape != (d_g, d_g):
+        g_mean0 = None
+        g_cov0 = None
+    if u_mean0 is not None and u_mean0.shape != (d_u,):
+        u_mean0 = None
+        u_cov0 = None
+    if u_cov0 is not None and u_cov0.shape != (d_u, d_u):
+        u_mean0 = None
+        u_cov0 = None
+
+    # Recurrent bias
+    C_u_cfg = slds_corr_rec_cfg.get("C_u", None)
+    if C_u_cfg is not None:
+        C_u_base = np.asarray(C_u_cfg, dtype=float)
+        if C_u_base.shape != (M, N, d_u):
+            raise ValueError("C_u must have shape (M, N, d_u)")
+    else:
+        C_u_base = np.zeros((M, N, d_u), dtype=float)
+    C_u = C_u_base * float(c_scale)
+
+    staleness_threshold_cfg = routers_cfg.get("staleness_threshold", None)
+    staleness_threshold = (
+        int(staleness_threshold_cfg) if staleness_threshold_cfg is not None else None
+    )
+
+    lambda_scalar = float(lambda_risk)
+
+    router_partial_corr_rec = RecurrentSLDSIMMRouter_Corr(
+        num_experts=N,
+        num_regimes=M,
+        shared_dim=d_g,
+        idiosyncratic_dim=d_u,
+        feature_fn=feature_phi,
+        A_g=A_g,
+        Q_g=Q_g,
+        A_u=A_u,
+        Q_u=Q_u,
+        B=B,
+        R=R,
+        Pi=Pi,
+        beta=beta,
+        lambda_risk=lambda_scalar,
+        staleness_threshold=staleness_threshold,
+        exploration_mode=slds_corr_rec_cfg.get("exploration_mode", "greedy"),
+        feature_mode=feature_mode_eff,
+        feature_learning_rate=feature_lr_eff,
+        feature_freeze_after=slds_corr_rec_cfg.get("feature_freeze_after", None),
+        feature_log_interval=slds_corr_rec_cfg.get("feature_log_interval", None),
+        feedback_mode="partial",
+        eps=eps_corr,
+        g_mean0=g_mean0,
+        g_cov0=g_cov0,
+        u_mean0=u_mean0,
+        u_cov0=u_cov0,
+        feature_arch=feature_arch_eff,
+        feature_hidden_dim=feature_hidden_dim,
+        feature_activation=feature_activation,
+        C_u=C_u,
+    )
+
+    router_full_corr_rec = RecurrentSLDSIMMRouter_Corr(
+        num_experts=N,
+        num_regimes=M,
+        shared_dim=d_g,
+        idiosyncratic_dim=d_u,
+        feature_fn=feature_phi,
+        A_g=A_g,
+        Q_g=Q_g,
+        A_u=A_u,
+        Q_u=Q_u,
+        B=B,
+        R=R,
+        Pi=Pi,
+        beta=beta,
+        lambda_risk=lambda_scalar,
+        staleness_threshold=staleness_threshold,
+        exploration_mode=slds_corr_rec_cfg.get("exploration_mode", "greedy"),
+        feature_mode=feature_mode_eff,
+        feature_learning_rate=feature_lr_eff,
+        feature_freeze_after=slds_corr_rec_cfg.get("feature_freeze_after", None),
+        feature_log_interval=slds_corr_rec_cfg.get("feature_log_interval", None),
+        feedback_mode="full",
+        eps=eps_corr,
+        g_mean0=g_mean0,
+        g_cov0=g_cov0,
+        u_mean0=u_mean0,
+        u_cov0=u_cov0,
+        feature_arch=feature_arch_eff,
+        feature_hidden_dim=feature_hidden_dim,
+        feature_activation=feature_activation,
+        C_u=C_u,
+    )
+
+    return router_partial_corr_rec, router_full_corr_rec
+
+
 def build_recurrent_routers(
     lambda_risk: float,
     q_scale: float,
@@ -708,6 +934,50 @@ def evaluate_config(
     return float(np.mean(costs_partial)), float(np.mean(costs_full))
 
 
+def evaluate_config_corr_rec(
+    lambda_risk: float,
+    q_g_scale: float,
+    q_u_scale: float,
+    r_scale: float,
+    c_scale: float,
+    num_regimes: int,
+    seeds: List[int],
+    cfg: Dict,
+    feature_mode: str | None = None,
+    feature_learning_rate: float | None = None,
+    feature_arch: str | None = None,
+    shared_dim: int | None = None,
+    idiosyncratic_dim: int | None = None,
+) -> Tuple[float, float]:
+    costs_partial: List[float] = []
+    costs_full: List[float] = []
+
+    for seed in seeds:
+        env = build_environment(seed, cfg, num_regimes=num_regimes)
+        router_partial_corr_rec, router_full_corr_rec = build_correlated_recurrent_routers(
+            lambda_risk=lambda_risk,
+            q_g_scale=q_g_scale,
+            q_u_scale=q_u_scale,
+            r_scale=r_scale,
+            c_scale=c_scale,
+            cfg=cfg,
+            num_regimes=num_regimes,
+            feature_mode=feature_mode,
+            feature_learning_rate=feature_learning_rate,
+            feature_arch=feature_arch,
+            shared_dim=shared_dim,
+            idiosyncratic_dim=idiosyncratic_dim,
+        )
+
+        c_partial, _ = run_router_on_env(router_partial_corr_rec, env)  # type: ignore[arg-type]
+        c_full, _ = run_router_on_env(router_full_corr_rec, env)  # type: ignore[arg-type]
+
+        costs_partial.append(float(c_partial.mean()))
+        costs_full.append(float(c_full.mean()))
+
+    return float(np.mean(costs_partial)), float(np.mean(costs_full))
+
+
 def _eval_hyperparam_task(
     task: Tuple[
         int,
@@ -775,6 +1045,72 @@ def _eval_hyperparam_task(
         "q_g_scale": float(q_g_scale),
         "q_u_scale": float(q_u_scale),
         "r_scale": float(r_scale),
+        "feature_mode": str(feature_mode),
+        "feature_learning_rate": float(feature_lr),
+        "feature_arch": str(feature_arch),
+        "shared_dim": int(shared_dim),
+        "idiosyncratic_dim": int(id_dim),
+        "avg_cost_partial": float(avg_partial),
+        "avg_cost_full": float(avg_full),
+    }
+
+
+def _eval_corr_rec_task(
+    task: Tuple[
+        int,
+        float,
+        float,
+        float,
+        float,
+        float,
+        str,
+        float,
+        str,
+        int,
+        int,
+        List[int],
+        Dict,
+    ]
+) -> Dict[str, Any]:
+    (
+        M,
+        lambda_risk,
+        q_g_scale,
+        q_u_scale,
+        r_scale,
+        c_scale,
+        feature_mode,
+        feature_lr,
+        feature_arch,
+        shared_dim,
+        id_dim,
+        seeds,
+        cfg,
+    ) = task
+
+    avg_partial, avg_full = evaluate_config_corr_rec(
+        lambda_risk=lambda_risk,
+        q_g_scale=q_g_scale,
+        q_u_scale=q_u_scale,
+        r_scale=r_scale,
+        c_scale=c_scale,
+        num_regimes=M,
+        seeds=seeds,
+        cfg=cfg,
+        feature_mode=feature_mode,
+        feature_learning_rate=feature_lr,
+        feature_arch=feature_arch,
+        shared_dim=shared_dim,
+        idiosyncratic_dim=id_dim,
+    )
+
+    return {
+        "num_regimes": int(M),
+        "lambda_risk": float(lambda_risk),
+        "q_g_scale": float(q_g_scale),
+        "q_u_scale": float(q_u_scale),
+        "r_scale": float(r_scale),
+        "c_scale": float(c_scale),
         "feature_mode": str(feature_mode),
         "feature_learning_rate": float(feature_lr),
         "feature_arch": str(feature_arch),
@@ -934,6 +1270,11 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
         else:
             num_workers = nw_raw
 
+    # Toggles for which searches to run
+    run_corr = bool(search_cfg.get("run_corr", True))
+    run_corr_recurrent = bool(search_cfg.get("run_corr_recurrent", True))
+    run_r_slds = bool(search_cfg.get("run_r_slds", True))
+
     # r-SLDS grid (optional)
     rec_cfg = search_cfg.get("r_slds", {})
     lambda_risk_grid_rec = rec_cfg.get(
@@ -946,6 +1287,57 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
         "stick_gamma_scale_grid", [0.0, 0.25, 0.5, 1.0]
     )
     num_regimes_grid_rec_raw = rec_cfg.get("num_regimes_grid", None)
+    seeds_rec_cfg = rec_cfg.get("seeds", None)
+    if seeds_rec_cfg is None:
+        seeds_rec = seeds
+    else:
+        seeds_rec = [int(s) for s in seeds_rec_cfg]
+
+    # Correlated recurrent grid (optional)
+    corr_rec_cfg = search_cfg.get("corr_recurrent", {})
+    lambda_risk_grid_corr_rec = corr_rec_cfg.get(
+        "lambda_risk_grid", lambda_risk_grid
+    )
+    q_g_scale_grid_corr_rec = corr_rec_cfg.get(
+        "q_g_scale_grid", q_g_scale_grid
+    )
+    q_u_scale_grid_corr_rec = corr_rec_cfg.get(
+        "q_u_scale_grid", q_u_scale_grid
+    )
+    r_scale_grid_corr_rec = corr_rec_cfg.get("r_scale_grid", r_scale_grid)
+    c_scale_grid_corr_rec = corr_rec_cfg.get("c_scale_grid", [0.0, 0.5, 1.0])
+
+    feature_mode_grid_corr_rec = corr_rec_cfg.get(
+        "feature_mode_grid", feature_mode_grid
+    )
+    feature_lr_grid_corr_rec = corr_rec_cfg.get(
+        "feature_learning_rate_grid", feature_lr_grid
+    )
+    feature_arch_grid_corr_rec = corr_rec_cfg.get(
+        "feature_arch_grid", feature_arch_grid
+    )
+    shared_dim_grid_corr_rec = corr_rec_cfg.get(
+        "shared_dim_grid", shared_dim_grid
+    )
+    id_dim_grid_corr_rec = corr_rec_cfg.get(
+        "idiosyncratic_dim_grid", id_dim_grid
+    )
+
+    num_regimes_grid_corr_rec_raw = corr_rec_cfg.get("num_regimes_grid", None)
+    if num_regimes_grid_corr_rec_raw is None:
+        num_regimes_grid_corr_rec = num_regimes_grid
+    else:
+        num_regimes_grid_corr_rec = sorted(
+            {max(2, int(m)) for m in num_regimes_grid_corr_rec_raw}
+        )
+        if not num_regimes_grid_corr_rec:
+            num_regimes_grid_corr_rec = num_regimes_grid
+
+    seeds_corr_rec_cfg = corr_rec_cfg.get("seeds", None)
+    if seeds_corr_rec_cfg is None:
+        seeds_corr_rec = seeds
+    else:
+        seeds_corr_rec = [int(s) for s in seeds_corr_rec_cfg]
     if num_regimes_grid_rec_raw is None:
         num_regimes_grid_rec = num_regimes_grid
     else:
@@ -968,49 +1360,50 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
         List[int],
         Dict,
     ]] = []
-    for M in num_regimes_grid:
-        for (
-            lambda_risk,
-            q_g_scale,
-            q_u_scale,
-            r_scale,
-            feature_mode,
-            feature_lr,
-            feature_arch,
-            shared_dim,
-            id_dim,
-        ) in itertools.product(
-            lambda_risk_grid,
-            q_g_scale_grid,
-            q_u_scale_grid,
-            r_scale_grid,
-            feature_mode_grid,
-            feature_lr_grid,
-            feature_arch_grid,
-            shared_dim_grid,
-            id_dim_grid,
-        ):
-            # Skip incompatible combinations: in "fixed" feature_mode we
-            # require idiosyncratic_dim to equal the base state_dim so
-            # that φ(x) and u_{j,t} have matching dimensions.
-            if str(feature_mode) == "fixed" and int(id_dim) != int(d_base):
-                continue
-            tasks.append(
-                (
-                    M,
-                    float(lambda_risk),
-                    float(q_g_scale),
-                    float(q_u_scale),
-                    float(r_scale),
-                     str(feature_mode),
-                     float(feature_lr),
-                     str(feature_arch),
-                     int(shared_dim),
-                     int(id_dim),
-                    seeds,
-                    cfg,
+    if run_corr:
+        for M in num_regimes_grid:
+            for (
+                lambda_risk,
+                q_g_scale,
+                q_u_scale,
+                r_scale,
+                feature_mode,
+                feature_lr,
+                feature_arch,
+                shared_dim,
+                id_dim,
+            ) in itertools.product(
+                lambda_risk_grid,
+                q_g_scale_grid,
+                q_u_scale_grid,
+                r_scale_grid,
+                feature_mode_grid,
+                feature_lr_grid,
+                feature_arch_grid,
+                shared_dim_grid,
+                id_dim_grid,
+            ):
+                # Skip incompatible combinations: in "fixed" feature_mode we
+                # require idiosyncratic_dim to equal the base state_dim so
+                # that φ(x) and u_{j,t} have matching dimensions.
+                if str(feature_mode) == "fixed" and int(id_dim) != int(d_base):
+                    continue
+                tasks.append(
+                    (
+                        M,
+                        float(lambda_risk),
+                        float(q_g_scale),
+                        float(q_u_scale),
+                        float(r_scale),
+                        str(feature_mode),
+                        float(feature_lr),
+                        str(feature_arch),
+                        int(shared_dim),
+                        int(id_dim),
+                        seeds,
+                        cfg,
+                    )
                 )
-            )
 
     # Prepare r-SLDS tasks
     tasks_rec: List[Tuple[
@@ -1023,40 +1416,105 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
         List[int],
         Dict,
     ]] = []
-    for M_rec in num_regimes_grid_rec:
-        for (
-            lambda_risk_rec,
-            q_scale_rec,
-            r_scale_rec,
-            c_scale_rec,
-            stick_scale_rec,
-        ) in itertools.product(
-            lambda_risk_grid_rec,
-            q_scale_grid_rec,
-            r_scale_grid_rec,
-            c_scale_grid_rec,
-            stick_gamma_scale_grid,
-        ):
-            tasks_rec.append(
-                (
-                    int(M_rec),
-                    float(lambda_risk_rec),
-                    float(q_scale_rec),
-                    float(r_scale_rec),
-                    float(c_scale_rec),
-                    float(stick_scale_rec),
-                    seeds,
-                    cfg,
+    if run_r_slds:
+        for M_rec in num_regimes_grid_rec:
+            for (
+                lambda_risk_rec,
+                q_scale_rec,
+                r_scale_rec,
+                c_scale_rec,
+                stick_scale_rec,
+            ) in itertools.product(
+                lambda_risk_grid_rec,
+                q_scale_grid_rec,
+                r_scale_grid_rec,
+                c_scale_grid_rec,
+                stick_gamma_scale_grid,
+            ):
+                tasks_rec.append(
+                    (
+                        int(M_rec),
+                        float(lambda_risk_rec),
+                        float(q_scale_rec),
+                        float(r_scale_rec),
+                        float(c_scale_rec),
+                        float(stick_scale_rec),
+                        seeds_rec,
+                        cfg,
+                    )
                 )
-            )
 
-    results: List[Dict[str, float]] = []
+    # Prepare correlated recurrent tasks
+    tasks_corr_rec: List[Tuple[
+        int,
+        float,
+        float,
+        float,
+        float,
+        float,
+        str,
+        float,
+        str,
+        int,
+        int,
+        List[int],
+        Dict,
+    ]] = []
+    if run_corr_recurrent:
+        for M_corr_rec in num_regimes_grid_corr_rec:
+            for (
+                lambda_risk_corr_rec,
+                q_g_corr_rec,
+                q_u_corr_rec,
+                r_corr_rec,
+                c_scale_corr_rec,
+                feature_mode_corr_rec,
+                feature_lr_corr_rec,
+                feature_arch_corr_rec,
+                shared_dim_corr_rec,
+                id_dim_corr_rec,
+            ) in itertools.product(
+                lambda_risk_grid_corr_rec,
+                q_g_scale_grid_corr_rec,
+                q_u_scale_grid_corr_rec,
+                r_scale_grid_corr_rec,
+                c_scale_grid_corr_rec,
+                feature_mode_grid_corr_rec,
+                feature_lr_grid_corr_rec,
+                feature_arch_grid_corr_rec,
+                shared_dim_grid_corr_rec,
+                id_dim_grid_corr_rec,
+            ):
+                if (
+                    str(feature_mode_corr_rec) == "fixed"
+                    and int(id_dim_corr_rec) != int(d_base)
+                ):
+                    continue
+                tasks_corr_rec.append(
+                    (
+                        int(M_corr_rec),
+                        float(lambda_risk_corr_rec),
+                        float(q_g_corr_rec),
+                        float(q_u_corr_rec),
+                        float(r_corr_rec),
+                        float(c_scale_corr_rec),
+                        str(feature_mode_corr_rec),
+                        float(feature_lr_corr_rec),
+                        str(feature_arch_corr_rec),
+                        int(shared_dim_corr_rec),
+                        int(id_dim_corr_rec),
+                        seeds_corr_rec,
+                        cfg,
+                    )
+                )
 
-    if not tasks and not tasks_rec:
+    results: List[Dict[str, Any]] = []
+    results_corr_rec: List[Dict[str, Any]] = []
+
+    if not tasks and not tasks_corr_rec and not tasks_rec:
         print("No valid hyperparameter combinations to evaluate.")
         return
 
-    '''
     # Evaluate correlated-router tasks
     if tasks:
         total_tasks = len(tasks)
@@ -1103,7 +1561,54 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
                         f"partial_corr={result['avg_cost_partial']:.4f}, "
                         f"full_corr={result['avg_cost_full']:.4f}",
                     )
-    '''
+
+    # Evaluate correlated recurrent tasks
+    if tasks_corr_rec:
+        if num_workers <= 1:
+            for idx, task in enumerate(tasks_corr_rec, start=1):
+                result_corr_rec = _eval_corr_rec_task(task)
+                results_corr_rec.append(result_corr_rec)
+                print(
+                    f"[{idx}/{len(tasks_corr_rec)}] Corr+Rec Config:",
+                    f"M={int(result_corr_rec['num_regimes']):d},",
+                    f"lambda_risk={result_corr_rec['lambda_risk']:+.2f},",
+                    f"q_g_scale={result_corr_rec['q_g_scale']:.4f},",
+                    f"q_u_scale={result_corr_rec['q_u_scale']:.4f},",
+                    f"r_scale={result_corr_rec['r_scale']:.4f},",
+                    f"c_scale={result_corr_rec['c_scale']:.4f},",
+                    f"feature_mode={result_corr_rec['feature_mode']},",
+                    f"feature_lr={result_corr_rec['feature_learning_rate']:.4e},",
+                    f"feature_arch={result_corr_rec['feature_arch']},",
+                    f"shared_dim={result_corr_rec['shared_dim']},",
+                    f"id_dim={result_corr_rec['idiosyncratic_dim']}",
+                    "|",
+                    f"partial_corr_rec={result_corr_rec['avg_cost_partial']:.4f}, "
+                    f"full_corr_rec={result_corr_rec['avg_cost_full']:.4f}",
+                )
+        else:
+            max_workers_corr_rec = min(num_workers, len(tasks_corr_rec))
+            with ProcessPoolExecutor(max_workers=max_workers_corr_rec) as executor:
+                for idx, result_corr_rec in enumerate(
+                    executor.map(_eval_corr_rec_task, tasks_corr_rec), start=1
+                ):
+                    results_corr_rec.append(result_corr_rec)
+                    print(
+                        f"[{idx}/{len(tasks_corr_rec)}] Corr+Rec Config:",
+                        f"M={int(result_corr_rec['num_regimes']):d},",
+                        f"lambda_risk={result_corr_rec['lambda_risk']:+.2f},",
+                        f"q_g_scale={result_corr_rec['q_g_scale']:.4f},",
+                        f"q_u_scale={result_corr_rec['q_u_scale']:.4f},",
+                        f"r_scale={result_corr_rec['r_scale']:.4f},",
+                        f"c_scale={result_corr_rec['c_scale']:.4f},",
+                        f"feature_mode={result_corr_rec['feature_mode']},",
+                        f"feature_lr={result_corr_rec['feature_learning_rate']:.4e},",
+                        f"feature_arch={result_corr_rec['feature_arch']},",
+                        f"shared_dim={result_corr_rec['shared_dim']},",
+                        f"id_dim={result_corr_rec['idiosyncratic_dim']}",
+                        "|",
+                        f"partial_corr_rec={result_corr_rec['avg_cost_partial']:.4f}, "
+                        f"full_corr_rec={result_corr_rec['avg_cost_full']:.4f}",
+                    )
 
     # Evaluate r-SLDS tasks
     results_rec: List[Dict[str, Any]] = []
@@ -1250,6 +1755,86 @@ def run_hyperparam_search(config_path: str = "config.yaml") -> None:
             json.dump(best_params, f, indent=2)
 
         print(f"\nSaved best hyperparameters to {out_path}")
+
+    if results_corr_rec:
+        results_corr_rec_sorted_partial = sorted(
+            results_corr_rec, key=lambda r: r["avg_cost_partial"]
+        )
+        best_corr_rec_partial = results_corr_rec_sorted_partial[0]
+
+        results_corr_rec_sorted_full = sorted(
+            results_corr_rec, key=lambda r: r["avg_cost_full"]
+        )
+        best_corr_rec_full = results_corr_rec_sorted_full[0]
+
+        print("\n=== Best config (corr+rec, partial feedback) ===")
+        print(
+            f"M={int(best_corr_rec_partial['num_regimes'])}, "
+            f"lambda_risk={best_corr_rec_partial['lambda_risk']:+.2f}, "
+            f"q_g_scale={best_corr_rec_partial['q_g_scale']:.4f}, "
+            f"q_u_scale={best_corr_rec_partial['q_u_scale']:.4f}, "
+            f"r_scale={best_corr_rec_partial['r_scale']:.4f}, "
+            f"c_scale={best_corr_rec_partial['c_scale']:.4f}, "
+            f"feature_mode={best_corr_rec_partial['feature_mode']}, "
+            f"feature_lr={best_corr_rec_partial['feature_learning_rate']:.4e}, "
+            f"feature_arch={best_corr_rec_partial['feature_arch']}, "
+            f"shared_dim={best_corr_rec_partial['shared_dim']}, "
+            f"idiosyncratic_dim={best_corr_rec_partial['idiosyncratic_dim']} | "
+            f"avg_cost_partial_corr_rec={best_corr_rec_partial['avg_cost_partial']:.4f}"
+        )
+
+        print("\n=== Best config (corr+rec, full feedback) ===")
+        print(
+            f"M={int(best_corr_rec_full['num_regimes'])}, "
+            f"lambda_risk={best_corr_rec_full['lambda_risk']:+.2f}, "
+            f"q_g_scale={best_corr_rec_full['q_g_scale']:.4f}, "
+            f"q_u_scale={best_corr_rec_full['q_u_scale']:.4f}, "
+            f"r_scale={best_corr_rec_full['r_scale']:.4f}, "
+            f"c_scale={best_corr_rec_full['c_scale']:.4f}, "
+            f"feature_mode={best_corr_rec_full['feature_mode']}, "
+            f"feature_lr={best_corr_rec_full['feature_learning_rate']:.4e}, "
+            f"feature_arch={best_corr_rec_full['feature_arch']}, "
+            f"shared_dim={best_corr_rec_full['shared_dim']}, "
+            f"idiosyncratic_dim={best_corr_rec_full['idiosyncratic_dim']} | "
+            f"avg_cost_full_corr_rec={best_corr_rec_full['avg_cost_full']:.4f}"
+        )
+
+        best_params_corr_rec = {
+            "partial": {
+                "num_regimes": int(best_corr_rec_partial["num_regimes"]),
+                "lambda_risk": float(best_corr_rec_partial["lambda_risk"]),
+                "q_g": float(best_corr_rec_partial["q_g_scale"]),
+                "q_u": float(best_corr_rec_partial["q_u_scale"]),
+                "r": float(best_corr_rec_partial["r_scale"]),
+                "c_scale": float(best_corr_rec_partial["c_scale"]),
+                "feature_mode": str(best_corr_rec_partial["feature_mode"]),
+                "feature_learning_rate": float(best_corr_rec_partial["feature_learning_rate"]),
+                "feature_arch": str(best_corr_rec_partial["feature_arch"]),
+                "shared_dim": int(best_corr_rec_partial["shared_dim"]),
+                "idiosyncratic_dim": int(best_corr_rec_partial["idiosyncratic_dim"]),
+                "avg_cost": float(best_corr_rec_partial["avg_cost_partial"]),
+            },
+            "full": {
+                "num_regimes": int(best_corr_rec_full["num_regimes"]),
+                "lambda_risk": float(best_corr_rec_full["lambda_risk"]),
+                "q_g": float(best_corr_rec_full["q_g_scale"]),
+                "q_u": float(best_corr_rec_full["q_u_scale"]),
+                "r": float(best_corr_rec_full["r_scale"]),
+                "c_scale": float(best_corr_rec_full["c_scale"]),
+                "feature_mode": str(best_corr_rec_full["feature_mode"]),
+                "feature_learning_rate": float(best_corr_rec_full["feature_learning_rate"]),
+                "feature_arch": str(best_corr_rec_full["feature_arch"]),
+                "shared_dim": int(best_corr_rec_full["shared_dim"]),
+                "idiosyncratic_dim": int(best_corr_rec_full["idiosyncratic_dim"]),
+                "avg_cost": float(best_corr_rec_full["avg_cost_full"]),
+            },
+        }
+        out_path_corr_rec = os.path.join("param", "best_corr_rec_hyperparams.json")
+        os.makedirs("param", exist_ok=True)
+        with open(out_path_corr_rec, "w", encoding="utf-8") as f:
+            json.dump(best_params_corr_rec, f, indent=2)
+
+        print(f"\nSaved best corr+rec hyperparameters to {out_path_corr_rec}")
 
     if results_rec:
         results_rec_sorted_partial = sorted(

@@ -302,12 +302,14 @@ class SLDSIMMRouter_Corr:
             if self.feature_arch == "linear":
                 assert self.feature_W is not None
                 phi = self.feature_W @ phi_base
-            else:
+            elif self.feature_arch == "mlp":
                 assert self.feature_W1 is not None and self.feature_b1 is not None
                 assert self.feature_W2 is not None and self.feature_b2 is not None
                 z1 = self.feature_W1 @ phi_base + self.feature_b1
                 h1 = self._feature_activation(z1)
                 phi = self.feature_W2 @ h1 + self.feature_b2
+            else:
+                raise ValueError(f"Unknown feature_arch: {self.feature_arch}")
         else:
             phi = phi_base
         return phi, phi_base

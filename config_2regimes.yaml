@@ -148,7 +148,7 @@ routers:
     #            feature_mode=fixed, feature_lr=0.0, feature_arch=linear,
     #            shared_dim=1, idiosyncratic_dim=2
     partial_overrides:
-      feature_mode: "fixed"
+      feature_mode: "learnable"
       feature_learning_rate: 0.0
       shared_dim: 1
       idiosyncratic_dim: 2
@@ -158,7 +158,7 @@ routers:
       R_scalar: 1.0
       
     full_overrides:
-      feature_mode: "fixed"
+      feature_mode: "learnable"
       feature_learning_rate: 0.0
       shared_dim: 1
       idiosyncratic_dim: 2
@@ -178,7 +178,7 @@ routers:
     Q_u_scales: 0.001
     R_scalar: 0.1
     B_intercept_load: 1.0
-    feature_mode: "fixed"
+    feature_mode: "learnable"
     feature_learning_rate: 0.0
     feature_arch: "linear"
     # Optional bias tensor C_u with shape (M, N, d_u). Example shown
@@ -191,23 +191,34 @@ routers:
 
     # Partial-feedback overrides (matching best correlated partial hyperparams).
     partial_overrides:
-      Q_g_scales: 0.01
-      Q_u_scales: 0.001
+      lambda_risk: 0.0
+      Q_g_scales: 0.1
+      Q_u_scales: 0.01
       R_scalar: 1.0
-      shared_dim: 1
-      idiosyncratic_dim: 2
-      feature_mode: "fixed"
+      C_scale: 0.0
+      feature_mode: "learnable"
       feature_learning_rate: 0.0
       feature_arch: "linear"
-      # Softer recurrence for partial to reduce bias-induced drift.
-      C_u:
-        - [[0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0]]
-        - [[-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0]]
+      shared_dim: 1
+      idiosyncratic_dim: 2
+
+    full_overrides:
+      lambda_risk: -0.20
+      Q_g_scales: 0.01
+      Q_u_scales: 0.001
+      R_scalar: 0.5
+      C_scale: 0.25
+      feature_mode: "learnable"
+      feature_learning_rate: 0.0
+      feature_arch: "linear"
+      shared_dim: 1
+      idiosyncratic_dim: 2
 
 
   # Optional configuration for the recurrent SLDS-IMM router.
   # If omitted, defaults matching the non-recurrent example are used.
   slds_imm_recurrent:
+    C_scale: 0.5
     C:
       # shape (M, N, d); example for M=2, N=5, d=2
       - [[0.1, 0.0], [0.1, 0.0], [0.1, 0.0], [0.1, 0.0], [0.1, 0.0]]
@@ -233,6 +244,18 @@ routers:
       - [0.0, 0.0]
     # In hyperparam_search, stick_gamma_rows is multiplied by stick_gamma_scale;
     # keep base values small (e.g., 0.05–0.2) and sweep stick_gamma_scale.
+    partial_overrides:
+      C_scale: 0.5
+      q: 0.5
+      r: 1.0
+      lambda_risk: 0.0
+      stick_gamma_scale: 0.0
+    full_overrides:
+      C_scale: 0.5
+      q: 0.5
+      r: 0.5
+      lambda_risk: 0.2
+      stick_gamma_scale: 0.0
 
   # Registry pruning threshold for correlated router (in decision epochs).
   # If null, pruning is disabled.
@@ -313,6 +336,9 @@ horizon_planning:
     q_scale: 0.1
 
 hyperparam_search:
+  run_corr: false
+  run_corr_recurrent: true
+  run_r_slds: false
   num_workers: 8
   lambda_risk_grid: [-0.5, -0.2, 0.0, 0.2]
   # default q_g_scale are 1e-3, 1e-2 etc
@@ -333,4 +359,17 @@ hyperparam_search:
     r_scale_grid: [0.5, 1.0]
     c_scale_grid: [0.2, 0.5]
     stick_gamma_scale_grid: [0.0, 0.25, 0.5]
+    seeds: [42, 43]
+  corr_recurrent:
+    num_regimes_grid: [2]
+    lambda_risk_grid: [-0.5, -0.2, 0.0, 0.2]
+    q_g_scale_grid: [0.01, 0.1, 1.0]
+    q_u_scale_grid: [0.001, 0.01]
+    r_scale_grid: [0.1, 0.5, 1.0]
+    c_scale_grid: [0.0, 0.25, 0.5]
+    feature_mode_grid: ["learnable"]
+    feature_learning_rate_grid: [0.0]
+    feature_arch_grid: ["linear", "mlp"]
+    shared_dim_grid: [1]
+    idiosyncratic_dim_grid: [2]
     seeds: [42, 43]

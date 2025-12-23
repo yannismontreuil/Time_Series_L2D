@@ -290,20 +290,23 @@ if __name__ == "__main__":
     # --------------------------------------------------------
 
     slds_recurrent_cfg = routers_cfg.get("slds_imm_recurrent", {}) or {}
+    rec_partial_overrides = slds_recurrent_cfg.get("partial_overrides", {}) or {}
+    rec_full_overrides = slds_recurrent_cfg.get("full_overrides", {}) or {}
+
     C_cfg = slds_recurrent_cfg.get("C", None)
     if C_cfg is not None:
-        C_rec = np.asarray(C_cfg, dtype=float)
+        C_rec_base = np.asarray(C_cfg, dtype=float)
     else:
-        C_rec = np.zeros((M, N, d), dtype=float)
+        C_rec_base = np.zeros((M, N, d), dtype=float)
 
     stick_gamma_cfg = slds_recurrent_cfg.get("stick_gamma", None)
     stick_kappa_cfg = slds_recurrent_cfg.get("stick_kappa", None)
-    stick_gamma = (
+    stick_gamma_base = (
         np.asarray(stick_gamma_cfg, dtype=float)
         if stick_gamma_cfg is not None
         else None
     )
-    stick_kappa = (
+    stick_kappa_base = (
         np.asarray(stick_kappa_cfg, dtype=float)
         if stick_kappa_cfg is not None
         else None
@@ -311,60 +314,63 @@ if __name__ == "__main__":
 
     stick_gamma_rows_cfg = slds_recurrent_cfg.get("stick_gamma_rows", None)
     stick_kappa_rows_cfg = slds_recurrent_cfg.get("stick_kappa_rows", None)
-    stick_gamma_rows = (
+    stick_gamma_rows_base = (
         np.asarray(stick_gamma_rows_cfg, dtype=float)
         if stick_gamma_rows_cfg is not None
         else None
     )
-    stick_kappa_rows = (
+    stick_kappa_rows_base = (
         np.asarray(stick_kappa_rows_cfg, dtype=float)
         if stick_kappa_rows_cfg is not None
         else None
     )
 
-    router_partial_rec = RecurrentSLDSRouter(
-        num_experts=N,
-        num_regimes=M,
-        state_dim=d,
-        feature_fn=feature_phi,
-        A=A,
-        Q=Q,
-        R=R,
-        Pi=Pi,
-        C=C_rec,
-        beta=beta,
-        lambda_risk=lambda_risk,
-        feedback_mode="partial",
-        pop_mean=pop_mean,
-        pop_cov=pop_cov,
-        eps=eps_slds,
-        stick_gamma=stick_gamma,
-        stick_kappa=stick_kappa,
-        stick_gamma_rows=stick_gamma_rows,
-        stick_kappa_rows=stick_kappa_rows,
-    )
+    def _build_rec_router(overrides: dict, feedback_mode: str) -> RecurrentSLDSRouter:
+        q_scale = float(overrides.get("q", 1.0))
+        r_scale = float(overrides.get("r", 1.0))
+        lambda_local = float(overrides.get("lambda_risk", lambda_risk))
+        C_scale = float(overrides.get("C_scale", 1.0))
+        stick_scale = float(overrides.get("stick_gamma_scale", 1.0))
 
-    router_full_rec = RecurrentSLDSRouter(
-        num_experts=N,
-        num_regimes=M,
-        state_dim=d,
-        feature_fn=feature_phi,
-        A=A,
-        Q=Q,
-        R=R,
-        Pi=Pi,
-        C=C_rec,
-        beta=beta,
-        lambda_risk=lambda_risk,
-        feedback_mode="full",
-        pop_mean=pop_mean,
-        pop_cov=pop_cov,
-        eps=eps_slds,
-        stick_gamma=stick_gamma,
-        stick_kappa=stick_kappa,
-        stick_gamma_rows=stick_gamma_rows,
-        stick_kappa_rows=stick_kappa_rows,
-    )
+        C_rec = C_rec_base * C_scale
+
+        stick_gamma = (
+            stick_gamma_base * stick_scale if stick_gamma_base is not None else None
+        )
+        stick_kappa = stick_kappa_base.copy() if stick_kappa_base is not None else None
+        stick_gamma_rows = (
+            stick_gamma_rows_base * stick_scale
+            if stick_gamma_rows_base is not None
+            else None
+        )
+        stick_kappa_rows = (
+            stick_kappa_rows_base.copy() if stick_kappa_rows_base is not None else None
+        )
+
+        return RecurrentSLDSRouter(
+            num_experts=N,
+            num_regimes=M,
+            state_dim=d,
+            feature_fn=feature_phi,
+            A=A,
+            Q=Q * q_scale,
+            R=R * r_scale,
+            Pi=Pi,
+            C=C_rec,
+            beta=beta,
+            lambda_risk=lambda_local,
+            feedback_mode=feedback_mode,
+            pop_mean=pop_mean,
+            pop_cov=pop_cov,
+            eps=eps_slds,
+            stick_gamma=stick_gamma,
+            stick_kappa=stick_kappa,
+            stick_gamma_rows=stick_gamma_rows,
+            stick_kappa_rows=stick_kappa_rows,
+        )
+
+    router_partial_rec = _build_rec_router(rec_partial_overrides, feedback_mode="partial")
+    router_full_rec = _build_rec_router(rec_full_overrides, feedback_mode="full")
 
     # --------------------------------------------------------
     # Correlated-expert SLDS-IMM routers (shared factor model)
@@ -749,8 +755,16 @@ if __name__ == "__main__":
             else:
                 R_local = R
 
+        # Optional recurrent bias; allow scaling via C_scale (default 1.0).
         C_u_cfg = cfg_local.get("C_u", None)
-        C_u_local = np.asarray(C_u_cfg, dtype=float) if C_u_cfg is not None else None
+        C_scale_local = float(cfg_local.get("C_scale", 1.0))
+        if C_u_cfg is not None:
+            C_u_local = np.asarray(C_u_cfg, dtype=float)
+            if C_u_local.shape != (M, N, d_u_local):
+                raise ValueError("routers.slds_imm_corr_recurrent.C_u must have shape (M, N, d_u)")
+        else:
+            C_u_local = np.zeros((M, N, d_u_local), dtype=float)
+        C_u_local = C_u_local * C_scale_local
 
         return RecurrentSLDSIMMRouter_Corr(
             num_experts=N,
@@ -1033,11 +1047,23 @@ if __name__ == "__main__":
         slds_corr_cfg, slds_corr_full_overrides, feedback_mode="full"
     )
 
+    # Merge base correlated overrides with recurrent-specific overrides so that
+    # users can specify partial/full overrides in both blocks; recurrent-specific
+    # keys take precedence.
+    merged_corr_rec_partial_overrides = {
+        **slds_corr_partial_overrides,
+        **slds_corr_rec_partial_overrides,
+    }
+    merged_corr_rec_full_overrides = {
+        **slds_corr_full_overrides,
+        **slds_corr_rec_full_overrides,
+    }
+
     router_partial_corr_rec = _build_corr_router_rec(
-        slds_corr_rec_cfg, slds_corr_rec_partial_overrides, feedback_mode="partial"
+        slds_corr_rec_cfg, merged_corr_rec_partial_overrides, feedback_mode="partial"
     )
     router_full_corr_rec = _build_corr_router_rec(
-        slds_corr_rec_cfg, slds_corr_rec_full_overrides, feedback_mode="full"
+        slds_corr_rec_cfg, merged_corr_rec_full_overrides, feedback_mode="full"
     )
 
     # Optional EM-style correlated routers (distinct from the base
