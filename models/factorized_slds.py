@@ -23,11 +23,11 @@ class FactorizedSLDS:
 
     def __init__(
         self,
-        M: int,
+        M: int, # number of discrete latent states
         d_g: int,
         d_phi: int,
         feature_fn: Callable[[np.ndarray], np.ndarray],
-        B_dict: Optional[Dict[int, np.ndarray]] = None,
+        B_dict: Optional[Dict[int, np.ndarray]] = None, # expert-specific loading matrices B_k
         beta: Optional[Dict[int, float]] = None,
         R: float = 1.0,
         A_g: Optional[np.ndarray] = None,
@@ -108,6 +108,7 @@ class FactorizedSLDS:
         return expX / np.sum(expX, axis=1, keepdims=True)
 
     # ---------------------- Predict (time update) ----------------------
+    # Algorithm 4 IMM: Context-Dependent IMM Mixing (Moment Matching)
     def predict_step(self, context_x: np.ndarray) -> None:
         """
         Time update (IMM): compute Pi_t from context_x, mix mode-conditioned beliefs,
@@ -185,6 +186,7 @@ class FactorizedSLDS:
             self.last_selected_step[k] += 1
 
     # ---------------------- Action selection (IDS) ----------------------
+    # Algorithm 5 PREDICT AND SCORE: Mode-Wise Prediction and Myopic Costin
     def select_action(self, context_x: np.ndarray, active_experts: Optional[Sequence[int]] = None) -> int:
         """
         Select expert via Information-Directed Sampling (IDS) as described.
@@ -244,6 +246,7 @@ class FactorizedSLDS:
         return int(best_k) if best_k is not None else -1
 
     # ---------------------- Measurement update (partial feedback) ----------------------
+    # Algorithm 6 CORRECT: Queried Kalman Update and Mode Posterior
     def update_step(self, selected_expert_id: int, observed_residual: float, context_x: Optional[np.ndarray] = None) -> None:
         """
         Perform measurement update only for the selected expert across modes.
@@ -309,6 +312,7 @@ class FactorizedSLDS:
         self.last_selected_step[k] = 0
 
     # ---------------------- Registry management ----------------------
+    # Algorithm 7 MANAGE REGISTRY: Entering/Stale Expert
     def manage_registry(self, current_experts: Sequence[int]) -> None:
         """
         Prune experts not selected for Delta_max steps and birth new experts in current_experts.
@@ -337,14 +341,11 @@ class FactorizedSLDS:
         # initialize mode-conditioned copies of prior
         self.mu_u[k] = np.stack([self.mu_u0.copy() for _ in range(self.M)])
         self.Sigma_u[k] = np.stack([self.Sigma_u0.copy() for _ in range(self.M)])
-        # default B matrix (small random mapping) if not provided
+        # default B_k matrix (small random mapping) if not provided
         if k not in self.B_dict:
             rng = np.random.default_rng(k)
             self.B_dict[k] = rng.normal(scale=0.01, size=(self.d_phi, self.d_g))
         if k not in self.beta:
             self.beta[k] = 0.0
         self.last_selected_step[k] = 0
-
-
-# End of file
 
