@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+from typing import Optional
 import numpy as np
 
 from environment.etth1_env import ETTh1TimeSeriesEnv
@@ -60,6 +61,46 @@ def _resolve_vector(value, default_scalar: float, length: int) -> np.ndarray:
     return arr
 
 
+def _collect_factorized_em_data(
+    router: FactorizedSLDS,
+    env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,
+    t_end: int,
+):
+    contexts = []
+    available_sets = []
+    actions = []
+    residuals = []
+    residuals_full = []
+
+    router.reset_beliefs()
+    t_end = min(int(t_end), env.T - 1)
+    for t in range(1, t_end + 1):
+        x_t = env.get_context(t)
+        available = env.get_available_experts(t)
+        r_t, cache = router.select_expert(x_t, available)
+
+        preds = env.all_expert_predictions(x_t)
+        residuals_all = preds - float(env.y[t])
+        residual = float(residuals_all[int(r_t)])
+
+        contexts.append(x_t)
+        available_sets.append(list(available))
+        actions.append(int(r_t))
+        residuals.append(residual)
+        residuals_full.append(residuals_all)
+
+        losses_full = residuals_all if router.feedback_mode == "full" else None
+        router.update_beliefs(
+            r_t=r_t,
+            loss_obs=residual,
+            losses_full=losses_full,
+            available_experts=available,
+            cache=cache,
+        )
+
+    return contexts, available_sets, actions, residuals, residuals_full
+
+
 def _parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments.
@@ -101,7 +142,15 @@ if __name__ == "__main__":
     routers_cfg = cfg.get("routers", {})
     slds_cfg = routers_cfg.get("slds_imm", {}) or {}
     slds_corr_cfg = routers_cfg.get("slds_imm_corr", {}) or {}
-    factorized_slds_cfg = routers_cfg.get("factorized_slds", {}) or {}
+    slds_corr_enabled = bool(slds_corr_cfg.get("enabled", True))
+    factorized_slds_cfg_raw = routers_cfg.get("factorized_slds", None)
+    if factorized_slds_cfg_raw is None:
+        factorized_slds_cfg = {}
+    else:
+        if not isinstance(factorized_slds_cfg_raw, dict):
+            raise ValueError("routers.factorized_slds must be a mapping when provided.")
+        factorized_slds_cfg = factorized_slds_cfg_raw
+    factorized_slds_enabled = bool(factorized_slds_cfg.get("enabled", True))
 
     baselines_cfg = cfg.get("baselines", {})
     l2d_cfg = baselines_cfg.get("l2d", {})
@@ -309,6 +358,7 @@ if __name__ == "__main__":
     # we build an additional pair of correlated routers that perform an
     # EM-style update of dynamics/noise over an initial window.
     slds_corr_em_cfg = routers_cfg.get("slds_imm_corr_em", {}) or {}
+    slds_corr_em_enabled = bool(slds_corr_em_cfg.get("enabled", True))
     slds_corr_em_partial_overrides = slds_corr_em_cfg.get("partial_overrides", {}) or {}
     slds_corr_em_full_overrides = slds_corr_em_cfg.get("full_overrides", {}) or {}
 
@@ -749,19 +799,22 @@ if __name__ == "__main__":
 
     # Build mode-specific correlated routers. If no overrides are
     # provided, both fall back to the same configuration.
-    router_partial_corr = _build_corr_router(
-        slds_corr_cfg, slds_corr_partial_overrides, feedback_mode="partial"
-    )
-    router_full_corr = _build_corr_router(
-        slds_corr_cfg, slds_corr_full_overrides, feedback_mode="full"
-    )
+    router_partial_corr = None
+    router_full_corr = None
+    if slds_corr_enabled:
+        router_partial_corr = _build_corr_router(
+            slds_corr_cfg, slds_corr_partial_overrides, feedback_mode="partial"
+        )
+        router_full_corr = _build_corr_router(
+            slds_corr_cfg, slds_corr_full_overrides, feedback_mode="full"
+        )
 
     # Optional EM-style correlated routers (distinct from the base
     # correlated routers above). If routers.slds_imm_corr_em is empty,
     # these remain None and are omitted from evaluation.
     router_partial_corr_em = None
     router_full_corr_em = None
-    if slds_corr_em_cfg:
+    if slds_corr_em_cfg and slds_corr_em_enabled:
         router_partial_corr_em = _build_corr_router_em(
             slds_corr_em_cfg,
             slds_corr_em_partial_overrides,
@@ -875,10 +928,20 @@ if __name__ == "__main__":
         )
 
     # --------------------------------------------------------
-    # Factorized Switching Linear Dynamical System (Bandit Feedback)
+    # Factorized Switching Linear Dynamical System
     # --------------------------------------------------------
     # Wire the FactorizedSLDS into the evaluation if configured
-    if factorized_slds_cfg:
+    fact_router_partial = None
+    fact_router_full = None
+    fact_router_partial_linear = None
+    fact_router_full_linear = None
+    router_partial_no_g = None
+    router_full_no_g = None
+    factorized_label = "Factorized SLDS"
+    factorized_linear_label = "Factorized SLDS linear"
+    base_transition_mode = None
+    extra_transition_mode = None
+    if factorized_slds_enabled:
         M_fact = int(factorized_slds_cfg.get("num_regimes", M))
         # Use shared dim from config or same logic as correlated router
         d_g_std = 1
@@ -886,18 +949,199 @@ if __name__ == "__main__":
         d_g_fact = int(d_g_fact_cfg)
         d_phi_fact = int(factorized_slds_cfg.get("idiosyncratic_dim", d))
         delta_max_fact = int(factorized_slds_cfg.get("delta_max", 50))
-
-        print("\n--- Running FactorizedSLDS Router ---")
-        fact_router = FactorizedSLDS(
-            M=M_fact,
-            d_g=d_g_fact,
-            d_phi=d_phi_fact,
-            feature_fn=feature_phi,
-            beta=beta,
-            Delta_max=delta_max_fact,
-            # using same R as base config if not overridden
-            R=float(slds_cfg.get("R_scalar", 0.5)),
+        r_scalar_fact_cfg = factorized_slds_cfg.get("R_scalar", None)
+        if r_scalar_fact_cfg is None:
+            r_scalar_fact = float(slds_cfg.get("R_scalar", 0.5))
+        else:
+            r_scalar_fact = float(r_scalar_fact_cfg)
+        B_intercept_load_fact = float(
+            factorized_slds_cfg.get("B_intercept_load", 1.0)
         )
+        attn_dim_fact = factorized_slds_cfg.get("attn_dim", None)
+        g_mean0_fact = factorized_slds_cfg.get("g_mean0", None)
+        g_cov0_fact = factorized_slds_cfg.get("g_cov0", None)
+        u_mean0_fact = factorized_slds_cfg.get("u_mean0", None)
+        u_cov0_fact = factorized_slds_cfg.get("u_cov0", None)
+        eps_fact = float(factorized_slds_cfg.get("eps", 1e-8))
+        observation_mode_fact = str(
+            factorized_slds_cfg.get("observation_mode", "residual")
+        )
+        transition_hidden_dims_cfg = factorized_slds_cfg.get(
+            "transition_hidden_dims", None
+        )
+        if transition_hidden_dims_cfg is None:
+            transition_hidden_dims = None
+        elif isinstance(transition_hidden_dims_cfg, (list, tuple)):
+            transition_hidden_dims = [int(x) for x in transition_hidden_dims_cfg]
+        else:
+            transition_hidden_dims = [int(transition_hidden_dims_cfg)]
+        transition_activation = str(
+            factorized_slds_cfg.get("transition_activation", "tanh")
+        )
+        transition_device = factorized_slds_cfg.get("transition_device", None)
+        transition_mode_cfg = str(
+            factorized_slds_cfg.get("transition_mode", "attention")
+        ).lower()
+        if transition_mode_cfg == "both":
+            base_transition_mode = "attention"
+            extra_transition_mode = "linear"
+        elif transition_mode_cfg in ("attention", "linear"):
+            base_transition_mode = transition_mode_cfg
+            extra_transition_mode = None
+        else:
+            raise ValueError(
+                "routers.factorized_slds.transition_mode must be "
+                "'attention', 'linear', or 'both'."
+            )
+
+        A_g_fact = factorized_slds_cfg.get("A_g", None)
+        A_u_fact = factorized_slds_cfg.get("A_u", None)
+        Q_g_fact = factorized_slds_cfg.get("Q_g", None)
+        Q_u_fact = factorized_slds_cfg.get("Q_u", None)
+        if Q_g_fact is None:
+            q_g_scales_cfg = factorized_slds_cfg.get("Q_g_scales", None)
+            if q_g_scales_cfg is not None:
+                q_g_arr = np.asarray(q_g_scales_cfg, dtype=float)
+                if q_g_arr.shape == ():
+                    q_g_arr = np.full(M_fact, float(q_g_arr), dtype=float)
+                elif q_g_arr.shape == (M_fact,):
+                    pass
+                elif q_g_arr.size == 2 and M_fact > 2:
+                    qg_broadcast = np.empty(M_fact, dtype=float)
+                    qg_broadcast[0] = float(q_g_arr[0])
+                    qg_broadcast[1:] = float(q_g_arr[1])
+                    q_g_arr = qg_broadcast
+                else:
+                    raise ValueError(
+                        "routers.factorized_slds.Q_g_scales must be a scalar, a list "
+                        "of length num_regimes, or a length-2 list [qg_0, qg_other] "
+                        "when num_regimes > 2."
+                    )
+                Q_g_fact = np.zeros((M_fact, d_g_fact, d_g_fact), dtype=float)
+                for k in range(M_fact):
+                    Q_g_fact[k] = q_g_arr[k] * np.eye(d_g_fact, dtype=float)
+        if Q_u_fact is None:
+            q_u_scales_cfg = factorized_slds_cfg.get("Q_u_scales", None)
+            if q_u_scales_cfg is not None:
+                q_u_arr = np.asarray(q_u_scales_cfg, dtype=float)
+                if q_u_arr.shape == ():
+                    q_u_arr = np.full(M_fact, float(q_u_arr), dtype=float)
+                elif q_u_arr.shape == (M_fact,):
+                    pass
+                elif q_u_arr.size == 2 and M_fact > 2:
+                    qu_broadcast = np.empty(M_fact, dtype=float)
+                    qu_broadcast[0] = float(q_u_arr[0])
+                    qu_broadcast[1:] = float(q_u_arr[1])
+                    q_u_arr = qu_broadcast
+                else:
+                    raise ValueError(
+                        "routers.factorized_slds.Q_u_scales must be a scalar, a list "
+                        "of length num_regimes, or a length-2 list [qu_0, qu_other] "
+                        "when num_regimes > 2."
+                    )
+                Q_u_fact = np.zeros((M_fact, d_phi_fact, d_phi_fact), dtype=float)
+                for k in range(M_fact):
+                    Q_u_fact[k] = q_u_arr[k] * np.eye(d_phi_fact, dtype=float)
+
+        def _build_factorized_router(
+            feedback_mode: str,
+            transition_mode_local: str,
+        ) -> FactorizedSLDS:
+            return FactorizedSLDS(
+                M=M_fact,
+                d_g=d_g_fact,
+                d_phi=d_phi_fact,
+                feature_fn=feature_phi,
+                beta=beta,
+                Delta_max=delta_max_fact,
+                R=r_scalar_fact,
+                num_experts=N,
+                B_intercept_load=B_intercept_load_fact,
+                attn_dim=attn_dim_fact,
+                g_mean0=g_mean0_fact,
+                g_cov0=g_cov0_fact,
+                u_mean0=u_mean0_fact,
+                u_cov0=u_cov0_fact,
+                A_g=A_g_fact,
+                A_u=A_u_fact,
+                Q_g=Q_g_fact,
+                Q_u=Q_u_fact,
+                eps=eps_fact,
+                observation_mode=observation_mode_fact,
+                transition_hidden_dims=transition_hidden_dims,
+                transition_activation=transition_activation,
+                transition_device=transition_device,
+                transition_mode=transition_mode_local,
+                feedback_mode=feedback_mode,
+            )
+
+        def _build_factorized_router_no_g(
+            feedback_mode: str,
+            transition_mode_local: str,
+        ) -> FactorizedSLDS:
+            return FactorizedSLDS(
+                M=M_fact,
+                d_g=0,
+                d_phi=d_phi_fact,
+                feature_fn=feature_phi,
+                beta=beta,
+                Delta_max=delta_max_fact,
+                R=r_scalar_fact,
+                num_experts=N,
+                B_intercept_load=B_intercept_load_fact,
+                attn_dim=attn_dim_fact,
+                g_mean0=None,
+                g_cov0=None,
+                u_mean0=u_mean0_fact,
+                u_cov0=u_cov0_fact,
+                A_g=None,
+                A_u=A_u_fact,
+                Q_g=None,
+                Q_u=Q_u_fact,
+                eps=eps_fact,
+                observation_mode=observation_mode_fact,
+                transition_hidden_dims=transition_hidden_dims,
+                transition_activation=transition_activation,
+                transition_device=transition_device,
+                transition_mode=transition_mode_local,
+                feedback_mode=feedback_mode,
+            )
+
+        print(
+            f"\n--- Running FactorizedSLDS Router (partial, {base_transition_mode}) ---"
+        )
+        fact_router_partial = _build_factorized_router(
+            "partial", base_transition_mode
+        )
+        print(
+            f"\n--- Running FactorizedSLDS Router (full, {base_transition_mode}) ---"
+        )
+        fact_router_full = _build_factorized_router("full", base_transition_mode)
+        factorized_label = f"Factorized SLDS {base_transition_mode}"
+
+        if extra_transition_mode is not None:
+            print(
+                f"\n--- Running FactorizedSLDS Router (partial, {extra_transition_mode}) ---"
+            )
+            fact_router_partial_linear = _build_factorized_router(
+                "partial", extra_transition_mode
+            )
+            print(
+                f"\n--- Running FactorizedSLDS Router (full, {extra_transition_mode}) ---"
+            )
+            fact_router_full_linear = _build_factorized_router(
+                "full", extra_transition_mode
+            )
+            factorized_linear_label = f"Factorized SLDS {extra_transition_mode}"
+
+        router_partial_no_g = _build_factorized_router_no_g(
+            "partial", base_transition_mode
+        )
+        router_full_no_g = _build_factorized_router_no_g(
+            "full", base_transition_mode
+        )
+        router_partial = router_partial_no_g
+        router_full = router_full_no_g
 
     # --------------------------------------------------------
     # Environment and L2D baselines
@@ -941,6 +1185,71 @@ if __name__ == "__main__":
             noise_scale=env_cfg.get("noise_scale", None),
         )
 
+    def _run_factorized_em(router: Optional[FactorizedSLDS], label: str) -> None:
+        if router is None:
+            return
+        em_enabled = bool(factorized_slds_cfg.get("em_enabled", True))
+        em_tk_cfg = factorized_slds_cfg.get("em_tk", None)
+        if em_tk_cfg is None:
+            em_tk = min(500, env.T - 1)
+        else:
+            em_tk = int(em_tk_cfg)
+        if not em_enabled or em_tk <= 1:
+            return
+
+        n_em = int(factorized_slds_cfg.get("em_n", 5))
+        n_samples = int(factorized_slds_cfg.get("em_samples", 10))
+        burn_in = int(factorized_slds_cfg.get("em_burn_in", 5))
+        val_fraction = float(factorized_slds_cfg.get("em_val_fraction", 0.2))
+        theta_lr = float(factorized_slds_cfg.get("em_theta_lr", 1e-2))
+        theta_steps = int(factorized_slds_cfg.get("em_theta_steps", 1))
+        em_seed_cfg = factorized_slds_cfg.get("em_seed", env_cfg.get("seed", 0))
+        em_seed = int(em_seed_cfg) if em_seed_cfg is not None else 0
+        em_priors = factorized_slds_cfg.get("em_priors", None)
+        print_val_loss = bool(factorized_slds_cfg.get("em_print_val_loss", True))
+
+        print(f"\n--- FactorizedSLDS EM ({label}) (t=1..{em_tk}, n_em={n_em}) ---")
+        ctx_em, avail_em, actions_em, resid_em, resid_full_em = _collect_factorized_em_data(
+            router, env, em_tk
+        )
+        router.fit_em(
+            contexts=ctx_em,
+            available_sets=avail_em,
+            actions=actions_em,
+            residuals=resid_em,
+            residuals_full=resid_full_em if router.feedback_mode == "full" else None,
+            n_em=n_em,
+            n_samples=n_samples,
+            burn_in=burn_in,
+            val_fraction=val_fraction,
+            priors=em_priors,
+            theta_lr=theta_lr,
+            theta_steps=theta_steps,
+            seed=em_seed,
+            print_val_loss=print_val_loss,
+        )
+        router.em_tk = int(em_tk)
+        router.reset_beliefs()
+
+    if base_transition_mode is not None:
+        _run_factorized_em(
+            fact_router_partial, f"{base_transition_mode} partial"
+        )
+        _run_factorized_em(fact_router_full, f"{base_transition_mode} full")
+        _run_factorized_em(
+            router_partial_no_g, f"{base_transition_mode} no-g partial"
+        )
+        _run_factorized_em(
+            router_full_no_g, f"{base_transition_mode} no-g full"
+        )
+    if extra_transition_mode is not None:
+        _run_factorized_em(
+            fact_router_partial_linear, f"{extra_transition_mode} partial"
+        )
+        _run_factorized_em(
+            fact_router_full_linear, f"{extra_transition_mode} full"
+        )
+
     # Plot the true series and expert predictions
     # plot_time_series(env)
 
@@ -950,8 +1259,13 @@ if __name__ == "__main__":
         env,
         router_partial,
         router_full,
-        fact_router,
-        l2d_baseline,
+        fact_router_partial,
+        fact_router_full,
+        factorized_label=factorized_label,
+        router_factorial_partial_linear=fact_router_partial_linear,
+        router_factorial_full_linear=fact_router_full_linear,
+        factorized_linear_label=factorized_linear_label,
+        l2d_baseline=l2d_baseline,
         router_partial_corr=router_partial_corr,
         router_full_corr=router_full_corr,
         router_partial_corr_em=router_partial_corr_em,

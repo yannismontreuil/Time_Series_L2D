@@ -1,41 +1,58 @@
+# Stale-prior theoretical trap experiment (synthetic).
+
 environment:
-  # "Stale Prior" theoretical trap experiment for the paper.
+  # Dataset / experiment
   data_source: synthetic
+  setting: theoretical_trap
+  # Tweak: total time steps.
+  T: 3000
+  seed: 42
+
+  # Dimensions
+  # Tweak: number of experts and regimes.
   num_experts: 3
   num_regimes: 2
+  state_dim: 2
+
   # Special setting implemented in synthetic_env.py that constructs:
   #   - Regime 0 (good times): experts 0 and 1 ~ 0, expert 2 ~ 1
   #   - Regime 1 (bad times):  experts 0 and 1 ~ 10, expert 2 ~ 1
   #   - Expert 1 goes offline during the start of the bad regime,
   #     creating a "stale prior" on its historical performance.
-  setting: theoretical_trap
-  T: 3000
-  seed: 42
 
 routers:
-  # Risk sensitivity for SLDS-IMM routers.
+  # Global router settings
+  # Tweak: risk sensitivity and per-expert consultation cost.
   lambda_risk: -2.0
-
-  # Consultation costs for routers (β_j).
   beta: 0.0
+  staleness_threshold: null
 
-  # Independent-expert SLDS-IMM router (baseline).
+  # Independent-expert SLDS-IMM router (baseline)
   slds_imm:
+    # Dynamics
+    # Tweak: process noise scales and regime transitions.
     Q_scales: [0.005, 0.05]
-    R_scalar: 1.0
     Pi:
       - [0.5, 0.5]
       - [0.2, 0.8]
+
+    # Observation noise
+    # Tweak: scalar observation noise.
+    R_scalar: 1.0
+
+    # Population prior for expert reliability
     pop_mean: [0.0, 0.0]
     pop_cov:
       - [1.0, 0.0]
       - [0.0, 1.0]
+
     eps: 1.0e-8
 
-  # Correlated-expert SLDS-IMM router: this is the model expected to
-  # exploit the shared-factor correlation between "Barometer" and
-  # "Sidekick" and infer the Sidekick's reliability when it is offline.
+  # Correlated-expert SLDS-IMM router (learnable features)
   slds_imm_corr:
+    enabled: false
+    # Feature / exploration
+    # Tweak: feature learning rate/architecture.
     exploration_mode: "ids"
     feature_mode: "learnable"
     feature_learning_rate: 0.001
@@ -43,25 +60,25 @@ routers:
     feature_hidden_dim: 4
     feature_activation: "tanh"
 
-    # Shared factor / idiosyncratic dimensions (base values; see
-    # partial_overrides/full_overrides below for mode-specific tuning).
+    # Dimensions
+    # Tweak: shared vs idiosyncratic dimensions.
     shared_dim: 1
     idiosyncratic_dim: 1
 
-    # Base process noise scales; mode-specific overrides below set the
-    # actual values used by partial/full correlated routers.
+    # Dynamics / noise
+    # Tweak: process noise scales.
     Q_g_scales: 0.001
     Q_u_scales: 0.001
-
     B_intercept_load: 1.0
+    eps: 1.0e-8
 
+    # Initial priors
     g_mean0: [0.0]
     g_cov0:
       - [1.0]
     u_mean0: [0.0]
     u_cov0:
       - [1.0]
-    eps: 1.0e-8
 
     # Mode-specific overrides to match best_corr_hyperparams.json.
     # partial: num_regimes=2, lambda_risk=-2.0, q_g=0.001, q_u=0.001,
@@ -83,51 +100,48 @@ routers:
       feature_arch: "linear"
       R_scalar: 1.0
 
-  # EM-capable correlated SLDS-IMM router: same base configuration as
-  # slds_imm_corr, but with an EM-style learning phase over the initial
-  # window t = 1,...,t_k. For the theoretical-trap experiment, Phase 1
-  # occupies t ≈ 1..999 in regime 0, so we choose t_k = 999.
+  # EM-capable correlated SLDS-IMM router (train on [1..em_tk], then deploy)
   slds_imm_corr_em:
+    enabled: false
+    # Base config (mirrors slds_imm_corr)
     exploration_mode: "ids"
     feature_mode: "learnable"
-    # Base learning rate used in Phase 0; Phase 1 uses a 10x smaller
-    # rate by default unless overridden below, and Phase 2 defaults to
-    # freezing features (feature_lr_phase2 = 0.0).
     feature_learning_rate: 0.001
     feature_arch: "linear"
     feature_hidden_dim: 4
     feature_activation: "tanh"
 
+    # Dimensions
     shared_dim: 1
     idiosyncratic_dim: 1
 
+    # Dynamics / noise
     Q_g_scales: 0.001
     Q_u_scales: 0.001
-
     B_intercept_load: 1.0
+    eps: 1.0e-8
 
+    # Initial priors
     g_mean0: [0.0]
     g_cov0:
       - [1.0]
     u_mean0: [0.0]
     u_cov0:
       - [1.0]
-    eps: 1.0e-8
 
-    # EM-specific configuration and feature-learning schedule:
-    #   - Phase 0: t in [1, phase0_t_end] with lr ≈ feature_lr_phase0
-    #   - Phase 1: t in (phase0_t_end, em_tk] with lr ≈ feature_lr_phase1
-    #   - Phase 2: t > em_tk or training_mode=False with lr ≈ feature_lr_phase2
+    # EM schedule and feature-learning phases
+    #   - Phase 0: t in [1, phase0_t_end] with lr ~= feature_lr_phase0
+    #   - Phase 1: t in (phase0_t_end, em_tk] with lr ~= feature_lr_phase1
+    #   - Phase 2: t > em_tk or training_mode=False with lr ~= feature_lr_phase2
+    # Tweak: EM window length and phase boundaries.
     em_tk: 999
     em_min_weight: 1.0e-6
     em_verbose: true
-    # Use the first half of the EM window for Phase 0 pretraining.
     phase0_t_end: 500
-    # Explicit Phase 0/1/2 learning rates (optional; if omitted, defaults
-    # inside SLDSIMMRouter_Corr_EM are used).
+    # Tweak: feature learning rates per phase.
     feature_lr_phase0: 0.001   # pretraining
     feature_lr_phase1: 0.0001  # EM / SLDS training
-    feature_lr_phase2: 0.00001     # deployment (features frozen)
+    feature_lr_phase2: 0.00001 # deployment (features frozen)
 
     partial_overrides:
       shared_dim: 1
@@ -144,7 +158,38 @@ routers:
       feature_arch: "linear"
       R_scalar: 1.0
 
-  staleness_threshold: null
+  # Factorized SLDS router (train on [1..em_tk], then deploy)
+  factorized_slds:
+    enabled: true
+
+    # Dimensions
+    # Tweak: number of regimes and latent dims.
+    num_regimes: 2
+    shared_dim: 1
+    idiosyncratic_dim: 2
+
+    # Dynamics / noise
+    # Tweak: observation noise and registry pruning window.
+    delta_max: 50
+    R_scalar: 1.0
+
+    # EM configuration
+    # Tweak: EM window and iterations/samples.
+    em_enabled: true
+    em_tk: 999
+    em_n: 1
+    em_samples: 10
+    em_burn_in: 5
+    em_val_fraction: 0.2
+    em_theta_lr: 0.01
+    em_theta_steps: 1
+    em_print_val_loss: true
+
+    # Transition parameterization:
+    #   - "attention": dot-product attention (W_q/W_k) + softmax
+    #   - "linear": per-row linear logits + softmax
+    #   - "both": run both attention and linear variants for comparison
+    transition_mode: "attention"
 
 baselines:
   l2d:
@@ -201,7 +246,7 @@ horizon_planning:
     type: "gaussian_ar1"
     # AR(1) coefficient rho in [-1,1).
     rho: 0.9
-    # Initial residual covariance Σ_0 ≈ (sigma0^2 I).
+    # Initial residual covariance Sigma_0 ~= (sigma0^2 I).
     sigma0: 0.1
-    # Innovation covariance Q ≈ (q_scale^2 I).
+    # Innovation covariance Q ~= (q_scale^2 I).
     q_scale: 0.1

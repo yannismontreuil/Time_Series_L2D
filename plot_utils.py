@@ -16,6 +16,7 @@ from router_eval import (
     compute_predictions_from_choices,
     run_linucb_on_env,
     run_neuralucb_on_env, run_factored_router_on_env,
+    run_router_on_env_em_split,
 )
 
 # ---------------------------------------------------------------------
@@ -89,6 +90,10 @@ def get_model_color(name: str) -> str:
         "linucb_partial": "tab:olive",
         "linucb_full": "tab:cyan",
         "neuralucb": "tab:brown",
+        "factorized_partial": "tab:purple",
+        "factorized_full": "tab:red",
+        "factorized_linear_partial": "tab:gray",
+        "factorized_linear_full": "tab:olive",
         "random": "tab:green",
     }
     return mapping.get(name, "tab:purple")
@@ -279,7 +284,12 @@ def evaluate_routers_and_baselines(
     env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,
     router_partial: SLDSIMMRouter,
     router_full: SLDSIMMRouter,
-    router_factorial: FactorizedSLDS,
+    router_factorial_partial: Optional[FactorizedSLDS],
+    router_factorial_full: Optional[FactorizedSLDS],
+    factorized_label: str = "Factorized SLDS",
+    router_factorial_partial_linear: Optional[FactorizedSLDS] = None,
+    router_factorial_full_linear: Optional[FactorizedSLDS] = None,
+    factorized_linear_label: str = "Factorized SLDS linear",
     l2d_baseline: Optional[L2D] = None,
     router_partial_corr=None,
     router_full_corr=None,
@@ -299,13 +309,70 @@ def evaluate_routers_and_baselines(
     and plot the induced prediction time series and selections.
     """
     # Run both base routers to obtain costs and choices
-    costs_partial, choices_partial = run_router_on_env(router_partial, env)
-    costs_full, choices_full = run_router_on_env(router_full, env)
+    def _run_base_router(router: SLDSIMMRouter):
+        em_tk = getattr(router, "em_tk", None)
+        if em_tk is not None:
+            return run_router_on_env_em_split(router, env, int(em_tk))
+        return run_router_on_env(router, env)
 
-    if router_factorial is not None:
-        costs_factorial, choices_factorial = run_factored_router_on_env(
-            router_factorial, env
-        )
+    costs_partial, choices_partial = _run_base_router(router_partial)
+    costs_full, choices_full = _run_base_router(router_full)
+
+    costs_factorial_partial = None
+    choices_factorial_partial = None
+    if router_factorial_partial is not None:
+        em_tk_fact = getattr(router_factorial_partial, "em_tk", None)
+        if em_tk_fact is not None:
+            costs_factorial_partial, choices_factorial_partial = run_router_on_env_em_split(
+                router_factorial_partial, env, int(em_tk_fact)
+            )
+        else:
+            costs_factorial_partial, choices_factorial_partial = run_factored_router_on_env(
+                router_factorial_partial, env
+            )
+
+    costs_factorial_full = None
+    choices_factorial_full = None
+    if router_factorial_full is not None:
+        em_tk_fact = getattr(router_factorial_full, "em_tk", None)
+        if em_tk_fact is not None:
+            costs_factorial_full, choices_factorial_full = run_router_on_env_em_split(
+                router_factorial_full, env, int(em_tk_fact)
+            )
+        else:
+            costs_factorial_full, choices_factorial_full = run_factored_router_on_env(
+                router_factorial_full, env
+            )
+
+    costs_factorial_linear_partial = None
+    choices_factorial_linear_partial = None
+    if router_factorial_partial_linear is not None:
+        em_tk_fact = getattr(router_factorial_partial_linear, "em_tk", None)
+        if em_tk_fact is not None:
+            costs_factorial_linear_partial, choices_factorial_linear_partial = (
+                run_router_on_env_em_split(
+                    router_factorial_partial_linear, env, int(em_tk_fact)
+                )
+            )
+        else:
+            costs_factorial_linear_partial, choices_factorial_linear_partial = (
+                run_factored_router_on_env(router_factorial_partial_linear, env)
+            )
+
+    costs_factorial_linear_full = None
+    choices_factorial_linear_full = None
+    if router_factorial_full_linear is not None:
+        em_tk_fact = getattr(router_factorial_full_linear, "em_tk", None)
+        if em_tk_fact is not None:
+            costs_factorial_linear_full, choices_factorial_linear_full = (
+                run_router_on_env_em_split(
+                    router_factorial_full_linear, env, int(em_tk_fact)
+                )
+            )
+        else:
+            costs_factorial_linear_full, choices_factorial_linear_full = (
+                run_factored_router_on_env(router_factorial_full_linear, env)
+            )
 
     # Neural routers (if provided)
     if router_partial_neural is not None:
@@ -339,16 +406,28 @@ def evaluate_routers_and_baselines(
 
     # EM-capable correlated routers (if provided)
     if router_partial_corr_em is not None:
-        costs_partial_corr_em, choices_partial_corr_em = run_router_on_env(
-            router_partial_corr_em, env
-        )
+        em_tk = getattr(router_partial_corr_em, "em_tk", None)
+        if em_tk is not None:
+            costs_partial_corr_em, choices_partial_corr_em = run_router_on_env_em_split(
+                router_partial_corr_em, env, int(em_tk)
+            )
+        else:
+            costs_partial_corr_em, choices_partial_corr_em = run_router_on_env(
+                router_partial_corr_em, env
+            )
     else:
         costs_partial_corr_em, choices_partial_corr_em = None, None
 
     if router_full_corr_em is not None:
-        costs_full_corr_em, choices_full_corr_em = run_router_on_env(
-            router_full_corr_em, env
-        )
+        em_tk = getattr(router_full_corr_em, "em_tk", None)
+        if em_tk is not None:
+            costs_full_corr_em, choices_full_corr_em = run_router_on_env_em_split(
+                router_full_corr_em, env, int(em_tk)
+            )
+        else:
+            costs_full_corr_em, choices_full_corr_em = run_router_on_env(
+                router_full_corr_em, env
+            )
     else:
         costs_full_corr_em, choices_full_corr_em = None, None
 
@@ -403,9 +482,24 @@ def evaluate_routers_and_baselines(
     # Prediction series induced by router and L2D choices
     preds_partial = compute_predictions_from_choices(env, choices_partial)
     preds_full = compute_predictions_from_choices(env, choices_full)
-    preds_factorized = (
-        compute_predictions_from_choices(env, choices_factorial)
-        if choices_factorial is not None
+    preds_factorized_partial = (
+        compute_predictions_from_choices(env, choices_factorial_partial)
+        if choices_factorial_partial is not None
+        else None
+    )
+    preds_factorized_full = (
+        compute_predictions_from_choices(env, choices_factorial_full)
+        if choices_factorial_full is not None
+        else None
+    )
+    preds_factorized_linear_partial = (
+        compute_predictions_from_choices(env, choices_factorial_linear_partial)
+        if choices_factorial_linear_partial is not None
+        else None
+    )
+    preds_factorized_linear_full = (
+        compute_predictions_from_choices(env, choices_factorial_linear_full)
+        if choices_factorial_linear_full is not None
         else None
     )
     preds_partial_corr = (
@@ -471,6 +565,51 @@ def evaluate_routers_and_baselines(
     preds_random = compute_predictions_from_choices(env, choices_random)
     preds_oracle = compute_predictions_from_choices(env, choices_oracle)
 
+    def _mask_em_costs(
+        costs: Optional[np.ndarray], em_tk: Optional[int]
+    ) -> Optional[np.ndarray]:
+        if costs is None or em_tk is None:
+            return costs
+        em_tk = int(em_tk)
+        if em_tk <= 0:
+            return costs
+        costs = np.asarray(costs, dtype=float).copy()
+        cut = min(em_tk, costs.shape[0])
+        if cut > 0:
+            costs[:cut] = np.nan
+        return costs
+
+    costs_partial = _mask_em_costs(
+        costs_partial, getattr(router_partial, "em_tk", None)
+    )
+    costs_full = _mask_em_costs(costs_full, getattr(router_full, "em_tk", None))
+    if router_partial_corr_em is not None:
+        costs_partial_corr_em = _mask_em_costs(
+            costs_partial_corr_em, getattr(router_partial_corr_em, "em_tk", None)
+        )
+    if router_full_corr_em is not None:
+        costs_full_corr_em = _mask_em_costs(
+            costs_full_corr_em, getattr(router_full_corr_em, "em_tk", None)
+        )
+    if router_factorial_partial is not None:
+        costs_factorial_partial = _mask_em_costs(
+            costs_factorial_partial, getattr(router_factorial_partial, "em_tk", None)
+        )
+    if router_factorial_full is not None:
+        costs_factorial_full = _mask_em_costs(
+            costs_factorial_full, getattr(router_factorial_full, "em_tk", None)
+        )
+    if router_factorial_partial_linear is not None:
+        costs_factorial_linear_partial = _mask_em_costs(
+            costs_factorial_linear_partial,
+            getattr(router_factorial_partial_linear, "em_tk", None),
+        )
+    if router_factorial_full_linear is not None:
+        costs_factorial_linear_full = _mask_em_costs(
+            costs_factorial_linear_full,
+            getattr(router_factorial_full_linear, "em_tk", None),
+        )
+
     T = env.T
     t_grid = np.arange(1, T)
     y_true = env.y[1:T]
@@ -482,62 +621,87 @@ def evaluate_routers_and_baselines(
         cum_costs += loss_all + beta
     avg_cost_experts = cum_costs / (T - 1)
 
-    avg_cost_partial = costs_partial.mean()
-    avg_cost_full = costs_full.mean()
+    avg_cost_partial = float(np.nanmean(costs_partial))
+    avg_cost_full = float(np.nanmean(costs_full))
     avg_cost_partial_corr = (
-        costs_partial_corr.mean() if costs_partial_corr is not None else None
+        float(np.nanmean(costs_partial_corr)) if costs_partial_corr is not None else None
     )
     avg_cost_full_corr = (
-        costs_full_corr.mean() if costs_full_corr is not None else None
+        float(np.nanmean(costs_full_corr)) if costs_full_corr is not None else None
     )
-    avg_cost_partial_corr_rec = (
-        costs_factorial.mean() if costs_factorial is not None else None
+    avg_cost_factorized_partial = (
+        float(np.nanmean(costs_factorial_partial))
+        if costs_factorial_partial is not None
+        else None
+    )
+    avg_cost_factorized_full = (
+        float(np.nanmean(costs_factorial_full)) if costs_factorial_full is not None else None
+    )
+    avg_cost_factorized_linear_partial = (
+        float(np.nanmean(costs_factorial_linear_partial))
+        if costs_factorial_linear_partial is not None
+        else None
+    )
+    avg_cost_factorized_linear_full = (
+        float(np.nanmean(costs_factorial_linear_full))
+        if costs_factorial_linear_full is not None
+        else None
     )
     avg_cost_partial_corr_em = (
-        costs_partial_corr_em.mean() if costs_partial_corr_em is not None else None
+        float(np.nanmean(costs_partial_corr_em)) if costs_partial_corr_em is not None else None
     )
     avg_cost_full_corr_em = (
-        costs_full_corr_em.mean() if costs_full_corr_em is not None else None
+        float(np.nanmean(costs_full_corr_em)) if costs_full_corr_em is not None else None
     )
     avg_cost_neural_partial = (
-        costs_partial_neural.mean() if costs_partial_neural is not None else None
+        float(np.nanmean(costs_partial_neural)) if costs_partial_neural is not None else None
     )
     avg_cost_neural_full = (
-        costs_full_neural.mean() if costs_full_neural is not None else None
+        float(np.nanmean(costs_full_neural)) if costs_full_neural is not None else None
     )
-    avg_cost_l2d = costs_l2d.mean() if costs_l2d is not None else None
-    avg_cost_l2d_sw = costs_l2d_sw.mean() if costs_l2d_sw is not None else None
+    avg_cost_l2d = float(np.nanmean(costs_l2d)) if costs_l2d is not None else None
+    avg_cost_l2d_sw = (
+        float(np.nanmean(costs_l2d_sw)) if costs_l2d_sw is not None else None
+    )
     avg_cost_linucb_partial = (
-        costs_linucb_partial.mean() if costs_linucb_partial is not None else None
+        float(np.nanmean(costs_linucb_partial)) if costs_linucb_partial is not None else None
     )
     avg_cost_linucb_full = (
-        costs_linucb_full.mean() if costs_linucb_full is not None else None
+        float(np.nanmean(costs_linucb_full)) if costs_linucb_full is not None else None
     )
     avg_cost_neuralucb_partial = (
-        costs_neuralucb_partial.mean()
+        float(np.nanmean(costs_neuralucb_partial))
         if costs_neuralucb_partial is not None
         else None
     )
     avg_cost_neuralucb_full = (
-        costs_neuralucb_full.mean()
+        float(np.nanmean(costs_neuralucb_full))
         if costs_neuralucb_full is not None
         else None
     )
-    avg_cost_random = costs_random.mean()
-    avg_cost_oracle = costs_oracle.mean()
+    avg_cost_random = float(np.nanmean(costs_random))
+    avg_cost_oracle = float(np.nanmean(costs_oracle))
 
     print("=== Average costs ===")
-    print(f"Router (partial feedback):      {avg_cost_partial:.4f}")
-    print(f"Router (full feedback):         {avg_cost_full:.4f}")
+    print(f"Factorized SLDS w/o g_t (partial fb): {avg_cost_partial:.4f}")
+    print(f"Factorized SLDS w/o g_t (full fb):    {avg_cost_full:.4f}")
     if avg_cost_partial_corr is not None:
         print(
             f"Router Corr (partial feedback): {avg_cost_partial_corr:.4f}"
         )
     if avg_cost_full_corr is not None:
         print(f"Router Corr (full feedback):    {avg_cost_full_corr:.4f}")
-    if avg_cost_partial_corr_rec is not None:
+    if avg_cost_factorized_partial is not None:
+        print(f"{factorized_label} (partial fb):   {avg_cost_factorized_partial:.4f}")
+    if avg_cost_factorized_full is not None:
+        print(f"{factorized_label} (full fb):      {avg_cost_factorized_full:.4f}")
+    if avg_cost_factorized_linear_partial is not None:
         print(
-            f"Router Factorized (partial fb):   {avg_cost_partial_corr_rec:.4f}"
+            f"{factorized_linear_label} (partial fb): {avg_cost_factorized_linear_partial:.4f}"
+        )
+    if avg_cost_factorized_linear_full is not None:
+        print(
+            f"{factorized_linear_label} (full fb):    {avg_cost_factorized_linear_full:.4f}"
         )
     if avg_cost_partial_corr_em is not None:
         print(
@@ -585,6 +749,16 @@ def evaluate_routers_and_baselines(
         entries.append(("partial_corr_em", choices_partial_corr_em))
     if choices_full_corr_em is not None:
         entries.append(("full_corr_em", choices_full_corr_em))
+    if choices_factorial_partial is not None:
+        entries.append(("factorized_partial", choices_factorial_partial))
+    if choices_factorial_full is not None:
+        entries.append(("factorized_full", choices_factorial_full))
+    if choices_factorial_linear_partial is not None:
+        entries.append(
+            ("factorized_linear_partial", choices_factorial_linear_partial)
+        )
+    if choices_factorial_linear_full is not None:
+        entries.append(("factorized_linear_full", choices_factorial_linear_full))
     entries.extend(
         [
             ("random", choices_random),
@@ -634,7 +808,7 @@ def evaluate_routers_and_baselines(
     ax_pred.plot(
         t_grid,
         preds_partial,
-        label="Router (partial)",
+        label="Factorized SLDS w/o g_t (partial)",
         color=get_model_color("partial"),
         linestyle="-",
         alpha=0.8,
@@ -642,7 +816,7 @@ def evaluate_routers_and_baselines(
     ax_pred.plot(
         t_grid,
         preds_full,
-        label="Router (full)",
+        label="Factorized SLDS w/o g_t (full)",
         color=get_model_color("full"),
         linestyle="-",
         alpha=0.8,
@@ -719,12 +893,39 @@ def evaluate_routers_and_baselines(
             linestyle="-",
             alpha=0.8,
         )
-    if preds_factorized is not None:
+    if preds_factorized_partial is not None:
         ax_pred.plot(
             t_grid,
-            preds_factorized,
-            label="Factorized SLDS",
-            color=get_model_color("factorized"),
+            preds_factorized_partial,
+            label=f"{factorized_label} (partial)",
+            color=get_model_color("factorized_partial"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_factorized_full is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_factorized_full,
+            label=f"{factorized_label} (full)",
+            color=get_model_color("factorized_full"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_factorized_linear_partial is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_factorized_linear_partial,
+            label=f"{factorized_linear_label} (partial)",
+            color=get_model_color("factorized_linear_partial"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_factorized_linear_full is not None:
+        ax_pred.plot(
+            t_grid,
+            preds_factorized_linear_full,
+            label=f"{factorized_linear_label} (full)",
+            color=get_model_color("factorized_linear_full"),
             linestyle="-",
             alpha=0.8,
         )
@@ -788,63 +989,80 @@ def evaluate_routers_and_baselines(
     ax_pred.legend(loc="upper left")
 
     # Bottom subplot: running average costs for all baselines
-    denom = np.arange(1, T, dtype=float)
-    avg_partial_t = np.cumsum(costs_partial) / denom
-    avg_full_t = np.cumsum(costs_full) / denom
+    def _running_avg(costs: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if costs is None:
+            return None
+        costs = np.asarray(costs, dtype=float)
+        mask = ~np.isnan(costs)
+        if mask.size == 0:
+            return costs
+        cum_sum = np.cumsum(np.where(mask, costs, 0.0))
+        cum_count = np.cumsum(mask.astype(float))
+        avg = cum_sum / np.maximum(cum_count, 1.0)
+        avg[cum_count == 0] = np.nan
+        return avg
+
+    avg_partial_t = _running_avg(costs_partial)
+    avg_full_t = _running_avg(costs_full)
     avg_partial_corr_t = (
-        np.cumsum(costs_partial_corr) / denom
-        if costs_partial_corr is not None
-        else None
+        _running_avg(costs_partial_corr) if costs_partial_corr is not None else None
     )
     avg_full_corr_t = (
-        np.cumsum(costs_full_corr) / denom if costs_full_corr is not None else None
+        _running_avg(costs_full_corr) if costs_full_corr is not None else None
     )
     avg_partial_corr_em_t = (
-        np.cumsum(costs_partial_corr_em) / denom
+        _running_avg(costs_partial_corr_em)
         if costs_partial_corr_em is not None
         else None
     )
     avg_full_corr_em_t = (
-        np.cumsum(costs_full_corr_em) / denom
-        if costs_full_corr_em is not None
-        else None
+        _running_avg(costs_full_corr_em) if costs_full_corr_em is not None else None
     )
     avg_neural_partial_t = (
-        np.cumsum(costs_partial_neural) / denom
+        _running_avg(costs_partial_neural)
         if costs_partial_neural is not None
         else None
     )
     avg_neural_full_t = (
-        np.cumsum(costs_full_neural) / denom
-        if costs_full_neural is not None
-        else None
+        _running_avg(costs_full_neural) if costs_full_neural is not None else None
     )
-    avg_random_t = np.cumsum(costs_random) / denom
-    avg_oracle_t = np.cumsum(costs_oracle) / denom
+    avg_random_t = _running_avg(costs_random)
+    avg_oracle_t = _running_avg(costs_oracle)
     avg_l2d_t = (
-        np.cumsum(costs_l2d) / denom if costs_l2d is not None else None
+        _running_avg(costs_l2d) if costs_l2d is not None else None
     )
     avg_l2d_sw_t = (
-        np.cumsum(costs_l2d_sw) / denom if costs_l2d_sw is not None else None
+        _running_avg(costs_l2d_sw) if costs_l2d_sw is not None else None
     )
     avg_linucb_partial_t = (
-        np.cumsum(costs_linucb_partial) / denom
+        _running_avg(costs_linucb_partial)
         if costs_linucb_partial is not None
         else None
     )
     avg_linucb_full_t = (
-        np.cumsum(costs_linucb_full) / denom
-        if costs_linucb_full is not None
-        else None
+        _running_avg(costs_linucb_full) if costs_linucb_full is not None else None
     )
     avg_neuralucb_partial_t = (
-        np.cumsum(costs_neuralucb_full) / denom
+        _running_avg(costs_neuralucb_full)
         if costs_neuralucb_full is not None
         else None
     )
-    avg_factorized_t = (
-        np.cumsum(costs_factorial) / denom
-        if costs_factorial is not None
+    avg_factorized_partial_t = (
+        _running_avg(costs_factorial_partial)
+        if costs_factorial_partial is not None
+        else None
+    )
+    avg_factorized_full_t = (
+        _running_avg(costs_factorial_full) if costs_factorial_full is not None else None
+    )
+    avg_factorized_linear_partial_t = (
+        _running_avg(costs_factorial_linear_partial)
+        if costs_factorial_linear_partial is not None
+        else None
+    )
+    avg_factorized_linear_full_t = (
+        _running_avg(costs_factorial_linear_full)
+        if costs_factorial_linear_full is not None
         else None
     )
 
@@ -982,12 +1200,36 @@ def evaluate_routers_and_baselines(
             color=get_model_color("neuralucb"),
             linestyle="-",
         )
-    if avg_factorized_t is not None:
+    if avg_factorized_partial_t is not None:
         ax_cost.plot(
             t_grid,
-            avg_factorized_t,
-            label="Factorized (avg cost)",
-            color=get_model_color("factorized"),
+            avg_factorized_partial_t,
+            label=f"{factorized_label} (partial, avg cost)",
+            color=get_model_color("factorized_partial"),
+            linestyle="-",
+        )
+    if avg_factorized_full_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_factorized_full_t,
+            label=f"{factorized_label} (full, avg cost)",
+            color=get_model_color("factorized_full"),
+            linestyle="-",
+        )
+    if avg_factorized_linear_partial_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_factorized_linear_partial_t,
+            label=f"{factorized_linear_label} (partial, avg cost)",
+            color=get_model_color("factorized_linear_partial"),
+            linestyle="-",
+        )
+    if avg_factorized_linear_full_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_factorized_linear_full_t,
+            label=f"{factorized_linear_label} (full, avg cost)",
+            color=get_model_color("factorized_linear_full"),
             linestyle="-",
         )
     ax_cost.plot(
@@ -1042,10 +1284,13 @@ def evaluate_routers_and_baselines(
         def mean_cost(costs: np.ndarray | None) -> float | None:
             if costs is None:
                 return None
-            return float(costs[idx0:].mean())
+            return float(np.nanmean(costs[idx0:]))
 
-        mean_oracle = float(costs_oracle[idx0:].mean())
-        mean_factorial = mean_cost(costs_factorial)
+        mean_oracle = float(np.nanmean(costs_oracle[idx0:]))
+        mean_factorized_partial = mean_cost(costs_factorial_partial)
+        mean_factorized_full = mean_cost(costs_factorial_full)
+        mean_factorized_linear_partial = mean_cost(costs_factorial_linear_partial)
+        mean_factorized_linear_full = mean_cost(costs_factorial_linear_full)
         mean_partial = mean_cost(costs_partial)
         mean_full = mean_cost(costs_full)
         mean_partial_corr = mean_cost(costs_partial_corr)
@@ -1057,10 +1302,20 @@ def evaluate_routers_and_baselines(
 
         print(f"\n=== Sidekick Trap: mean costs from t={t0_regret} ===")
         print(f"Oracle (truth):                {mean_oracle:.4f}")
-        print(f"Router (partial):              {mean_partial:.4f}")
-        print(f"Router (full):                 {mean_full:.4f}")
-        if mean_factorial is not None:
-            print(f"Factorized SLDS:               {mean_factorial:.4f}")
+        print(f"Factorized SLDS w/o g_t (partial): {mean_partial:.4f}")
+        print(f"Factorized SLDS w/o g_t (full):    {mean_full:.4f}")
+        if mean_factorized_partial is not None:
+            print(f"{factorized_label} (partial):        {mean_factorized_partial:.4f}")
+        if mean_factorized_full is not None:
+            print(f"{factorized_label} (full):           {mean_factorized_full:.4f}")
+        if mean_factorized_linear_partial is not None:
+            print(
+                f"{factorized_linear_label} (partial): {mean_factorized_linear_partial:.4f}"
+            )
+        if mean_factorized_linear_full is not None:
+            print(
+                f"{factorized_linear_label} (full):    {mean_factorized_linear_full:.4f}"
+            )
         if mean_partial_corr is not None:
             print(f"Router Corr (partial):         {mean_partial_corr:.4f}")
         if mean_full_corr is not None:
@@ -1082,14 +1337,14 @@ def evaluate_routers_and_baselines(
             ax_reg.plot(
                 t_reg,
                 reg_partial,
-                label="Router (partial)",
+                label="Factorized SLDS w/o g_t (partial)",
                 color=get_model_color("partial"),
             )
         if reg_full is not None:
             ax_reg.plot(
                 t_reg,
                 reg_full,
-                label="Router (full)",
+                label="Factorized SLDS w/o g_t (full)",
                 color=get_model_color("full"),
             )
         if reg_partial_corr is not None:
@@ -1158,7 +1413,10 @@ def evaluate_routers_and_baselines(
     has_full_corr_em = choices_full_corr_em is not None
     has_neural_partial = choices_partial_neural is not None
     has_neural_full = choices_full_neural is not None
-    has_factorized = choices_factorial is not None
+    has_factorized_partial = choices_factorial_partial is not None
+    has_factorized_full = choices_factorial_full is not None
+    has_factorized_linear_partial = choices_factorial_linear_partial is not None
+    has_factorized_linear_full = choices_factorial_linear_full is not None
 
     # Rows: base routers, optional correlated routers, optional L2D / L2D_SW /
     # LinUCB partial/full / NeuralUCB partial/full, random baseline,
@@ -1170,7 +1428,10 @@ def evaluate_routers_and_baselines(
     n_rows += (1 if has_partial_corr else 0) + (1 if has_full_corr else 0)
     n_rows += (1 if has_partial_corr_em else 0) + (1 if has_full_corr_em else 0)
     n_rows += (1 if has_neural_partial else 0) + (1 if has_neural_full else 0)
-    n_rows += (1 if has_factorized else 0)
+    n_rows += (1 if has_factorized_partial else 0) + (1 if has_factorized_full else 0)
+    n_rows += (1 if has_factorized_linear_partial else 0) + (
+        1 if has_factorized_linear_full else 0
+    )
     fig2, axes = plt.subplots(n_rows, 1, sharex=True, figsize=(10, 2 * n_rows))
 
     idx = 0
@@ -1337,16 +1598,50 @@ def evaluate_routers_and_baselines(
         ax_nucb_f.set_yticks(np.arange(env.num_experts))
         idx += 1
 
-    if has_factorized:
-        ax_fact = axes[idx]
-        ax_fact.step(
+    if has_factorized_partial:
+        ax_fact_p = axes[idx]
+        ax_fact_p.step(
             t_grid,
-            choices_factorial,
+            choices_factorial_partial,
             where="post",
-            color=get_model_color("factorized"),
+            color=get_model_color("factorized_partial"),
         )
-        ax_fact.set_ylabel("Expert\n(Factorized)")
-        ax_fact.set_yticks(np.arange(env.num_experts))
+        ax_fact_p.set_ylabel("Expert\n(Fact P)")
+        ax_fact_p.set_yticks(np.arange(env.num_experts))
+        idx += 1
+    if has_factorized_full:
+        ax_fact_f = axes[idx]
+        ax_fact_f.step(
+            t_grid,
+            choices_factorial_full,
+            where="post",
+            color=get_model_color("factorized_full"),
+        )
+        ax_fact_f.set_ylabel("Expert\n(Fact F)")
+        ax_fact_f.set_yticks(np.arange(env.num_experts))
+        idx += 1
+
+    if has_factorized_linear_partial:
+        ax_fact_lp = axes[idx]
+        ax_fact_lp.step(
+            t_grid,
+            choices_factorial_linear_partial,
+            where="post",
+            color=get_model_color("factorized_linear_partial"),
+        )
+        ax_fact_lp.set_ylabel("Expert\n(Fact Lin P)")
+        ax_fact_lp.set_yticks(np.arange(env.num_experts))
+        idx += 1
+    if has_factorized_linear_full:
+        ax_fact_lf = axes[idx]
+        ax_fact_lf.step(
+            t_grid,
+            choices_factorial_linear_full,
+            where="post",
+            color=get_model_color("factorized_linear_full"),
+        )
+        ax_fact_lf.set_ylabel("Expert\n(Fact Lin F)")
+        ax_fact_lf.set_yticks(np.arange(env.num_experts))
         idx += 1
 
     ax_rand = axes[idx]
