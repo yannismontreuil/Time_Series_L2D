@@ -81,7 +81,14 @@ class FactorizedSLDS:
         self.B_dict = {} if B_dict is None else {k: np.asarray(v, dtype=float) for k, v in B_dict.items()}
 
         # Consultation cost per expert
-        self.beta = {} if beta is None else {k: float(v) for k, v in beta.items()}
+        if beta is None:
+            self.beta = {}
+        elif isinstance(beta, dict):
+            self.beta = {k: float(v) for k, v in beta.items()}
+        elif isinstance(beta, np.ndarray):
+            self.beta = {i: float(v) for i, v in enumerate(beta)}
+        else:
+            raise TypeError(f"Unsupported type for beta: {type(beta)}")
 
         # Regime weights
         self.w = np.ones(self.M, dtype=float) / float(self.M)
@@ -322,7 +329,7 @@ class FactorizedSLDS:
         for k in current_set:
             if k not in self.registry:
                 self._birth_expert(k)
-        # Prune old experts
+        # Prune deprecated_code experts
         for k in list(self.registry):
             if self.last_selected_step.get(k, 0) > self.Delta_max and k not in current_set:
                 # remove
@@ -348,4 +355,3 @@ class FactorizedSLDS:
         if k not in self.beta:
             self.beta[k] = 0.0
         self.last_selected_step[k] = 0
-

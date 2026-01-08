@@ -15,6 +15,7 @@ from environment.synthetic_env import SyntheticTimeSeriesEnv
 from models.l2d_baseline import L2D, L2D_SW
 from models.linucb_baseline import LinUCB
 from models.neuralucb_baseline import NeuralUCB
+from models.factorized_slds import FactorizedSLDS
 
 from plot_utils import (
     evaluate_routers_and_baselines,
@@ -27,7 +28,7 @@ except Exception:  # pragma: no cover - optional dependency
     yaml = None
 
 
-def _load_config(path: str = "config.yaml") -> dict:
+def _load_config(path: str = "config/config.yaml") -> dict:
     if not os.path.exists(path):
         return {}
     with open(path, "r", encoding="utf-8") as f: # "r" means read mode
@@ -77,7 +78,7 @@ def _parse_args() -> argparse.Namespace:
         "--config",
         "-c",
         type=str,
-        default="config.yaml",
+        default="config/config.yaml",
         help="Path to YAML/JSON configuration file (default: config.yaml).",
     )
     parser.add_argument(
@@ -100,6 +101,7 @@ if __name__ == "__main__":
     routers_cfg = cfg.get("routers", {})
     slds_cfg = routers_cfg.get("slds_imm", {}) or {}
     slds_corr_cfg = routers_cfg.get("slds_imm_corr", {}) or {}
+    factorized_slds_cfg = routers_cfg.get("factorized_slds", {}) or {}
 
     baselines_cfg = cfg.get("baselines", {})
     l2d_cfg = baselines_cfg.get("l2d", {})
@@ -112,10 +114,10 @@ if __name__ == "__main__":
     setting = env_cfg.get("setting", "easy_setting")
     data_source = env_cfg.get("data_source", "synthetic")
     # Default: universe of 5 experts indexed j=0,...,4.
-    N = int(env_cfg.get("num_experts", 5))   # experts
+    N = int(env_cfg.get("num_experts"))   # experts
     # State dimension (= dim φ(x)); feature map in router_model.py currently
     # returns a 2D feature, so d must be compatible with that.
-    d = int(env_cfg.get("state_dim", 2))
+    d = int(env_cfg.get("state_dim"))
 
     # Number of regimes M. For the "noisy_forgetting" setting we
     # automatically use at least 5 regimes to create a more challenging
@@ -473,6 +475,7 @@ if __name__ == "__main__":
                 R_local = np.full((M, N), float(r_scalar_local), dtype=float)
             else:
                 R_local = R
+
         return SLDSIMMRouter_Corr(
             num_experts=N,
             num_regimes=M,
@@ -872,6 +875,31 @@ if __name__ == "__main__":
         )
 
     # --------------------------------------------------------
+    # Factorized Switching Linear Dynamical System (Bandit Feedback)
+    # --------------------------------------------------------
+    # Wire the FactorizedSLDS into the evaluation if configured
+    if factorized_slds_cfg:
+        M_fact = int(factorized_slds_cfg.get("num_regimes", M))
+        # Use shared dim from config or same logic as correlated router
+        d_g_std = 1
+        d_g_fact_cfg = factorized_slds_cfg.get("shared_dim", d_g_std)
+        d_g_fact = int(d_g_fact_cfg)
+        d_phi_fact = int(factorized_slds_cfg.get("idiosyncratic_dim", d))
+        delta_max_fact = int(factorized_slds_cfg.get("delta_max", 50))
+
+        print("\n--- Running FactorizedSLDS Router ---")
+        fact_router = FactorizedSLDS(
+            M=M_fact,
+            d_g=d_g_fact,
+            d_phi=d_phi_fact,
+            feature_fn=feature_phi,
+            beta=beta,
+            Delta_max=delta_max_fact,
+            # using same R as base config if not overridden
+            R=float(slds_cfg.get("R_scalar", 0.5)),
+        )
+
+    # --------------------------------------------------------
     # Environment and L2D baselines
     # --------------------------------------------------------
     
@@ -906,11 +934,9 @@ if __name__ == "__main__":
             T=int(env_cfg.get("T", 300)),
             seed=int(env_cfg.get("seed", 42)),
             unavailable_expert_idx=int(env_cfg.get("unavailable_expert_idx", 1)),
-            unavailable_intervals=env_cfg.get(
-                "unavailable_intervals", [[10, 50], [200, 250]]
-            ),
+            unavailable_intervals=env_cfg.get("unavailable_intervals", [(10, 50), (200, 250)]),
             arrival_expert_idx=int(env_cfg.get("arrival_expert_idx", 4)),
-            arrival_intervals=env_cfg.get("arrival_intervals", [[120, 200]]),
+            arrival_intervals=env_cfg.get("arrival_intervals", [(120, 200)]),
             setting=setting,
             noise_scale=env_cfg.get("noise_scale", None),
         )
@@ -924,6 +950,7 @@ if __name__ == "__main__":
         env,
         router_partial,
         router_full,
+        fact_router,
         l2d_baseline,
         router_partial_corr=router_partial_corr,
         router_full_corr=router_full_corr,
@@ -938,9 +965,9 @@ if __name__ == "__main__":
         # router_full_neural=router_full_neural,
     )
 
-    
+
     # Optional: analyze reaction to a late-arriving expert. This can be
-    # enabled either via the command-line flag --late-arrival-analysis
+    '''
     # or via the top-level config key `late_arrival_analysis: true`.
     do_late_arrival = bool(cfg.get("late_arrival_analysis", False)) or getattr(
         args, "late_arrival_analysis", False
@@ -990,12 +1017,14 @@ if __name__ == "__main__":
                     new_expert_idx=j_new,
                     window=window,
                     adoption_threshold=adoption_threshold,
-                )
+                )         
 
     # --------------------------------------------------------
+    '''
     # Example: horizon-H planning from a given time t
     # --------------------------------------------------------
 
+    '''
     # Build expert prediction functions for planning
     def experts_predict_factory(env_):
         def f(j: int):
@@ -1024,6 +1053,7 @@ if __name__ == "__main__":
         hidden_dim=8,
         window_size=1,
     )
+    '''
 
     # evaluate_horizon_planning(
     #     env=env,

@@ -1,6 +1,7 @@
 import numpy as np
 from typing import Optional, Tuple
 
+from models.factorized_slds import FactorizedSLDS
 from models.router_model import SLDSIMMRouter
 from environment.synthetic_env import SyntheticTimeSeriesEnv
 from environment.etth1_env import ETTh1TimeSeriesEnv
@@ -281,6 +282,53 @@ def run_router_on_env(
                 available_experts=available,
                 cache=cache,
             )
+
+    return np.array(costs), np.array(choices)
+
+def run_factored_router_on_env(
+    router: FactorizedSLDS,
+    env: TimeSeriesEnv,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Run the factored SLDS router on the synthetic environment.
+
+    At each time t (1,...,T-1):
+      - context x_t = env.get_context(t)
+      - select expert r_t
+      - environment reveals losses at time t
+      - update beliefs using partial or full feedback
+      - record incurred cost: ℓ_{r_t,t} + β_{r_t}
+
+    Returns
+    -------
+    costs : np.ndarray of shape (T-1,)
+    choices : np.ndarray of shape (T-1,)
+    """
+    T = env.T
+    N = env.num_experts
+
+    costs = []
+    choices = []
+
+    for t in range(1, T):
+        x_t = env.get_context(t)
+        available = env.get_available_experts(t)
+
+        # Manage Registry state for factorized SLDS
+        router.manage_registry(available)
+        # IMM
+        router.predict_step(x_t)
+        # Predict, score and select expert
+        I_t = router.select_action(x_t, available)
+
+        loss_all = env.losses(t)
+        loss_I_t = float(loss_all[I_t])
+        cost_t = loss_I_t + router.beta[I_t]
+        costs.append(cost_t)
+        choices.append(I_t)
+
+        # Correct belief with observed loss
+        router.update_step(I_t, loss_I_t, x_t)
 
     return np.array(costs), np.array(choices)
 

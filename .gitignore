@@ -3,4 +3,4 @@ __pycache__/
 .env
 .DS_Store
 .idea/
-old/
+deprecated_code/

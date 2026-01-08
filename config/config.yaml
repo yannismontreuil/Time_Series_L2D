@@ -199,14 +199,12 @@ routers:
     feature_mode: "fixed"
     feature_learning_rate: 0.0
     feature_arch: "linear"
-    # Optional bias tensor C_u with shape (M, N, d_u). Example shown
-    # for M=5, N=5, d_u=2; tweak as needed.
-    C_u:
-      - [[0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0], [0.02, 0.0]]
-      - [[-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0], [-0.02, 0.0]]
-      - [[0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0], [0.01, 0.0]]
-      - [[-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0], [-0.01, 0.0]]
-      - [[0.005, 0.0], [0.005, 0.0], [0.005, 0.0], [0.005, 0.0], [0.005, 0.0]]
+
+  factorized_slds:
+    num_regimes: 5
+    shared_dim: 1
+    idiosyncratic_dim: 2
+    delta_max: 50
 
   # Optional configuration for the recurrent SLDS-IMM router.
   # If omitted, defaults matching the non-recurrent example are used.
