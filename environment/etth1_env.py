@@ -42,7 +42,7 @@ class ETTh1TimeSeriesEnv:
 
     def __init__(
         self,
-        csv_path: str = "Data/ETTh1.csv",
+        csv_path: str = "data/ETTh1.csv",
         target_column: str = "OT",
         num_experts: int = 3,
         num_regimes: int = 2,

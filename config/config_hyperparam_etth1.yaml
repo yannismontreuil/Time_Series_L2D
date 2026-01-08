@@ -1,7 +1,7 @@
 environment:
   # Environment for hyperparameter search on ETTh1 (oil temperature).
   data_source: etth1
-  csv_path: Data/ETTh1.csv
+  csv_path: data/ETTh1.csv
   target_column: OT
 
   # Match the ETTh1 experiment configuration.

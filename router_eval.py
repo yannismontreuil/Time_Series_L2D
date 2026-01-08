@@ -1,12 +1,12 @@
 import numpy as np
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Tuple
 
-from router_model import SLDSIMMRouter
-from synthetic_env import SyntheticTimeSeriesEnv
-from etth1_env import ETTh1TimeSeriesEnv
-from l2d_baseline import L2D
-from linucb_baseline import LinUCB
-from neuralucb_baseline import NeuralUCB
+from models.router_model import SLDSIMMRouter
+from environment.synthetic_env import SyntheticTimeSeriesEnv
+from environment.etth1_env import ETTh1TimeSeriesEnv
+from models.l2d_baseline import L2D
+from models.linucb_baseline import LinUCB
+from models.neuralucb_baseline import NeuralUCB
 
 TimeSeriesEnv = SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv
 

@@ -1,6 +1,6 @@
 import numpy as np
 
-from l2d_baseline import LearningToDeferBaseline
+from models.l2d_baseline import LearningToDeferBaseline
 from slds_imm_router import (
     SLDSIMMRouter,
     SyntheticTimeSeriesEnv,

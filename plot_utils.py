@@ -3,10 +3,10 @@ import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from typing import Optional
 
-from etth1_env import ETTh1TimeSeriesEnv
-from router_model import SLDSIMMRouter
-from synthetic_env import SyntheticTimeSeriesEnv
-from l2d_baseline import L2D
+from environment.etth1_env import ETTh1TimeSeriesEnv
+from models.router_model import SLDSIMMRouter
+from environment.synthetic_env import SyntheticTimeSeriesEnv
+from models.l2d_baseline import L2D
 from router_eval import (
     run_router_on_env,
     run_l2d_on_env,

@@ -7,14 +7,14 @@ from typing import Dict, Tuple, List, Any
 
 import numpy as np
 
-from router_model_corr import (
+from models.router_model_corr import (
     SLDSIMMRouter_Corr,
     RecurrentSLDSIMMRouter_Corr,
     feature_phi,
 )
-from router_model_recurrent import RecurrentSLDSRouter
-from synthetic_env import SyntheticTimeSeriesEnv
-from etth1_env import ETTh1TimeSeriesEnv
+from recurrent_router_old.router_model_recurrent import RecurrentSLDSRouter
+from environment.synthetic_env import SyntheticTimeSeriesEnv
+from environment.etth1_env import ETTh1TimeSeriesEnv
 from router_eval import run_router_on_env
 
 try:
@@ -183,7 +183,7 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
     if data_source == "etth1":
         T_raw = env_cfg.get("T", None)
         T_env = None if T_raw is None else int(T_raw)
-        csv_path = env_cfg.get("csv_path", "Data/ETTh1.csv")
+        csv_path = env_cfg.get("csv_path", "data/ETTh1.csv")
         target_column = env_cfg.get("target_column", "OT")
         unavailable_expert_idx = env_cfg.get("unavailable_expert_idx", None)
         unavailable_intervals = env_cfg.get("unavailable_intervals", None)

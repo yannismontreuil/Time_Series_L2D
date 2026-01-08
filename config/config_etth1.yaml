@@ -11,7 +11,7 @@ environment:
   # We reuse the same router code as for the synthetic environment, but
   # the data now comes from a real-world dataset.
   data_source: etth1
-  csv_path: Data/ETTh1.csv
+  csv_path: data/ETTh1.csv
   target_column: OT
 
   # Number of experts and regimes.

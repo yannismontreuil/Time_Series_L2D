@@ -2,10 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Callable, List, Sequence, Tuple, Optional
 
-from router_model import SLDSIMMRouter
-from router_model_corr import SLDSIMMRouter_Corr
-from synthetic_env import SyntheticTimeSeriesEnv
-from l2d_baseline import L2D
+from models.router_model import SLDSIMMRouter
+from models.router_model_corr import SLDSIMMRouter_Corr
+from environment.synthetic_env import SyntheticTimeSeriesEnv
+from models.l2d_baseline import L2D
 from plot_utils import get_expert_color, get_model_color
 from matplotlib import lines as mlines, patches as mpatches
 

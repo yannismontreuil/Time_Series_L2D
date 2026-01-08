@@ -1,8 +1,7 @@
 import numpy as np
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Sequence
 
-from router_model_corr import SLDSIMMRouter_Corr
-
+from models.router_model_corr import SLDSIMMRouter_Corr
 
 class SLDSIMMRouter_Corr_EM(SLDSIMMRouter_Corr):
     """
