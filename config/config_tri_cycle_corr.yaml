@@ -47,18 +47,33 @@ routers:
     R_scalar: 1.0
 
     em_enabled: true
-    em_tk: 1200
-    em_n: 15
-    em_samples: 50
+    em_tk: 0
+    em_n: 5
+    em_samples: 10
     em_burn_in: 5
-    em_val_fraction: 0.2
-    # If set, overrides em_val_fraction with a fixed tail window length.
-    em_val_len: 600
+    # Offline EM runs without validation.
+    em_val_fraction: 0.0
+    em_val_len: null
     em_theta_lr: 0.01
     em_theta_steps: 1
     em_print_val_loss: true
+    em_eps_n: 1.0e-3
 
-    transition_mode: "attention"
+    # Online (sliding-window) EM adaptation.
+    em_online_enabled: true
+    em_online_window: 500
+    em_online_period: 300
+    em_online_n: 5
+    em_online_samples: 20
+    em_online_burn_in: 5
+    em_online_theta_lr: 0.01
+    em_online_theta_steps: 1
+    em_online_eps_n: 1.0e-3
+    em_online_print_val_loss: true
+    # If null, defaults to em_tk + 1.
+    em_online_start_t: null
+
+    transition_mode: "linear"
 
 baselines:
   l2d:
