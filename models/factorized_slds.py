@@ -262,6 +262,15 @@ class FactorizedSLDS(SLDSIMMRouter):
             return float(self.R)
         return float(self.R[m, k])
 
+    # get the mean and variance of the idiosyncratic factor for expert k
+    def get_u_k(self, k: int):
+        if k not in self.mu_u or k not in self.Sigma_u:
+            self._birth_expert(k)
+        return self.mu_u[k]
+
+    def _get_N(self):
+        return self.N
+
     def _ensure_B(self, k: int) -> np.ndarray:
         if k in self.B_dict:
             return self.B_dict[k]

@@ -1279,7 +1279,9 @@ if __name__ == "__main__":
         _run_factorized_em(
             fact_router_partial, f"{base_transition_mode} partial"
         )
-        _run_factorized_em(fact_router_full, f"{base_transition_mode} full")
+        _run_factorized_em(
+            fact_router_full, f"{base_transition_mode} full"
+        )
         _run_factorized_em(
             router_partial_no_g, f"{base_transition_mode} no-g partial"
         )

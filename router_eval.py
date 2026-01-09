@@ -317,6 +317,64 @@ def run_router_on_env(
 
     return np.array(costs), np.array(choices)
 
+def run_f_router_on_env_return_idiosyncratic_factor(
+    router: FactorizedSLDS,
+    env: TimeSeriesEnv
+):
+    """
+    Run the FactorizedSLDS router on the synthetic environment,
+    returning the idiosyncratic factor at each time step.
+
+    At each time t (1,...,T-1):
+      - context x_t = env.get_context(t)
+        - record the u_k for each k expert after see x_t
+      - environment reveals losses at time t
+      - update beliefs using partial or full feedback
+        - record the u_k for each k expert after update with loss info
+    """
+
+    T = env.T
+    N = env.num_experts
+
+    u_k_records = [[] for k in range(N)]
+
+    for t in range(1, T):
+        x_t = env.get_context(t)
+        available = env.get_available_experts(t)
+
+        for k in range(N):
+            u_k_records[k].append(router.get_u_k(k))
+
+        # Router decision for step t (select expert for loss at time t)
+        r_t, cache = router.select_expert(x_t, available)
+
+        # Environment produces observation (loss or residual) at time t
+        loss_obs, loss_r, losses_full = _get_router_observation(
+            router, env, t, x_t, available, r_t
+        )
+
+        # Belief update
+        if router.feedback_mode == "partial":
+            router.update_beliefs(
+                r_t=r_t,
+                loss_obs=loss_obs,
+                losses_full=None,
+                available_experts=available,
+                cache=cache,
+            )
+        else:
+            router.update_beliefs(
+                r_t=r_t,
+                loss_obs=loss_obs,
+                losses_full=losses_full,
+                available_experts=available,
+                cache=cache,
+            )
+        for k in range(N):
+            u_k_records[k].append(router.get_u_k(k))
+
+    return np.array(u_k_records)
+
 
 def run_router_on_env_training_window(
     router: SLDSIMMRouter,
