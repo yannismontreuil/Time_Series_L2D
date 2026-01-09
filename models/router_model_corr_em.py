@@ -63,6 +63,7 @@ class SLDSIMMRouter_Corr_EM(SLDSIMMRouter_Corr):
         feature_arch: str = "linear",
         feature_hidden_dim: Optional[int] = None,
         feature_activation: str = "tanh",
+        seed: Optional[int] = None,
         # EM-specific configuration
         em_tk: Optional[int] = None,
         em_min_weight: float = 1e-6,
@@ -106,6 +107,7 @@ class SLDSIMMRouter_Corr_EM(SLDSIMMRouter_Corr):
             feature_arch=feature_arch,
             feature_hidden_dim=feature_hidden_dim,
             feature_activation=feature_activation,
+            seed=seed,
         )
 
         # Store copies of the initial linear-Gaussian parameters. These

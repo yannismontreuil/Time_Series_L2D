@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Callable, Sequence
+from typing import Callable, Optional, Sequence
 
 
 class L2D:
@@ -22,6 +22,7 @@ class L2D:
         arch: str = "mlp",
         hidden_dim: int = 8,
         window_size: int = 1,
+        seed: Optional[int] = 0,
     ):
         """
         Parameters
@@ -77,7 +78,7 @@ class L2D:
         self._last_phi: np.ndarray | None = None
 
         # Initialize parameters depending on architecture.
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(None if seed is None else int(seed))
         scale = 0.1
 
         if self.arch == "mlp":
@@ -338,6 +339,7 @@ class L2D_RNN(L2D):
         beta: np.ndarray | None = None,
         learning_rate: float = 1e-3,
         hidden_dim: int = 8,
+        seed: Optional[int] = 0,
     ):
         super().__init__(
             num_experts=num_experts,
@@ -348,6 +350,7 @@ class L2D_RNN(L2D):
             arch="rnn",
             hidden_dim=hidden_dim,
             window_size=1,
+            seed=seed,
         )
 
 
@@ -368,6 +371,7 @@ class L2D_SW(L2D):
         arch: str = "mlp",
         hidden_dim: int = 8,
         window_size: int = 5,
+        seed: Optional[int] = 0,
     ):
         super().__init__(
             num_experts=num_experts,
@@ -378,4 +382,5 @@ class L2D_SW(L2D):
             arch=arch,
             hidden_dim=hidden_dim,
             window_size=window_size,
+            seed=seed,
         )

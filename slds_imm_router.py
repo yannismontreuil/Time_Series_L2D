@@ -2,8 +2,10 @@
 # %matplotlib widget
 
 import argparse
+import copy
 import json
 import os
+import random
 from typing import Optional
 import numpy as np
 
@@ -22,6 +24,7 @@ from plot_utils import (
     evaluate_routers_and_baselines,
     analysis_late_arrival,
 )
+from horizon_planning import evaluate_horizon_planning
 
 try:
     import yaml  # type: ignore
@@ -138,6 +141,18 @@ if __name__ == "__main__":
     args = _parse_args()
     cfg = _load_config(args.config)
     env_cfg = cfg.get("environment", {})
+    seed_cfg = env_cfg.get("seed", 0)
+    seed = int(seed_cfg) if seed_cfg is not None else 0
+    np.random.seed(seed)
+    random.seed(seed)
+    try:  # pragma: no cover - torch is optional
+        import torch  # type: ignore
+
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    except Exception:
+        pass
 
     routers_cfg = cfg.get("routers", {})
     slds_cfg = routers_cfg.get("slds_imm", {}) or {}
@@ -556,6 +571,7 @@ if __name__ == "__main__":
             feature_arch=corr_feature_arch_local,
             feature_hidden_dim=corr_feature_hidden_dim_local,
             feature_activation=corr_feature_activation_local,
+            seed=seed,
         )
     
     # --------------------------------------------------------
@@ -784,6 +800,7 @@ if __name__ == "__main__":
             feature_arch=corr_feature_arch_local,
             feature_hidden_dim=corr_feature_hidden_dim_local,
             feature_activation=corr_feature_activation_local,
+            seed=seed,
             em_tk=em_tk_local,
             em_min_weight=em_min_weight_local,
             em_verbose=em_verbose_local,
@@ -845,6 +862,7 @@ if __name__ == "__main__":
         arch=arch_l2d,
         hidden_dim=hidden_dim_l2d,
         window_size=int(l2d_cfg.get("window_size", 1)),
+        seed=seed,
     )
 
     l2d_sw_baseline = None
@@ -868,6 +886,7 @@ if __name__ == "__main__":
             arch=arch_l2d_sw,
             hidden_dim=hidden_dim_l2d_sw,
             window_size=window_size_sw,
+            seed=seed,
         )
 
     # --------------------------------------------------------
@@ -915,6 +934,7 @@ if __name__ == "__main__":
             hidden_dim=hidden_dim_nn,
             nn_learning_rate=nn_lr,
             feedback_mode="partial",
+            seed=seed,
         )
         neuralucb_full = NeuralUCB(
             num_experts=N,
@@ -925,7 +945,26 @@ if __name__ == "__main__":
             hidden_dim=hidden_dim_nn,
             nn_learning_rate=nn_lr,
             feedback_mode="full",
+            seed=seed,
         )
+
+    # Copies for horizon planning (avoid contamination from full-run evaluation).
+    l2d_baseline_horizon = copy.deepcopy(l2d_baseline)
+    l2d_sw_baseline_horizon = (
+        copy.deepcopy(l2d_sw_baseline) if l2d_sw_baseline is not None else None
+    )
+    linucb_partial_horizon = (
+        copy.deepcopy(linucb_partial) if linucb_partial is not None else None
+    )
+    linucb_full_horizon = (
+        copy.deepcopy(linucb_full) if linucb_full is not None else None
+    )
+    neuralucb_partial_horizon = (
+        copy.deepcopy(neuralucb_partial) if neuralucb_partial is not None else None
+    )
+    neuralucb_full_horizon = (
+        copy.deepcopy(neuralucb_full) if neuralucb_full is not None else None
+    )
 
     # --------------------------------------------------------
     # Factorized Switching Linear Dynamical System
@@ -1073,6 +1112,7 @@ if __name__ == "__main__":
                 transition_device=transition_device,
                 transition_mode=transition_mode_local,
                 feedback_mode=feedback_mode,
+                seed=seed,
             )
 
         def _build_factorized_router_no_g(
@@ -1105,6 +1145,7 @@ if __name__ == "__main__":
                 transition_device=transition_device,
                 transition_mode=transition_mode_local,
                 feedback_mode=feedback_mode,
+                seed=seed,
             )
 
         print(
@@ -1184,6 +1225,9 @@ if __name__ == "__main__":
             setting=setting,
             noise_scale=env_cfg.get("noise_scale", None),
         )
+    # Visualization-only settings for plots.
+    env.plot_shift = int(cfg.get("plot_shift", 1))
+    env.plot_target = str(cfg.get("plot_target", "y")).lower()
 
     def _run_factorized_em(router: Optional[FactorizedSLDS], label: str) -> None:
         if router is None:
@@ -1266,17 +1310,12 @@ if __name__ == "__main__":
         router_factorial_full_linear=fact_router_full_linear,
         factorized_linear_label=factorized_linear_label,
         l2d_baseline=l2d_baseline,
-        router_partial_corr=router_partial_corr,
-        router_full_corr=router_full_corr,
-        router_partial_corr_em=router_partial_corr_em,
-        router_full_corr_em=router_full_corr_em,
         l2d_sw_baseline=l2d_sw_baseline,
         linucb_partial=linucb_partial,
         linucb_full=linucb_full,
         neuralucb_partial=neuralucb_partial,
         neuralucb_full=neuralucb_full,
-        # router_partial_neural=router_partial_neural,
-        # router_full_neural=router_full_neural,
+        seed=seed,
     )
 
 
@@ -1332,13 +1371,11 @@ if __name__ == "__main__":
                     window=window,
                     adoption_threshold=adoption_threshold,
                 )         
-
-    # --------------------------------------------------------
     '''
-    # Example: horizon-H planning from a given time t
+    # --------------------------------------------------------
+    # Horizon-H planning from a given time t
     # --------------------------------------------------------
 
-    '''
     # Build expert prediction functions for planning
     def experts_predict_factory(env_):
         def f(j: int):
@@ -1352,57 +1389,69 @@ if __name__ == "__main__":
         return np.array([y_hat], dtype=float)
 
     # Take current context at t0 and plan H steps ahead, and evaluate.
-    t0 = int(horizon_cfg.get("t0", 175))
+    t0_cfg = int(horizon_cfg.get("t0", 175))
     H = int(horizon_cfg.get("H", 5))
     planning_method = str(horizon_cfg.get("method", "regressive"))
-    scenario_generator_cfg = horizon_cfg.get("scenario_generator", {})
-    # Separate L2D baseline instance for horizon-only evaluation (trained up to t0)
-    l2d_baseline_horizon = L2D(
-        num_experts=N,
-        feature_fn=feature_phi,
-        alpha=np.ones(N, dtype=float),
-        beta=beta,
-        learning_rate=1e-2,
-        arch="mlp",
-        hidden_dim=8,
-        window_size=1,
-    )
-    '''
+    scenario_generator_cfg = horizon_cfg.get("scenario_generator", {}) or {}
+    if "seed" not in scenario_generator_cfg:
+        scenario_generator_cfg = dict(scenario_generator_cfg)
+        scenario_generator_cfg["seed"] = seed
+    delta = float(horizon_cfg.get("delta", 0.1))
+    online_start_t = horizon_cfg.get("online_start_t", None)
 
-    # evaluate_horizon_planning(
-    #     env=env,
-    #     router_partial=router_partial,
-    #     router_full=router_full,
-    #     beta=beta,
-    #     t0=t0,
-    #     H=H,
-    #     experts_predict=experts_predict,
-    #     context_update=context_update,
-    #     l2d_baseline=l2d_baseline_horizon,
-    #     router_partial_corr=router_partial_corr,
-    #     router_full_corr=router_full_corr,
-    #     router_partial_corr_em=router_partial_corr_em,
-    #     router_full_corr_em=router_full_corr_em,
-    #     # router_partial_neural=router_partial_neural,
-    #     # router_full_neural=router_full_neural,
-    #     planning_method=planning_method,
-    #     scenario_generator_cfg=scenario_generator_cfg,
-    # )
-    
-    # NeuralUCB baseline (single policy; partial feedback by default)
-    # neuralucb_baseline = None
-    # if neuralucb_cfg:
-    #     alpha_ucb_nn = float(neuralucb_cfg.get("alpha_ucb", 1.0))
-    #     lambda_reg_nn = float(neuralucb_cfg.get("lambda_reg", 1.0))
-    #     hidden_dim_nn = int(neuralucb_cfg.get("hidden_dim", 16))
-    #     nn_lr = float(neuralucb_cfg.get("nn_learning_rate", 1e-3))
-    #     neuralucb_baseline = NeuralUCB(
-    #         num_experts=N,
-    #         feature_fn=feature_phi,
-    #         alpha_ucb=alpha_ucb_nn,
-    #         lambda_reg=lambda_reg_nn,
-    #         beta=beta,
-    #         hidden_dim=hidden_dim_nn,
-    #         nn_learning_rate=nn_lr,
-    #         feedback_mode="partial",
-    #     )
+    em_tk_candidates = []
+    for r in (
+        router_partial,
+        router_full,
+        fact_router_partial,
+        fact_router_full,
+        fact_router_partial_linear,
+        fact_router_full_linear,
+        router_partial_corr_em,
+        router_full_corr_em,
+    ):
+        if r is None:
+            continue
+        em_val = getattr(r, "em_tk", None)
+        if em_val is not None:
+            em_tk_candidates.append(int(em_val))
+    em_tk_anchor = max(em_tk_candidates) if em_tk_candidates else None
+
+    t0 = int(t0_cfg)
+    if em_tk_anchor is not None:
+        if t0 <= em_tk_anchor:
+            t0 = int(em_tk_anchor + 1)
+        if online_start_t is None:
+            online_start_t = int(em_tk_anchor)
+    if t0 != int(t0_cfg):
+        print(
+            f"[Horizon planning] Adjusted t0 from {t0_cfg} to {t0} "
+            f"to start after EM (em_tk={em_tk_anchor})."
+        )
+
+    evaluate_horizon_planning(
+        env=env,
+        router_partial=router_partial,
+        router_full=router_full,
+        router_factorial_partial=fact_router_partial,
+        router_factorial_full=fact_router_full,
+        router_factorial_partial_linear=fact_router_partial_linear,
+        router_factorial_full_linear=fact_router_full_linear,
+        beta=beta,
+        t0=t0,
+        H=H,
+        experts_predict=experts_predict,
+        context_update=context_update,
+        l2d_baseline=l2d_baseline_horizon,
+        l2d_sw_baseline=l2d_sw_baseline_horizon,
+        linucb_partial=linucb_partial_horizon,
+        linucb_full=linucb_full_horizon,
+        neuralucb_partial=neuralucb_partial_horizon,
+        neuralucb_full=neuralucb_full_horizon,
+        planning_method=planning_method,
+        scenario_generator_cfg=scenario_generator_cfg,
+        delta=delta,
+        online_start_t=online_start_t,
+        factorized_label=factorized_label,
+        factorized_linear_label=factorized_linear_label,
+    )

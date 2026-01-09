@@ -168,9 +168,11 @@ horizon_planning:
   # Section~\ref{sec:staffing-generator-gaussian}.
   scenario_generator:
     type: "gaussian_ar1"
-    # AR(1) coefficient rho in [-1,1).
+    # Max |rho| cap for the AR(1) coefficient fit on history.
     rho: 0.9
-    # Initial residual covariance Σ_0 ≈ (sigma0^2 I).
+    # Initial innovation scale (multiplies fitted residual std).
     sigma0: 0.1
-    # Innovation covariance Q ≈ (q_scale^2 I).
+    # Per-step innovation scale (multiplies fitted residual std).
     q_scale: 0.1
+    # Global scale on Monte Carlo context noise.
+    noise_scale: 1.0
