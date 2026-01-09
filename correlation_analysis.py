@@ -141,8 +141,8 @@ def _parse_args() -> argparse.Namespace:
 
 def analysis_correlations_in_experts(
     env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,
-    router_partial_no_g: SLDSIMMRouter,
-    router_full_no_g: SLDSIMMRouter,
+    router_partial_no_g,
+    router_full_no_g,
     router_factorial_partial: Optional[FactorizedSLDS],
     router_factorial_full: Optional[FactorizedSLDS],
     factorized_label: str = "Factorized SLDS",
@@ -186,25 +186,48 @@ def analysis_correlations_in_experts(
         for expert_idx in range(N):
             u_k = idiosyncratic_states[expert_idx]
             u_ks.append(u_k)
+
         # each u_ks[i] is array of shape (T, d_u)
-        N = len(u_ks)
-        T, d_r, d_c = u_ks[0].shape  # (T, 2, 2)
+        # N = len(u_ks)
+        # T, d_r, d_c = u_ks[0].shape  # (T, 2, 2)
+        #
+        # for k in range(N):
+        #     plt.figure()
+        #     for i in range(d_r):
+        #         for j in range(d_c):
+        #             plt.plot(
+        #                 u_ks[k][:, i, j],
+        #                 label=f"({i},{j})"
+        #             )
+        #
+        #     plt.title(f"Expert {k}: entries of $u_k(t)$")
+        #     plt.xlabel("Time t")
+        #     plt.ylabel("Value")
+        #     plt.legend()
+        #     plt.tight_layout()
+        #     plt.show()
 
-        for k in range(N):
-            plt.figure()
-            for i in range(d_r):
-                for j in range(d_c):
-                    plt.plot(
-                        u_ks[k][:, i, j],
-                        label=f"({i},{j})"
-                    )
+        u_ks = np.stack(u_ks, axis=0)
+        N, T, _, _ = u_ks.shape
+        U = u_ks.reshape(N, T, -1)  # (N, T, 4)
 
-            plt.title(f"Expert {k}: entries of $u_k(t)$")
-            plt.xlabel("Time t")
-            plt.ylabel("Value")
-            plt.legend()
-            plt.tight_layout()
-            plt.show()
+        def cosine_time(a, b):
+            num = np.sum(a * b, axis=1)
+            den = np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1)
+            return num / den
+
+        plt.figure()
+        plt.plot(cosine_time(U[0], U[1]), label="0 vs 1")
+        plt.plot(cosine_time(U[0], U[2]), label="0 vs 2")
+        plt.plot(cosine_time(U[1], U[2]), label="1 vs 2")
+
+        plt.axhline(0, color="black", linestyle="--", alpha=0.5)
+        plt.xlabel("Time t")
+        plt.ylabel("Cosine similarity")
+        plt.title("Time-resolved expert similarity")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
 
     if router_factorial_partial is not None:
         print(f"\n--- Analyzing idiosyncratic factors for {factorized_label} (partial) ---")
@@ -212,16 +235,6 @@ def analysis_correlations_in_experts(
     if router_factorial_full is not None:
         print(f"\n--- Analyzing idiosyncratic factors for {factorized_label} (full) ---")
         _run_factorized_router_collect_u_k(router_factorial_full)
-    if router_factorial_partial_linear is not None:
-        print(f"\n--- Analyzing idiosyncratic factors for {factorized_linear_label} (partial) ---")
-        _run_factorized_router_collect_u_k(router_factorial_partial_linear)
-    if router_factorial_full_linear is not None:
-        print(f"\n--- Analyzing idiosyncratic factors for {factorized_linear_label} (full) ---")
-        _run_factorized_router_collect_u_k(router_factorial_full_linear)
-
-
-
-
 
 
 if __name__ == "__main__":
@@ -297,129 +310,6 @@ if __name__ == "__main__":
         int(staleness_threshold_cfg) if staleness_threshold_cfg is not None else None
     )
 
-
-    # L2D baselines (configurable MLP/RNN, with and without sliding window)
-    alpha_l2d = _resolve_vector(l2d_cfg.get("alpha", 1.0), 1.0, N)
-    beta_l2d_cfg = l2d_cfg.get("beta", None)
-    beta_l2d = beta.copy() if beta_l2d_cfg is None else _resolve_vector(
-        beta_l2d_cfg, 0.0, N
-    )
-    lr_l2d = float(l2d_cfg.get("learning_rate", 1e-2))
-    arch_l2d = str(l2d_cfg.get("arch", "mlp")).lower()
-    hidden_dim_l2d = int(l2d_cfg.get("hidden_dim", 8))
-
-    l2d_baseline = L2D(
-        num_experts=N,
-        feature_fn=feature_phi,
-        alpha=alpha_l2d,
-        beta=beta_l2d,
-        learning_rate=lr_l2d,
-        arch=arch_l2d,
-        hidden_dim=hidden_dim_l2d,
-        window_size=int(l2d_cfg.get("window_size", 1)),
-        seed=seed,
-    )
-
-    l2d_sw_baseline = None
-    if l2d_sw_cfg:  # overridden with RNN architecture with sliding window
-        alpha_l2d_sw = _resolve_vector(l2d_sw_cfg.get("alpha", 1.0), 1.0, N)
-        beta_l2d_sw_cfg = l2d_sw_cfg.get("beta", None)
-        beta_l2d_sw = beta.copy() if beta_l2d_sw_cfg is None else _resolve_vector(
-            beta_l2d_sw_cfg, 0.0, N
-        )
-        lr_l2d_sw = float(l2d_sw_cfg.get("learning_rate", lr_l2d))
-        arch_l2d_sw = str(l2d_sw_cfg.get("arch", arch_l2d)).lower()
-        hidden_dim_l2d_sw = int(l2d_sw_cfg.get("hidden_dim", hidden_dim_l2d))
-        window_size_sw = int(l2d_sw_cfg.get("window_size", 5))
-
-        l2d_sw_baseline = L2D_SW(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha=alpha_l2d_sw,
-            beta=beta_l2d_sw,
-            learning_rate=lr_l2d_sw,
-            arch=arch_l2d_sw,
-            hidden_dim=hidden_dim_l2d_sw,
-            window_size=window_size_sw,
-            seed=seed,
-        )
-
-    # --------------------------------------------------------
-    # Four UCB-style baselines routers
-    # --------------------------------------------------------
-
-    # LinUCB baselines (partial and full feedback)
-    linucb_partial = None
-    linucb_full = None
-    if linucb_cfg:
-        alpha_ucb = float(linucb_cfg.get("alpha_ucb", 1.0))
-        lambda_reg = float(linucb_cfg.get("lambda_reg", 1.0))
-
-        linucb_partial = LinUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb,
-            lambda_reg=lambda_reg,
-            beta=beta,
-            feedback_mode="partial",
-        )
-        linucb_full = LinUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb,
-            lambda_reg=lambda_reg,
-            beta=beta,
-            feedback_mode="full",
-        )
-
-    # NeuralUCB baseline (single policy; partial feedback by default)
-    neuralucb_partial = None
-    neuralucb_full = None
-    if neuralucb_cfg:
-        alpha_ucb_nn = float(neuralucb_cfg.get("alpha_ucb", 1.0))
-        lambda_reg_nn = float(neuralucb_cfg.get("lambda_reg", 1.0))
-        hidden_dim_nn = int(neuralucb_cfg.get("hidden_dim", 16))
-        nn_lr = float(neuralucb_cfg.get("nn_learning_rate", 1e-3))
-        neuralucb_partial = NeuralUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb_nn,
-            lambda_reg=lambda_reg_nn,
-            beta=beta,
-            hidden_dim=hidden_dim_nn,
-            nn_learning_rate=nn_lr,
-            feedback_mode="partial",
-            seed=seed,
-        )
-        neuralucb_full = NeuralUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb_nn,
-            lambda_reg=lambda_reg_nn,
-            beta=beta,
-            hidden_dim=hidden_dim_nn,
-            nn_learning_rate=nn_lr,
-            feedback_mode="full",
-            seed=seed,
-        )
-
-    # Copies for horizon planning (avoid contamination from full-run evaluation).
-    l2d_baseline_horizon = copy.deepcopy(l2d_baseline)
-    l2d_sw_baseline_horizon = (
-        copy.deepcopy(l2d_sw_baseline) if l2d_sw_baseline is not None else None
-    )
-    linucb_partial_horizon = (
-        copy.deepcopy(linucb_partial) if linucb_partial is not None else None
-    )
-    linucb_full_horizon = (
-        copy.deepcopy(linucb_full) if linucb_full is not None else None
-    )
-    neuralucb_partial_horizon = (
-        copy.deepcopy(neuralucb_partial) if neuralucb_partial is not None else None
-    )
-    neuralucb_full_horizon = (
-        copy.deepcopy(neuralucb_full) if neuralucb_full is not None else None
-    )
 
     # --------------------------------------------------------
     # Factorized Switching Linear Dynamical System
