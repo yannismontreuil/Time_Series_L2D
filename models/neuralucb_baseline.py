@@ -34,6 +34,7 @@ class NeuralUCB:
         hidden_dim: int = 16,
         nn_learning_rate: float = 1e-3,
         feedback_mode: str = "partial",
+        seed: int | None = 0,
     ):
         self.N = int(num_experts)
         self.feature_fn = feature_fn
@@ -66,7 +67,7 @@ class NeuralUCB:
         self.hidden_dim = int(hidden_dim)
         self.nn_learning_rate = float(nn_learning_rate)
 
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(None if seed is None else int(seed))
         scale = 0.1
         self.W1 = rng.normal(scale=scale, size=(self.hidden_dim, self.d))
         self.b1 = np.zeros(self.hidden_dim, dtype=float)
@@ -177,4 +178,3 @@ class NeuralUCB:
             lr = self.nn_learning_rate
             self.W1 -= lr * grads_W1
             self.b1 -= lr * grads_b1
-

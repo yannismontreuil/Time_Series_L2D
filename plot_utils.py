@@ -200,8 +200,13 @@ def plot_time_series(
     T = env.T if num_points is None else min(num_points, env.T)
     t_grid = np.arange(T)
 
-    # True target and regimes
-    y = env.y[:T]
+    plot_target = str(getattr(env, "plot_target", "y")).lower()
+    if plot_target == "x":
+        y = env.x[:T]
+        true_label = "Context $x_t$ (lagged)"
+    else:
+        y = env.y[:T]
+        true_label = "True $y_t$"
     z = env.z[:T]
 
     # Expert predictions for each time step
@@ -216,7 +221,7 @@ def plot_time_series(
     ax1.plot(
         t_grid,
         y,
-        label="True $y_t$",
+        label=true_label,
         color=get_model_color("true"),
         linewidth=2,
     )
@@ -302,6 +307,7 @@ def evaluate_routers_and_baselines(
     neuralucb_full=None,
     router_partial_neural=None,
     router_full_neural=None,
+    seed: int = 0,
 ) -> None:
     """
     Evaluate how the partial- and full-feedback routers behave on the
@@ -476,7 +482,7 @@ def evaluate_routers_and_baselines(
     beta = router_partial.beta[: env.num_experts]
 
     # Random and oracle baselines
-    costs_random, choices_random = run_random_on_env(env, beta, seed=0)
+    costs_random, choices_random = run_random_on_env(env, beta, seed=int(seed))
     costs_oracle, choices_oracle = run_oracle_on_env(env, beta)
 
     # Prediction series induced by router and L2D choices
@@ -612,7 +618,13 @@ def evaluate_routers_and_baselines(
 
     T = env.T
     t_grid = np.arange(1, T)
-    y_true = env.y[1:T]
+    plot_target = str(getattr(env, "plot_target", "y")).lower()
+    if plot_target == "x":
+        y_true = env.x[1:T]
+        true_label = "Context $x_t$ (lagged)"
+    else:
+        y_true = env.y[1:T]
+        true_label = "True $y_t$"
 
     # Constant-expert baselines (always pick the same expert)
     cum_costs = np.zeros(env.num_experts, dtype=float)
@@ -796,186 +808,230 @@ def evaluate_routers_and_baselines(
     # and cumulative costs over time for each baseline (bottom).
     fig, (ax_pred, ax_cost) = plt.subplots(2, 1, sharex=True, figsize=(10, 7))
 
+    # Visualization-only shift; positive values advance predictions (shift left).
+    vis_shift = int(getattr(env, "plot_shift", 1))
+
+    def _shift_preds_for_plot(preds: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if preds is None:
+            return None
+        preds = np.asarray(preds, dtype=float)
+        if vis_shift <= 0:
+            if vis_shift == 0:
+                return preds
+            if preds.size <= abs(vis_shift):
+                return np.zeros(0, dtype=float)
+            return preds[:vis_shift]
+        if preds.size <= vis_shift:
+            return np.zeros(0, dtype=float)
+        return preds[vis_shift:]
+
+    if vis_shift > 0:
+        t_grid_plot = t_grid[:-vis_shift]
+        y_true_plot = y_true[:-vis_shift]
+    elif vis_shift < 0:
+        t_grid_plot = t_grid[-vis_shift:]
+        y_true_plot = y_true[-vis_shift:]
+    else:
+        t_grid_plot = t_grid
+        y_true_plot = y_true
+
+    preds_partial_plot = _shift_preds_for_plot(preds_partial)
+    preds_full_plot = _shift_preds_for_plot(preds_full)
+    preds_partial_corr_plot = _shift_preds_for_plot(preds_partial_corr)
+    preds_full_corr_plot = _shift_preds_for_plot(preds_full_corr)
+    preds_partial_corr_em_plot = _shift_preds_for_plot(preds_partial_corr_em)
+    preds_full_corr_em_plot = _shift_preds_for_plot(preds_full_corr_em)
+    preds_partial_neural_plot = _shift_preds_for_plot(preds_partial_neural)
+    preds_full_neural_plot = _shift_preds_for_plot(preds_full_neural)
+    preds_l2d_plot = _shift_preds_for_plot(preds_l2d)
+    preds_l2d_sw_plot = _shift_preds_for_plot(preds_l2d_sw)
+    preds_factorized_partial_plot = _shift_preds_for_plot(preds_factorized_partial)
+    preds_factorized_full_plot = _shift_preds_for_plot(preds_factorized_full)
+    preds_factorized_linear_partial_plot = _shift_preds_for_plot(
+        preds_factorized_linear_partial
+    )
+    preds_factorized_linear_full_plot = _shift_preds_for_plot(
+        preds_factorized_linear_full
+    )
+    preds_linucb_partial_plot = _shift_preds_for_plot(preds_linucb_partial)
+    preds_linucb_full_plot = _shift_preds_for_plot(preds_linucb_full)
+    preds_neuralucb_partial_plot = _shift_preds_for_plot(preds_neuralucb_partial)
+    preds_neuralucb_full_plot = _shift_preds_for_plot(preds_neuralucb_full)
+    preds_random_plot = _shift_preds_for_plot(preds_random)
+    preds_oracle_plot = _shift_preds_for_plot(preds_oracle)
+
     # Top subplot: predictions
     ax_pred.plot(
-        t_grid,
-        y_true,
-        label="True $y_t$",
+        t_grid_plot,
+        y_true_plot,
+        label=true_label,
         color=get_model_color("true"),
         linewidth=2,
         linestyle="-",
     )
     ax_pred.plot(
-        t_grid,
-        preds_partial,
+        t_grid_plot,
+        preds_partial_plot,
         label="Factorized SLDS w/o g_t (partial)",
         color=get_model_color("partial"),
         linestyle="-",
         alpha=0.8,
     )
     ax_pred.plot(
-        t_grid,
-        preds_full,
+        t_grid_plot,
+        preds_full_plot,
         label="Factorized SLDS w/o g_t (full)",
         color=get_model_color("full"),
         linestyle="-",
         alpha=0.8,
     )
-    if preds_partial_corr is not None:
+    if preds_partial_corr_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_partial_corr,
+            t_grid_plot,
+            preds_partial_corr_plot,
             label="Router Corr (partial)",
             color=get_model_color("partial_corr"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_full_corr is not None:
+    if preds_full_corr_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_full_corr,
+            t_grid_plot,
+            preds_full_corr_plot,
             label="Router Corr (full)",
             color=get_model_color("full_corr"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_partial_corr_em is not None:
+    if preds_partial_corr_em_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_partial_corr_em,
+            t_grid_plot,
+            preds_partial_corr_em_plot,
             label="Router Corr EM (partial)",
             color=get_model_color("partial_corr_em"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_full_corr_em is not None:
+    if preds_full_corr_em_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_full_corr_em,
+            t_grid_plot,
+            preds_full_corr_em_plot,
             label="Router Corr EM (full)",
             color=get_model_color("full_corr_em"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_partial_neural is not None:
+    if preds_partial_neural_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_partial_neural,
+            t_grid_plot,
+            preds_partial_neural_plot,
             label="Neural router (partial)",
             color=get_model_color("neural_partial"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_full_neural is not None:
+    if preds_full_neural_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_full_neural,
+            t_grid_plot,
+            preds_full_neural_plot,
             label="Neural router (full)",
             color=get_model_color("neural_full"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_l2d is not None:
+    if preds_l2d_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_l2d,
+            t_grid_plot,
+            preds_l2d_plot,
             label="L2D baseline",
             color=get_model_color("l2d"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_l2d_sw is not None:
+    if preds_l2d_sw_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_l2d_sw,
+            t_grid_plot,
+            preds_l2d_sw_plot,
             label="L2D_SW baseline",
             color=get_model_color("l2d_sw"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_factorized_partial is not None:
+    if preds_factorized_partial_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_factorized_partial,
+            t_grid_plot,
+            preds_factorized_partial_plot,
             label=f"{factorized_label} (partial)",
             color=get_model_color("factorized_partial"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_factorized_full is not None:
+    if preds_factorized_full_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_factorized_full,
+            t_grid_plot,
+            preds_factorized_full_plot,
             label=f"{factorized_label} (full)",
             color=get_model_color("factorized_full"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_factorized_linear_partial is not None:
+    if preds_factorized_linear_partial_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_factorized_linear_partial,
+            t_grid_plot,
+            preds_factorized_linear_partial_plot,
             label=f"{factorized_linear_label} (partial)",
             color=get_model_color("factorized_linear_partial"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_factorized_linear_full is not None:
+    if preds_factorized_linear_full_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_factorized_linear_full,
+            t_grid_plot,
+            preds_factorized_linear_full_plot,
             label=f"{factorized_linear_label} (full)",
             color=get_model_color("factorized_linear_full"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_linucb_partial is not None:
+    if preds_linucb_partial_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_linucb_partial,
+            t_grid_plot,
+            preds_linucb_partial_plot,
             label="LinUCB (partial)",
             color=get_model_color("linucb_partial"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_linucb_full is not None:
+    if preds_linucb_full_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_linucb_full,
+            t_grid_plot,
+            preds_linucb_full_plot,
             label="LinUCB (full)",
             color=get_model_color("linucb_full"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_neuralucb_partial is not None:
+    if preds_neuralucb_partial_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_neuralucb_partial,
+            t_grid_plot,
+            preds_neuralucb_partial_plot,
             label="NeuralUCB (partial)",
             color=get_model_color("neuralucb"),
             linestyle="-",
             alpha=0.8,
         )
-    if preds_neuralucb_full is not None:
+    if preds_neuralucb_full_plot is not None:
         ax_pred.plot(
-            t_grid,
-            preds_neuralucb_full,
+            t_grid_plot,
+            preds_neuralucb_full_plot,
             label="NeuralUCB (full)",
             color=get_model_color("neuralucb"),
             linestyle="--",
             alpha=0.8,
         )
     ax_pred.plot(
-        t_grid,
-        preds_random,
-        label="Random baseline",
-        color=get_model_color("random"),
-        linestyle="-",
-        alpha=0.7,
-    )
-    ax_pred.plot(
-        t_grid,
-        preds_oracle,
+        t_grid_plot,
+        preds_oracle_plot,
         label="Oracle baseline",
         color=get_model_color("oracle"),
         linestyle="-",
@@ -1234,13 +1290,6 @@ def evaluate_routers_and_baselines(
         )
     ax_cost.plot(
         t_grid,
-        avg_random_t,
-        label="Random (avg cost)",
-        color=get_model_color("random"),
-        linestyle="-",
-    )
-    ax_cost.plot(
-        t_grid,
         avg_oracle_t,
         label="Oracle (avg cost)",
         color=get_model_color("oracle"),
@@ -1419,9 +1468,9 @@ def evaluate_routers_and_baselines(
     has_factorized_linear_full = choices_factorial_linear_full is not None
 
     # Rows: base routers, optional correlated routers, optional L2D / L2D_SW /
-    # LinUCB partial/full / NeuralUCB partial/full, random baseline,
-    # oracle baseline, and optional availability.
-    n_rows = 4 + (1 if has_l2d else 0) + (1 if has_l2d_sw else 0)
+    # LinUCB partial/full / NeuralUCB partial/full, oracle baseline,
+    # and optional availability.
+    n_rows = 3 + (1 if has_l2d else 0) + (1 if has_l2d_sw else 0)
     n_rows += (1 if has_linucb_partial else 0) + (1 if has_linucb_full else 0)
     n_rows += (1 if has_neuralucb_partial else 0) + (1 if has_neuralucb_full else 0)
     n_rows += (1 if has_avail else 0)
@@ -1644,17 +1693,6 @@ def evaluate_routers_and_baselines(
         ax_fact_lf.set_yticks(np.arange(env.num_experts))
         idx += 1
 
-    ax_rand = axes[idx]
-    ax_rand.step(
-        t_grid,
-        choices_random,
-        where="post",
-        color=get_model_color("random"),
-    )
-    ax_rand.set_ylabel("Expert\n(random)")
-    ax_rand.set_yticks(np.arange(env.num_experts))
-    idx += 1
-
     ax_oracle = axes[idx]
     ax_oracle.step(
         t_grid,
@@ -1710,6 +1748,7 @@ def analysis_late_arrival(
     new_expert_idx: int | None = None,
     window: int = 500,
     adoption_threshold: float = 0.5,
+    seed: int = 0,
 ) -> None:
     """
     Analyze how different policies react to the late arrival of a new
@@ -1908,7 +1947,7 @@ def analysis_late_arrival(
         )
 
     # Random and oracle baselines
-    costs_random, choices_random = run_random_on_env(env, beta, seed=0)
+    costs_random, choices_random = run_random_on_env(env, beta, seed=int(seed))
     costs_oracle, choices_oracle = run_oracle_on_env(env, beta)
 
     # Collect methods with valid outputs.
@@ -1948,6 +1987,8 @@ def analysis_late_arrival(
         methods.append(
             ("neuralucb_full", costs_neuralucb_full, choices_neuralucb_full)
         )
+
+    methods_plot = [m for m in methods if m[0] != "random"]
 
     # Sanity check on index range vs arrays.
     for _, costs_m, choices_m in methods:
@@ -2008,7 +2049,7 @@ def analysis_late_arrival(
         )
 
         # Running selection frequency of the new expert in the window.
-        for name, _, choices_m in methods:
+        for name, _, choices_m in methods_plot:
             choices_win = choices_m[start_idx:end_idx_excl]
             sel_new = (choices_win == j_new).astype(float)
             running_freq = np.cumsum(sel_new) / np.arange(
@@ -2042,7 +2083,7 @@ def analysis_late_arrival(
         ax_freq.legend(loc="upper left", fontsize=9)
 
         # Cumulative regret vs oracle in the same window.
-        for name, costs_m, _ in methods:
+        for name, costs_m, _ in methods_plot:
             costs_win = costs_m[start_idx:end_idx_excl]
             delta = costs_win - costs_oracle_window
             cum_regret = np.cumsum(delta)

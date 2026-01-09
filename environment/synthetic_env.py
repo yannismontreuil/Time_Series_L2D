@@ -165,6 +165,16 @@ class SyntheticTimeSeriesEnv:
         # expert_predict can implement regime-dependent behaviour in
         # special synthetic settings without changing its interface.
         self._last_t: int | None = None
+        # Deterministic per-(t,j) noise for theoretical_trap expert predictions.
+        self._expert_noise: np.ndarray | None = None
+        if setting == "theoretical_trap":
+            rng_noise = np.random.default_rng(int(seed) + 12345)
+            base_noise = rng_noise.normal(size=(T, num_experts))
+            noise_scale_expert = np.full((T, num_experts), 0.05, dtype=float)
+            for t_idx in range(T):
+                if int(z[t_idx]) == 1:
+                    noise_scale_expert[t_idx, : min(2, num_experts)] = 0.1
+            self._expert_noise = base_noise * noise_scale_expert
 
         # Time series / shared factor dynamics.
         # - For "sidekick_trap", we construct an explicit "Day/Night"
@@ -510,11 +520,9 @@ class SyntheticTimeSeriesEnv:
                 t = max(0, min(t, self.T - 1))
             reg = int(self.z[t])
             x_val = float(x_t[0])
-
-            # Separate RNG stream for expert prediction noise.
-            if not hasattr(self, "_rng_expert_noise"):
-                self._rng_expert_noise = np.random.default_rng()
-
+            noise_val = 0.0
+            if self._expert_noise is not None:
+                noise_val = float(self._expert_noise[t, int(j)])
             # Regime 0 ("good times"):
             #   - Experts 0 and 1 track the AR(1) dynamics well:
             #         y_hat ≈ 0.8 * x_t  (small variance)
@@ -528,21 +536,17 @@ class SyntheticTimeSeriesEnv:
             if reg == 0:
                 if int(j) in (0, 1):
                     mean = 0.8 * x_val
-                    noise = float(self._rng_expert_noise.normal(loc=0.0, scale=0.05))
-                    return mean + noise
+                    return mean + noise_val
                 else:
                     mean = 1.0
-                    noise = float(self._rng_expert_noise.normal(loc=0.0, scale=0.05))
-                    return mean + noise
+                    return mean + noise_val
             else:
                 if int(j) >= 2:
                     mean = 0.8 * x_val + 1.0
-                    noise = float(self._rng_expert_noise.normal(loc=0.0, scale=0.05))
-                    return mean + noise
+                    return mean + noise_val
                 else:
                     mean = 3.0
-                    noise = float(self._rng_expert_noise.normal(loc=0.0, scale=0.1))
-                    return mean + noise
+                    return mean + noise_val
 
         # Default linear expert for all other settings.
         w = self.expert_weights[j]

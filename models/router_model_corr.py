@@ -71,6 +71,7 @@ class SLDSIMMRouter_Corr:
         feature_arch: str = "linear",
         feature_hidden_dim: Optional[int] = None,
         feature_activation: str = "tanh",
+        seed: Optional[int] = None,
     ):
         self.N = int(num_experts)
         self.M = int(num_regimes)
@@ -138,7 +139,7 @@ class SLDSIMMRouter_Corr:
         else:
             # Two-layer MLP: φ(x) = W2 σ(W1 φ_base(x) + b1) + b2.
             H = self.feature_hidden_dim
-            rng = np.random.default_rng()
+            rng = np.random.default_rng(None if seed is None else int(seed))
             scale = 0.01
             self.feature_W1 = scale * rng.standard_normal((H, self.d_feat))
             self.feature_b1 = np.zeros(H, dtype=float)
