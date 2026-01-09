@@ -4,10 +4,40 @@ from typing import Callable, List, Sequence, Tuple, Optional
 
 from models.router_model import SLDSIMMRouter
 from models.router_model_corr import SLDSIMMRouter_Corr
+from models.factorized_slds import FactorizedSLDS
 from environment.synthetic_env import SyntheticTimeSeriesEnv
 from models.l2d_baseline import L2D
 from plot_utils import get_expert_color, get_model_color
 from matplotlib import lines as mlines, patches as mpatches
+
+
+def _router_observes_residual(router) -> bool:
+    return getattr(router, "observation_mode", "loss") == "residual"
+
+
+def _get_router_observation(
+    router,
+    env: SyntheticTimeSeriesEnv,
+    t: int,
+    x_t: np.ndarray,
+    available: np.ndarray,
+    r_t: int,
+) -> Tuple[float, float, Optional[np.ndarray]]:
+    if _router_observes_residual(router):
+        y_t = float(env.y[t])
+        preds = env.all_expert_predictions(x_t)
+        residuals = preds - y_t
+        residual_r = float(residuals[int(r_t)])
+        loss_r = residual_r ** 2
+        residuals_full = None
+        if getattr(router, "feedback_mode", "partial") == "full":
+            residuals_full = residuals
+        return residual_r, loss_r, residuals_full
+
+    loss_all = env.losses(t)
+    loss_r = float(loss_all[r_t])
+    losses_full = loss_all if getattr(router, "feedback_mode", "partial") == "full" else None
+    return loss_r, loss_r, losses_full
 
 
 def _simulate_value_scenarios_for_schedule(
@@ -94,12 +124,13 @@ def warm_start_router_to_time(
         x_t = env.get_context(t)
         available_t = env.get_available_experts(t)
         r_t, cache = router.select_expert(x_t, available_t)
-        loss_all = env.losses(t)
-        loss_r = float(loss_all[r_t])
+        loss_obs, loss_r, losses_full = _get_router_observation(
+            router, env, t, x_t, available_t, r_t
+        )
         if router.feedback_mode == "partial":
             router.update_beliefs(
                 r_t=r_t,
-                loss_obs=loss_r,
+                loss_obs=loss_obs,
                 losses_full=None,
                 available_experts=available_t,
                 cache=cache,
@@ -107,11 +138,75 @@ def warm_start_router_to_time(
         else:
             router.update_beliefs(
                 r_t=r_t,
-                loss_obs=loss_r,
-                losses_full=loss_all,
+                loss_obs=loss_obs,
+                losses_full=losses_full,
                 available_experts=available_t,
                 cache=cache,
             )
+
+
+def _get_working_registry(router, num_experts: int) -> List[int]:
+    if hasattr(router, "registry"):
+        registry = list(getattr(router, "registry") or [])
+    elif hasattr(router, "_has_joined"):
+        joined = np.asarray(getattr(router, "_has_joined"), dtype=bool)
+        registry = list(np.where(joined)[0])
+    else:
+        registry = list(range(num_experts))
+    return sorted({int(k) for k in registry})
+
+
+def _sample_context_scenarios(
+    env: SyntheticTimeSeriesEnv,
+    times: np.ndarray,
+    num_scenarios: int,
+    scenario_generator_cfg: Optional[dict],
+) -> np.ndarray:
+    """
+    Sample context trajectories X^{(n)}_{t+1:t+H} from a simple
+    scenario generator. Uses the realized future context path as the
+    baseline and adds Gaussian AR(1) noise in context space.
+    """
+    H_eff = int(len(times))
+    base_ctx = np.stack(
+        [np.asarray(env.get_context(int(t)), dtype=float).reshape(-1) for t in times],
+        axis=0,
+    )
+    if num_scenarios <= 0:
+        raise ValueError("num_scenarios must be a positive integer.")
+    cfg = scenario_generator_cfg or {}
+    gen_type = str(cfg.get("type", "gaussian_ar1")).lower()
+    if gen_type == "deterministic":
+        return np.repeat(base_ctx[None, :, :], int(num_scenarios), axis=0)
+    if gen_type != "gaussian_ar1":
+        raise ValueError(
+            f"Unsupported scenario generator type '{gen_type}'. "
+            "Expected 'gaussian_ar1' or 'deterministic'."
+        )
+    rho = float(cfg.get("rho", 0.0))
+    sigma0 = float(cfg.get("sigma0", 0.0))
+    q_scale = float(cfg.get("q_scale", 0.0))
+    seed = cfg.get("seed", None)
+    rng = np.random.default_rng(seed)
+    ctx_dim = base_ctx.shape[1]
+    scenarios = np.zeros((int(num_scenarios), H_eff, ctx_dim), dtype=float)
+    for n in range(int(num_scenarios)):
+        if sigma0 > 0.0:
+            xi_prev = rng.normal(loc=0.0, scale=sigma0, size=ctx_dim)
+        else:
+            xi_prev = np.zeros(ctx_dim, dtype=float)
+        for h in range(H_eff):
+            if h == 0:
+                xi_h = xi_prev
+            else:
+                if q_scale > 0.0:
+                    eta_h = rng.normal(loc=0.0, scale=q_scale, size=ctx_dim)
+                else:
+                    eta_h = np.zeros(ctx_dim, dtype=float)
+                xi_h = rho * xi_prev + eta_h
+                xi_prev = xi_h
+            scenarios[n, h] = base_ctx[h] + xi_h
+    return scenarios
 
 
 def eval_schedule_on_env(
@@ -240,185 +335,180 @@ def _plan_horizon_schedule_monte_carlo(
     times: np.ndarray,
     avail_per_h: List[np.ndarray],
     num_scenarios: int,
+    delta: float,
     scenario_generator_cfg: Optional[dict],
-) -> Tuple[List[int], np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[List[int], np.ndarray, np.ndarray, np.ndarray, List[List[int]]]:
     """
-    N-scenario Monte Carlo / scenario-based planning as in
-    Section "Extension: Staffing/Availability Planning over a Horizon":
-      - open-loop IMM prediction (no future measurements),
-      - context treated as exogenous (here, scenarios are taken from
-        env.get_context at the true future times),
-      - risk-adjusted scores J_{j,h}(x) built from mixture mean/variance,
-      - planning-time scores c_h(j) ≈ (1/N) Σ_n J_{j,h}(x_{t+h}^{(n)}),
-      - time-separable trajectory with capacity m=1:
-            j_h^* ∈ argmin_j c_h(j) over available experts,
-      - probability tables:
-            p_avail[j,h]  ≈ P(j is best among available A_{t+h}),
-            p_all[j,h]    ≈ P(j is best if all experts are available).
+    Monte Carlo predictive scheduling (Section "Predictive Resource Allocation"):
+      - sample context scenarios X_{t+1:t+H}^{(n)},
+      - propagate the time-t belief forward without measurement updates,
+      - compute planning-time predicted costs C_{t+h,k}^† for feasible experts,
+      - take deterministic argmin per scenario and step,
+      - estimate time-marginal demand ρ̂_{t,h}(k),
+      - build coverage sets Ŝ_{t,h}(δ) with cumulative mass ≥ 1-δ.
 
-    The current implementation uses the realized future context
-    x_{t+h} = env.get_context(t+h) for all scenarios n=1..N; if a more
-    sophisticated scenario generator is available, it can be wired in
-    here without changing the rest of the logic.
+    Returns:
+      schedule: deterministic single-expert summary (argmax ρ̂ per step),
+      p_avail: time-marginal demand (ρ̂),
+      p_all: alias of time-marginal demand (ρ̂),
+      J_sched: scenario-wise costs along the summary schedule,
+      active_sets: coverage sets Ŝ_{t,h}(δ) for each h.
     """
     H_eff = int(times.shape[0])
     if H_eff == 0:
         empty = np.zeros((0, env.num_experts), dtype=float)
-        return [], empty, empty, empty
+        return [], empty, empty, np.zeros((0, 0), dtype=float), []
 
     N_scen = int(num_scenarios)
     if N_scen <= 0:
         raise ValueError("num_scenarios must be a positive integer.")
 
-    # Open-loop IMM prediction: (b_{t+h|t}, m_{t+h|t}, P_{t+h|t})
-    b_list, m_list, P_list = router.precompute_horizon_states(H_eff)
+    N_experts = int(getattr(env, "num_experts", getattr(router, "N", 0)))
+    registry = _get_working_registry(router, N_experts)
+    avail_sets = [set(map(int, a)) for a in avail_per_h]
+    scenarios = _sample_context_scenarios(
+        env, times, N_scen, scenario_generator_cfg
+    )
 
-    # Determine feature dimension for the emission feature φ.
-    if isinstance(router, SLDSIMMRouter_Corr):
-        d_feat = router.du
-    else:
-        d_feat = router.d
+    # Scenario-wise choices and costs.
+    choices_scen = np.full((N_scen, H_eff), -1, dtype=int)
+    scores_scen = np.full((N_scen, H_eff, N_experts), np.nan, dtype=float)
 
-    # Baseline feature forecasts φ̂_{t+h|t}. For simplicity, we take
-    # the realized future context as the baseline path and map it to
-    # features via the router's emission feature map.
-    phi_hat = np.zeros((H_eff, d_feat), dtype=float)
-    for h in range(H_eff):
-        t_future = int(times[h])
-        x_future = env.get_context(t_future)
-        if isinstance(router, SLDSIMMRouter_Corr):
-            phi_h, _ = router._compute_feature(x_future)
-            phi_hat[h] = np.asarray(phi_h, dtype=float).reshape(d_feat)
-        else:
-            phi_h = router.feature_fn(x_future)
-            phi_hat[h] = np.asarray(phi_h, dtype=float).reshape(d_feat)
-
-    # Parse Gaussian AR(1) scenario generator parameters.
-    cfg = scenario_generator_cfg or {}
-    gen_type = str(cfg.get("type", "gaussian_ar1")).lower()
-    if gen_type != "gaussian_ar1":
-        raise ValueError(
-            f"Unsupported scenario generator type '{gen_type}'. "
-            "Expected 'gaussian_ar1' as in the Gaussian perturbation generator."
-        )
-    rho = float(cfg.get("rho", 0.0))
-    sigma0 = float(cfg.get("sigma0", 0.0))
-    q_scale = float(cfg.get("q_scale", 0.0))
-
-    # Scenario scores J_{j,h}(x_{t+h}^{(n)}) with shape (N_scen, H_eff, N_experts)
-    N_experts = router.N
-    J_scen = np.zeros((N_scen, H_eff, N_experts), dtype=float)
-
-    schedule: List[int] = []
-    # For probability tables:
-    #   p_avail[h, j] ≈ P(j is best among available A_{t+h}),
-    #   p_all[h, j]   ≈ P(j is best among all experts),
-    # with tie mass split uniformly among minimizers.
-    p_avail = np.zeros((H_eff, N_experts), dtype=float)
-    p_all = np.zeros((H_eff, N_experts), dtype=float)
-
-    rng = np.random.default_rng()
-
-    # Evaluate scenario scores with Gaussian AR(1) feature perturbations.
-    for n in range(N_scen):
-        # Sample AR(1) residual path ξ^{(n)}_{1:H_eff} in feature space.
-        if sigma0 > 0.0:
-            xi_prev = rng.normal(loc=0.0, scale=sigma0, size=d_feat)
-        else:
-            xi_prev = np.zeros(d_feat, dtype=float)
-
-        for h in range(H_eff):
-            if h == 0:
-                xi_h = xi_prev
-            else:
-                if q_scale > 0.0:
-                    eta_h = rng.normal(loc=0.0, scale=q_scale, size=d_feat)
-                else:
-                    eta_h = np.zeros(d_feat, dtype=float)
-                xi_h = rho * xi_prev + eta_h
-                xi_prev = xi_h
-
-            # Feature scenario at step h: φ^{(n)}_{t+h} = φ̂_{t+h|t} + ξ^{(n)}_h
-            phi_future = phi_hat[h] + xi_h
-
-            b_h = b_list[h]
-            m_h = m_list[h]
-            P_h = P_list[h]
-
-            if isinstance(router, SLDSIMMRouter_Corr):
-                # Correlated router: use its loss-distribution helper.
-                mean_ell, var_ell, _, _ = router._predict_loss_distribution(
-                    phi_future, b_h, m_h, P_h
-                )
-            else:
-                # Independent-expert SLDS router.
-                phi_future_vec = np.asarray(phi_future, dtype=float).reshape(router.d)
-                M = router.M
-                mu_k = np.zeros((M, router.N), dtype=float)
-                S_k = np.zeros((M, router.N), dtype=float)
-                for k in range(M):
-                    for j in range(router.N):
-                        m_kj = m_h[k, j]
-                        P_kj = P_h[k, j]
-                        mu = float(phi_future_vec @ m_kj)
-                        S_val = float(phi_future_vec @ (P_kj @ phi_future_vec) + router.R[k, j])
-                        mu_k[k, j] = mu
-                        S_k[k, j] = max(S_val, router.eps)
-                mean_ell = (b_h.reshape(-1, 1) * mu_k).sum(axis=0)
-                var_within = (b_h.reshape(-1, 1) * S_k).sum(axis=0)
-                diff = mu_k - mean_ell
-                var_between = (b_h.reshape(-1, 1) * (diff**2)).sum(axis=0)
-                var_ell = np.maximum(var_within + var_between, router.eps)
-
-            # Planning-time risk parameter: risk-neutral (λ_plan = 0),
-            # independent of the router's online λ used for routing.
-            scores = mean_ell + beta
-            J_scen[n, h, :] = scores
-
-    # Planning-time scores: c_h(j) ≈ 1/N Σ_n J_{j,h}(x_{t+h}^{(n)}).
-    c_hat = J_scen.mean(axis=0)  # shape (H_eff, N)
-
-    # Build trajectory j_h^* and probability tables.
-    for h in range(H_eff):
-        avail = np.asarray(avail_per_h[h], dtype=int)
-        if avail.size == 0:
-            avail = np.arange(N_experts, dtype=int)
-
-        # Trajectory (capacity m=1) based on c_hat.
-        scores_avail = c_hat[h, avail]
-        j_star = int(avail[int(np.argmin(scores_avail))])
-        schedule.append(j_star)
-
-        # Probability tables from scenario-wise argmins.
+    if isinstance(router, FactorizedSLDS):
         for n in range(N_scen):
-            scores_n = J_scen[n, h, :]
+            w = np.asarray(router.w, dtype=float).copy()
+            mu_g = np.asarray(router.mu_g, dtype=float).copy()
+            Sigma_g = np.asarray(router.Sigma_g, dtype=float).copy()
+            mu_u = {
+                int(k): (router.mu_u.get(int(k), router.u_mean0.copy())).copy()
+                for k in registry
+            }
+            Sigma_u = {
+                int(k): (router.Sigma_u.get(int(k), router.u_cov0.copy())).copy()
+                for k in registry
+            }
 
-            # Best-over-all probability p_all.
-            min_all = float(np.min(scores_n))
-            all_min_indices = np.flatnonzero(np.isclose(scores_n, min_all))
-            if all_min_indices.size > 0:
-                mass_all = 1.0 / (N_scen * float(all_min_indices.size))
-                p_all[h, all_min_indices] += mass_all
+            for h in range(H_eff):
+                x_future = scenarios[n, h]
+                (
+                    w_pred,
+                    mu_g_pred,
+                    Sigma_g_pred,
+                    mu_u_pred,
+                    Sigma_u_pred,
+                ) = router._interaction_and_time_update(
+                    x_future, w, mu_g, Sigma_g, mu_u, Sigma_u
+                )
 
-            # Best-over-available probability p_avail (A_{t+h}).
-            scores_av = scores_n[avail]
-            min_av = float(np.min(scores_av))
-            av_min_local = np.flatnonzero(np.isclose(scores_av, min_av))
-            if av_min_local.size > 0:
-                mass_av = 1.0 / (N_scen * float(av_min_local.size))
-                p_avail[h, avail[av_min_local]] += mass_av
+                feas = [k for k in registry if k in avail_sets[h]]
+                phi = router._compute_phi(x_future)
+                costs, _ = router._score_experts(
+                    phi,
+                    w_pred,
+                    mu_g_pred,
+                    Sigma_g_pred,
+                    mu_u_pred,
+                    Sigma_u_pred,
+                    feas,
+                )
+                for k, cost in costs.items():
+                    scores_scen[n, h, int(k)] = float(cost)
+                if costs:
+                    best_k = min(
+                        costs.items(), key=lambda kv: (kv[1], int(kv[0]))
+                    )[0]
+                    choices_scen[n, h] = int(best_k)
 
-    # Scenario-wise scores along the planned trajectory:
-    # J_sched[n, h] = J_{j_h^*, h}(x^{(n)}_{t+h}).
-    if H_eff > 0:
-        schedule_arr = np.asarray(schedule, dtype=int).reshape(1, H_eff)
-        h_idx = np.arange(H_eff, dtype=int).reshape(1, H_eff)
-        n_idx = np.arange(N_scen, dtype=int).reshape(N_scen, 1)
-        J_sched = J_scen[n_idx, h_idx, schedule_arr]
+                w, mu_g, Sigma_g, mu_u, Sigma_u = (
+                    w_pred,
+                    mu_g_pred,
+                    Sigma_g_pred,
+                    mu_u_pred,
+                    Sigma_u_pred,
+                )
     else:
-        J_sched = np.zeros((N_scen, 0), dtype=float)
+        b_list, m_list, P_list = router.precompute_horizon_states(H_eff)
+        for n in range(N_scen):
+            for h in range(H_eff):
+                x_future = scenarios[n, h]
+                b_h = b_list[h]
+                m_h = m_list[h]
+                P_h = P_list[h]
 
-    return schedule, p_avail, p_all, J_sched
+                if isinstance(router, SLDSIMMRouter_Corr):
+                    phi_h, _ = router._compute_feature(x_future)
+                    mean_ell, _, _, _ = router._predict_loss_distribution(
+                        phi_h, b_h, m_h, P_h
+                    )
+                    scores = mean_ell + beta
+                else:
+                    phi_vec = np.asarray(router.feature_fn(x_future), dtype=float).reshape(
+                        router.d
+                    )
+                    mu_k = np.zeros((router.M, N_experts), dtype=float)
+                    S_k = np.zeros((router.M, N_experts), dtype=float)
+                    for k in range(router.M):
+                        for j in range(N_experts):
+                            m_kj = m_h[k, j]
+                            P_kj = P_h[k, j]
+                            mu = float(phi_vec @ m_kj)
+                            S_val = float(
+                                phi_vec @ (P_kj @ phi_vec) + router.R[k, j]
+                            )
+                            mu_k[k, j] = mu
+                            S_k[k, j] = max(S_val, router.eps)
+                    mean_ell = (b_h.reshape(-1, 1) * mu_k).sum(axis=0)
+                    scores = mean_ell + beta
+
+                scores_scen[n, h, :] = scores
+
+                feas = [k for k in registry if k in avail_sets[h]]
+                if feas:
+                    feas_scores = scores[np.asarray(feas, dtype=int)]
+                    best_idx = int(np.argmin(feas_scores))
+                    choices_scen[n, h] = int(feas[best_idx])
+
+    # Time-marginal demand rho_hat.
+    rho_hat = np.zeros((H_eff, N_experts), dtype=float)
+    for h in range(H_eff):
+        for n in range(N_scen):
+            j = int(choices_scen[n, h])
+            if j >= 0:
+                rho_hat[h, j] += 1.0 / float(N_scen)
+
+    # Coverage sets and deterministic schedule summary.
+    delta = float(np.clip(delta, 0.0, 0.999))
+    active_sets: List[List[int]] = []
+    schedule: List[int] = []
+    for h in range(H_eff):
+        feas = [k for k in registry if k in avail_sets[h]]
+        if not feas:
+            active_sets.append([])
+            if avail_sets[h]:
+                schedule.append(int(sorted(avail_sets[h])[0]))
+            else:
+                schedule.append(-1)
+            continue
+        sorted_k = sorted(feas, key=lambda k: (-rho_hat[h, k], int(k)))
+        cum = 0.0
+        set_h: List[int] = []
+        for k in sorted_k:
+            set_h.append(int(k))
+            cum += float(rho_hat[h, k])
+            if cum >= 1.0 - delta:
+                break
+        active_sets.append(set_h)
+        schedule.append(int(sorted_k[0]))
+
+    # Scenario-wise scores along the summary schedule.
+    J_sched = np.full((N_scen, H_eff), np.nan, dtype=float)
+    for n in range(N_scen):
+        for h in range(H_eff):
+            j = schedule[h]
+            if 0 <= j < N_experts:
+                J_sched[n, h] = scores_scen[n, h, j]
+
+    return schedule, rho_hat, rho_hat, J_sched, active_sets
 
 
 def evaluate_horizon_planning(
@@ -1436,8 +1526,10 @@ def evaluate_horizon_planning(
 
     # Lines for each method (colors coherent with other plots)
     plot_method_line("oracle", "Oracle", preds_oracle)
-    plot_method_line("partial", "Router (partial)", preds_partial_plan)
-    plot_method_line("full", "Router (full)", preds_full_plan)
+    plot_method_line(
+        "partial", "Factorized SLDS w/o g_t (partial)", preds_partial_plan
+    )
+    plot_method_line("full", "Factorized SLDS w/o g_t (full)", preds_full_plan)
     if preds_partial_neural_plan.size > 0:
         plot_method_line(
             "neural_partial", "Neural router (partial)", preds_partial_neural_plan
@@ -1468,8 +1560,8 @@ def evaluate_horizon_planning(
     # Helper to scatter predictions with color = expert, marker = method
     method_markers = {
         "Oracle": "o",
-        "Router (partial)": "s",
-        "Router (full)": "^",
+        "Factorized SLDS w/o g_t (partial)": "s",
+        "Factorized SLDS w/o g_t (full)": "^",
         "Neural router (partial)": "P",
         "Neural router (full)": "*",
         "Router Corr (partial)": "D",
@@ -1500,8 +1592,10 @@ def evaluate_horizon_planning(
 
     # Scatter forecasts for each method (points colored by expert)
     scatter_method("Oracle", preds_oracle, sched_oracle)
-    scatter_method("Router (partial)", preds_partial_plan, sched_partial)
-    scatter_method("Router (full)", preds_full_plan, sched_full)
+    scatter_method(
+        "Factorized SLDS w/o g_t (partial)", preds_partial_plan, sched_partial
+    )
+    scatter_method("Factorized SLDS w/o g_t (full)", preds_full_plan, sched_full)
     if preds_partial_neural_plan.size > 0 and sched_partial_neural:
         scatter_method(
             "Neural router (partial)",
@@ -1538,8 +1632,8 @@ def evaluate_horizon_planning(
     legend_specs = [
         ("true", "True"),
         ("oracle", "Oracle"),
-        ("partial", "Router (partial)"),
-        ("full", "Router (full)"),
+        ("partial", "Factorized SLDS w/o g_t (partial)"),
+        ("full", "Factorized SLDS w/o g_t (full)"),
         ("neural_partial", "Neural router (partial)"),
         ("neural_full", "Neural router (full)"),
         ("partial_corr", "Router Corr (partial)"),

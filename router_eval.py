@@ -12,6 +12,35 @@ from models.neuralucb_baseline import NeuralUCB
 TimeSeriesEnv = SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv
 
 
+def _router_observes_residual(router: SLDSIMMRouter) -> bool:
+    return getattr(router, "observation_mode", "loss") == "residual"
+
+
+def _get_router_observation(
+    router: SLDSIMMRouter,
+    env: TimeSeriesEnv,
+    t: int,
+    x_t: np.ndarray,
+    available: np.ndarray,
+    r_t: int,
+) -> Tuple[float, float, Optional[np.ndarray]]:
+    if _router_observes_residual(router):
+        y_t = float(env.y[t])
+        preds = env.all_expert_predictions(x_t)
+        residuals = preds - y_t
+        residual_r = float(residuals[int(r_t)])
+        loss_r = residual_r ** 2
+        residuals_full = None
+        if router.feedback_mode == "full":
+            residuals_full = residuals
+        return residual_r, loss_r, residuals_full
+
+    loss_all = env.losses(t)
+    loss_r = float(loss_all[r_t])
+    losses_full = loss_all if router.feedback_mode == "full" else None
+    return loss_r, loss_r, losses_full
+
+
 def _train_router_offline(
     router: SLDSIMMRouter,
     env: TimeSeriesEnv,
@@ -62,13 +91,14 @@ def _train_router_offline(
         x_t = env.get_context(t)
         available = env.get_available_experts(t)
         r_t, cache = router.select_expert(x_t, available)
-        loss_all = env.losses(t)
-        loss_r = float(loss_all[r_t])
+        loss_obs, loss_r, losses_full = _get_router_observation(
+            router, env, t, x_t, available, r_t
+        )
 
         if router.feedback_mode == "partial":
             router.update_beliefs(
                 r_t=r_t,
-                loss_obs=loss_r,
+                loss_obs=loss_obs,
                 losses_full=None,
                 available_experts=available,
                 cache=cache,
@@ -76,8 +106,8 @@ def _train_router_offline(
         else:
             router.update_beliefs(
                 r_t=r_t,
-                loss_obs=loss_r,
-                losses_full=loss_all,
+                loss_obs=loss_obs,
+                losses_full=losses_full,
                 available_experts=available,
                 cache=cache,
             )
@@ -122,8 +152,9 @@ def _run_router_online_window(
         available = env.get_available_experts(t)
         r_t, cache = router.select_expert(x_t, available)
 
-        loss_all = env.losses(t)
-        loss_r = float(loss_all[r_t])
+        loss_obs, loss_r, losses_full = _get_router_observation(
+            router, env, t, x_t, available, r_t
+        )
         cost_t = loss_r + router.beta[r_t]
 
         costs.append(cost_t)
@@ -132,7 +163,7 @@ def _run_router_online_window(
         if router.feedback_mode == "partial":
             router.update_beliefs(
                 r_t=r_t,
-                loss_obs=loss_r,
+                loss_obs=loss_obs,
                 losses_full=None,
                 available_experts=available,
                 cache=cache,
@@ -140,8 +171,8 @@ def _run_router_online_window(
         else:
             router.update_beliefs(
                 r_t=r_t,
-                loss_obs=loss_r,
-                losses_full=loss_all,
+                loss_obs=loss_obs,
+                losses_full=losses_full,
                 available_experts=available,
                 cache=cache,
             )
@@ -257,9 +288,10 @@ def run_router_on_env(
         # Router decision for step t (select expert for loss at time t)
         r_t, cache = router.select_expert(x_t, available)
 
-        # Environment produces true losses at time t
-        loss_all = env.losses(t)
-        loss_r = float(loss_all[r_t])
+        # Environment produces observation (loss or residual) at time t
+        loss_obs, loss_r, losses_full = _get_router_observation(
+            router, env, t, x_t, available, r_t
+        )
         cost_t = loss_r + router.beta[r_t]
 
         costs.append(cost_t)
@@ -269,7 +301,7 @@ def run_router_on_env(
         if router.feedback_mode == "partial":
             router.update_beliefs(
                 r_t=r_t,
-                loss_obs=loss_r,
+                loss_obs=loss_obs,
                 losses_full=None,
                 available_experts=available,
                 cache=cache,
@@ -277,60 +309,116 @@ def run_router_on_env(
         else:
             router.update_beliefs(
                 r_t=r_t,
-                loss_obs=loss_r,
-                losses_full=loss_all,
+                loss_obs=loss_obs,
+                losses_full=losses_full,
                 available_experts=available,
                 cache=cache,
             )
 
     return np.array(costs), np.array(choices)
 
+
+def run_router_on_env_training_window(
+    router: SLDSIMMRouter,
+    env: TimeSeriesEnv,
+    t_train_end: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Run the router on a training window [1, t_train_end], recording costs
+    and choices while allowing parameter updates.
+    """
+    T = env.T
+    t_train_end = min(int(t_train_end), T - 1)
+    if t_train_end <= 0:
+        return np.zeros(0, dtype=float), np.zeros(0, dtype=int)
+
+    costs: list[float] = []
+    choices: list[int] = []
+
+    router.reset_beliefs()
+
+    has_training_mode = hasattr(router, "training_mode")
+    if has_training_mode:
+        old_mode = bool(getattr(router, "training_mode"))
+        router.training_mode = True
+
+    for t in range(1, t_train_end + 1):
+        x_t = env.get_context(t)
+        available = env.get_available_experts(t)
+        r_t, cache = router.select_expert(x_t, available)
+        loss_obs, loss_r, losses_full = _get_router_observation(
+            router, env, t, x_t, available, r_t
+        )
+        cost_t = loss_r + router.beta[r_t]
+
+        costs.append(cost_t)
+        choices.append(int(r_t))
+
+        if router.feedback_mode == "partial":
+            router.update_beliefs(
+                r_t=r_t,
+                loss_obs=loss_obs,
+                losses_full=None,
+                available_experts=available,
+                cache=cache,
+            )
+        else:
+            router.update_beliefs(
+                r_t=r_t,
+                loss_obs=loss_obs,
+                losses_full=losses_full,
+                available_experts=available,
+                cache=cache,
+            )
+
+    if has_training_mode:
+        router.training_mode = old_mode
+
+    return np.asarray(costs, dtype=float), np.asarray(choices, dtype=int)
+
+
+def run_router_on_env_em_split(
+    router: SLDSIMMRouter,
+    env: TimeSeriesEnv,
+    t_train_end: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Run EM-style training on [1, t_train_end] (if applicable), then run
+    the online phase on [t_train_end + 1, T - 1], returning full-length
+    cost and choice arrays.
+    """
+    T = env.T
+    t_train_end = min(int(t_train_end), T - 1)
+    if t_train_end <= 0:
+        return run_router_on_env(router, env)
+
+    train_costs, train_choices = run_router_on_env_training_window(
+        router, env, t_train_end
+    )
+    online_costs, online_choices = _run_router_online_window(
+        router, env, t_train_end + 1, T - 1
+    )
+
+    costs = (
+        np.concatenate([train_costs, online_costs], axis=0)
+        if train_costs.size or online_costs.size
+        else np.zeros(0, dtype=float)
+    )
+    choices = (
+        np.concatenate([train_choices, online_choices], axis=0)
+        if train_choices.size or online_choices.size
+        else np.zeros(0, dtype=int)
+    )
+    return costs, choices
+
 def run_factored_router_on_env(
     router: FactorizedSLDS,
     env: TimeSeriesEnv,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Run the factored SLDS router on the synthetic environment.
-
-    At each time t (1,...,T-1):
-      - context x_t = env.get_context(t)
-      - select expert r_t
-      - environment reveals losses at time t
-      - update beliefs using partial or full feedback
-      - record incurred cost: ℓ_{r_t,t} + β_{r_t}
-
-    Returns
-    -------
-    costs : np.ndarray of shape (T-1,)
-    choices : np.ndarray of shape (T-1,)
+    Backward-compatible wrapper around run_router_on_env for FactorizedSLDS.
     """
-    T = env.T
-    N = env.num_experts
-
-    costs = []
-    choices = []
-
-    for t in range(1, T):
-        x_t = env.get_context(t)
-        available = env.get_available_experts(t)
-
-        # Manage Registry state for factorized SLDS
-        router.manage_registry(available)
-        # IMM
-        router.predict_step(x_t)
-        # Predict, score and select expert
-        I_t = router.select_action(x_t, available)
-
-        loss_all = env.losses(t)
-        loss_I_t = float(loss_all[I_t])
-        cost_t = loss_I_t + router.beta[I_t]
-        costs.append(cost_t)
-        choices.append(I_t)
-
-        # Correct belief with observed loss
-        router.update_step(I_t, loss_I_t, x_t)
-
-    return np.array(costs), np.array(choices)
+    return run_router_on_env(router, env)
 
 
 def run_l2d_on_env(
