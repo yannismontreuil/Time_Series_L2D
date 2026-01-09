@@ -1356,6 +1356,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         n_samples: int = 10,
         burn_in: int = 5,
         val_fraction: float = 0.2,
+        val_len: Optional[int] = None,
         priors: Optional[dict] = None,
         theta_lr: float = 1e-2,
         theta_steps: int = 1,
@@ -1385,7 +1386,14 @@ class FactorizedSLDS(SLDSIMMRouter):
         if T == 0:
             raise ValueError("Empty training data.")
 
-        split_idx = max(1, int((1.0 - val_fraction) * T))
+        if val_len is not None:
+            val_len_int = int(val_len)
+            if val_len_int <= 0:
+                split_idx = T
+            else:
+                split_idx = max(1, T - val_len_int)
+        else:
+            split_idx = max(1, int((1.0 - val_fraction) * T))
         train_ctx = contexts[:split_idx]
         train_avail = available_sets[:split_idx]
         train_actions = actions[:split_idx]

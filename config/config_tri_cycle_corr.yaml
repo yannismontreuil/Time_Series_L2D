@@ -1,0 +1,104 @@
+# Tri-cycle correlation experiment (synthetic).
+
+plot_shift: 1
+plot_target: "y"
+
+environment:
+  data_source: synthetic
+  setting: tri_cycle_corr
+  T: 1800
+  seed: 7
+
+  # Dimensions
+  num_experts: 5
+  num_regimes: 3
+  state_dim: 2
+
+  # Observation noise for the AR(1) target dynamics.
+  noise_scale: 0.25
+
+  # Regime cycle and expert behavior configuration.
+  # Regime indices are 0-based in code:
+  #   Regime 0 (paper regime 1): experts 0 & 1 correlated
+  #   Regime 1 (paper regime 2): experts 2 & 3 correlated
+  #   Regime 2 (paper regime 3): experts 4 & 0 correlated
+  tri_cycle:
+    regime_pattern: [0, 1, 2, 1, 2, 0]
+    regime_block_len: 200
+    drift_levels: [0.0, 1.0, 2.0]
+    shared_noise_scale: 0.25
+    indiv_noise_scale: 0.05
+    base_slope: 0.8
+    biases_by_regime:
+      - [0.0, 0.1, 1.2, 1.4, 2.0]
+      - [0.2, 0.4, 1.0, 1.1, 2.0]
+      - [1.6, 0.5, 1.2, 1.4, 2.0]
+
+routers:
+  beta: 0.0
+  staleness_threshold: null
+
+  factorized_slds:
+    enabled: true
+    num_regimes: 3
+    shared_dim: 1
+    idiosyncratic_dim: 2
+    delta_max: 50
+    R_scalar: 1.0
+
+    em_enabled: true
+    em_tk: 1200
+    em_n: 15
+    em_samples: 50
+    em_burn_in: 5
+    em_val_fraction: 0.2
+    # If set, overrides em_val_fraction with a fixed tail window length.
+    em_val_len: 600
+    em_theta_lr: 0.01
+    em_theta_steps: 1
+    em_print_val_loss: true
+
+    transition_mode: "attention"
+
+baselines:
+  l2d:
+    arch: "mlp"
+    learning_rate: 0.001
+    hidden_dim: 16
+    window_size: 1
+    alpha: 1.0
+    beta: null
+
+  l2d_sw:
+    arch: "rnn"
+    learning_rate: 0.001
+    hidden_dim: 16
+    window_size: 200
+    alpha: 1.0
+    beta: null
+
+  linucb:
+    alpha: 1.0
+    regularization: 1.0
+
+  neuralucb:
+    hidden_dim: 32
+    lr: 0.001
+    lambda_reg: 1.0
+
+horizon_planning:
+  # Start horizon planning after EM warm-start.
+  t0: 1000
+
+  H: 100
+  method: "20_monte_carlo"
+
+  # Coverage tolerance for active-set scheduling.
+  delta: 0.1
+
+  scenario_generator:
+    type: "gaussian_ar1"
+    rho: 0.9
+    sigma0: 0.1
+    q_scale: 0.1
+    noise_scale: 1.0

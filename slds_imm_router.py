@@ -1224,6 +1224,7 @@ if __name__ == "__main__":
             arrival_intervals=env_cfg.get("arrival_intervals", [(120, 200)]),
             setting=setting,
             noise_scale=env_cfg.get("noise_scale", None),
+            tri_cycle_cfg=env_cfg.get("tri_cycle", None),
         )
     # Visualization-only settings for plots.
     env.plot_shift = int(cfg.get("plot_shift", 1))
@@ -1245,6 +1246,8 @@ if __name__ == "__main__":
         n_samples = int(factorized_slds_cfg.get("em_samples", 10))
         burn_in = int(factorized_slds_cfg.get("em_burn_in", 5))
         val_fraction = float(factorized_slds_cfg.get("em_val_fraction", 0.2))
+        val_len_cfg = factorized_slds_cfg.get("em_val_len", None)
+        val_len = int(val_len_cfg) if val_len_cfg is not None else None
         theta_lr = float(factorized_slds_cfg.get("em_theta_lr", 1e-2))
         theta_steps = int(factorized_slds_cfg.get("em_theta_steps", 1))
         em_seed_cfg = factorized_slds_cfg.get("em_seed", env_cfg.get("seed", 0))
@@ -1266,6 +1269,7 @@ if __name__ == "__main__":
             n_samples=n_samples,
             burn_in=burn_in,
             val_fraction=val_fraction,
+            val_len=val_len,
             priors=em_priors,
             theta_lr=theta_lr,
             theta_steps=theta_steps,
