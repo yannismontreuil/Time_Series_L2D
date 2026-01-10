@@ -236,6 +236,7 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
         arrival_expert_idx = env_cfg.get("arrival_expert_idx", 4)
         arrival_intervals = env_cfg.get("arrival_intervals", [[120, 200]])
         noise_scale = env_cfg.get("noise_scale", None)
+        tri_cycle_cfg = env_cfg.get("tri_cycle", None)
     else:
         raise ValueError(f"Unsupported environment.data_source: {data_source}")
 
@@ -256,6 +257,7 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
         _canon_intv_synth(arrival_intervals),
         setting,
         noise_scale,
+        repr(tri_cycle_cfg),
     )
     if key_synth in _ENV_CACHE:
         return _ENV_CACHE[key_synth]
@@ -275,6 +277,7 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
         arrival_intervals=arrival_intervals,
         setting=setting,
         noise_scale=noise_scale,
+        tri_cycle_cfg=tri_cycle_cfg,
     )
     _ENV_CACHE[key_synth] = env
     return env

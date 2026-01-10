@@ -422,38 +422,13 @@ while leaving \((\mathbf{u}_{t,k})_{k\neq I_t}\) at their predictive marginals. 
 w_t^m=\frac{\mathcal{L}_t^{(m)}\bar{w}_t^m}{\sum_{\ell=1}^M \mathcal{L}_t^{(\ell)}\bar{w}_t^\ell}.
 \]
 
-\paragraph{Full-feedback variant.}
-If full feedback is available, we observe residuals \(\{e_{t,k}\}_{k\in\mathcal{E}_t}\) at time \(t\).
-For each mode \(m\), we apply sequential Kalman corrections for each \(k\in\mathcal{E}_t\) using the
-observation model
-\[
-e_{t,k}=h_{t,k}^\top \mathbf{g}_t + \phi(\mathbf{x}_t)^\top \mathbf{u}_{t,k} + \varepsilon_{t,k},
-\qquad \varepsilon_{t,k}\sim\mathcal{N}(0,R_{m,k}),
-\]
-where \(h_{t,k}\coloneqq \mathbf{B}_k^\top \phi(\mathbf{x}_t)\).
-Let \((\mu^{(m)}_{g,t|t-1},\Sigma^{(m)}_{g,t|t-1})\) and
-\((\mu^{(m)}_{u,k,t|t-1},\Sigma^{(m)}_{u,k,t|t-1})\) be the predictive marginals. The innovation mean
-and variance for expert \(k\) are
-\[
-\mu^{(m)}_{t,k}=\phi(\mathbf{x}_t)^\top\!\left(\mathbf{B}_k\mu^{(m)}_{g,t|t-1}+\mu^{(m)}_{u,k,t|t-1}\right),
-\]
-\[
-S^{(m)}_{t,k}=\phi(\mathbf{x}_t)^\top\!\left(\mathbf{B}_k\Sigma^{(m)}_{g,t|t-1}\mathbf{B}_k^\top
-+\Sigma^{(m)}_{u,k,t|t-1}\right)\phi(\mathbf{x}_t)+R_{m,k}.
-\]
-We update \(\mathbf{g}_t\) and \(\mathbf{u}_{t,k}\) via standard Kalman gains and keep the remaining
-\(\mathbf{u}_{t,\ell}\) at their predictive marginals. The mode likelihood is the product of
-innovation terms,
-\(
-\mathcal{L}_t^{(m)}=\prod_{k\in\mathcal{E}_t}\mathcal{N}\!\left(e_{t,k};\mu^{(m)}_{t,k},S^{(m)}_{t,k}\right),
-\)
-and the regime weights are updated as above. We retain the factorized approximation by discarding
-cross-covariances between \(\mathbf{g}_t\) and \(\mathbf{u}_{t,k}\) after each correction.
-
 \item \textbf{Output.}
 The resulting belief is the weighted mixture of the $M$ mode-conditioned Gaussians; predictive costs
 and information scores are computed by mixture-averaging using the regime weights.
 \end{enumerate}
+
+
+
 
 \subsubsection{Dynamic Registry Management}
 \label{sec:registry}
@@ -895,20 +870,20 @@ reduces to a single dominant expert.
 % Algorithm 0: Parameter Learning
 % =========================
 \begin{algorithm}[H]
-\caption{\textsc{LearnParameter\_EM}: Monte Carlo EM for the Factorized SLDS (includes $\theta$ for context-dependent transitions)}
+\caption{\textsc{LearnParameter\_EM}: Monte Carlo EM for the Factorized SLDS (offline initialization or windowed batch; includes $\theta$ for context-dependent transitions)}
 \label{alg:trainmodel_em}
 \begin{algorithmic}[1]
-\STATE {\bfseries Input:} contexts $(\mathbf{x}_t)_{t=1}^T$; available sets $(\mathcal{E}_t)_{t=1}^T$; actions $(I_t)_{t=1}^T$; observed residuals $(e_t)_{t=1}^T$ with $e_t=\widehat{y}_{t,I_t}-y_t$; feature map $\phi$; EM iterations $N_{\mathrm{EM}}$; posterior samples $N_{\mathrm{samp}}$; burn-in $N_{\mathrm{burn}}$; MAP priors $(M^{(g)}_A,\lambda^{(g)}_A,\Psi^{(g)},\nu^{(g)})$, $(M^{(u)}_A,\lambda^{(u)}_A,\Psi^{(u)},\nu^{(u)})$, $(M_B,\lambda_B)$, $(a_R,b_R)$, and $\lambda_\theta$ for the attention-based transition parameters $\theta$ in $\Pi_\theta(\mathbf{x}_t)$.
-\STATE $\mathcal{K}\leftarrow \bigcup_{t=1}^T \mathcal{E}_t$
-\STATE {\bfseries Initialize:} parameters $\Theta^{(0)}$; initial state priors for $z_1,\mathbf{g}_1,\{\mathbf{u}_{1,k}\}_{k\in\mathcal{K}}$.
+\STATE {\bfseries Input:} index set $\mathcal{T}=\{t_a,\dots,t_b\}$ (contiguous window); contexts $(\mathbf{x}_t)_{t\in\mathcal{T}}$; available sets $(\mathcal{E}_t)_{t\in\mathcal{T}}$; actions $(I_t)_{t\in\mathcal{T}}$; observed residuals $(e_t)_{t\in\mathcal{T}}$ with $e_t=\widehat{y}_{t,I_t}-y_t$; feature map $\phi$; EM iterations $N_{\mathrm{EM}}$; posterior samples $N_{\mathrm{samp}}$; burn-in $N_{\mathrm{burn}}$; occupancy floor $\epsilon_N>0$; MAP priors $(M^{(g)}_A,\lambda^{(g)}_A,\Psi^{(g)},\nu^{(g)})$, $(M^{(u)}_A,\lambda^{(u)}_A,\Psi^{(u)},\nu^{(u)})$, $(M_B,\lambda_B)$, $(a_R,b_R)$, and $\lambda_\theta$ for the attention-based transition parameters $\theta$ in $\Pi_\theta(\mathbf{x}_t)$.
+\STATE $\mathcal{K}\leftarrow \bigcup_{t\in\mathcal{T}} \mathcal{E}_t$
+\STATE {\bfseries Initialize:} parameters $\Theta^{(0)}$; initial state priors for $z_{t_a},\mathbf{g}_{t_a},\{\mathbf{u}_{t_a,k}\}_{k\in\mathcal{K}}$.
 \FOR{iteration $i = 1$ to $N_{\mathrm{EM}}$}
     \STATE \textbf{// E-STEP: Monte Carlo posterior}
-    \STATE Initialize $(z_{1:T},\mathbf{g}_{1:T},\{\mathbf{u}_{1:T,k}\}_{k\in\mathcal{K}})$ from previous samples.
+    \STATE Initialize $(z_{t_a:t_b},\mathbf{g}_{t_a:t_b},\{\mathbf{u}_{t_a:t_b,k}\}_{k\in\mathcal{K}})$ from previous samples.
     \FOR{sample $s=1$ to $N_{\mathrm{burn}}+N_{\mathrm{samp}}$}
-        \STATE Sample $z_{1:T}^{(s)}$ via FFBS using $\Pi_\theta(\mathbf{x}_t)$ and the emission likelihood of $e_t$ conditional on $(\mathbf{g}^{(s-1)}_{1:T},\{\mathbf{u}^{(s-1)}_{1:T,k}\}_k)$.
-        \STATE Sample $\mathbf{g}_{1:T}^{(s)}$ via Kalman smoothing given $z_{1:T}^{(s)}$, $\{\mathbf{u}^{(s-1)}_{1:T,k}\}_k$, and the bandit observations $\{e_t\}$ (missing for $k\neq I_t$).
+        \STATE Sample $z_{t_a:t_b}^{(s)}$ via FFBS using $\Pi_\theta(\mathbf{x}_t)$ and the emission likelihood of $e_t$ conditional on $(\mathbf{g}^{(s-1)}_{t_a:t_b},\{\mathbf{u}^{(s-1)}_{t_a:t_b,k}\}_k)$.
+        \STATE Sample $\mathbf{g}_{t_a:t_b}^{(s)}$ via Kalman smoothing given $z_{t_a:t_b}^{(s)}$, $\{\mathbf{u}^{(s-1)}_{t_a:t_b,k}\}_k$, and the bandit observations $\{e_t\}$ (missing for $k\neq I_t$).
         \FOR{each expert $k\in\mathcal{K}$}
-            \STATE Sample $\mathbf{u}_{1:T,k}^{(s)}$ via Kalman smoothing given $z_{1:T}^{(s)}$, $\mathbf{g}^{(s)}_{1:T}$, and the observations $\{e_t: I_t=k\}$ (missing otherwise).
+            \STATE Sample $\mathbf{u}_{t_a:t_b,k}^{(s)}$ via Kalman smoothing given $z_{t_a:t_b}^{(s)}$, $\mathbf{g}^{(s)}_{t_a:t_b}$, and the observations $\{e_t: I_t=k\}$ (missing otherwise).
         \ENDFOR
         \IF{$s>N_{\mathrm{burn}}$}
             \STATE Accumulate sufficient statistics for $(z_t,\mathbf{g}_t,\mathbf{u}_{t,k})$.
@@ -916,38 +891,54 @@ reduces to a single dominant expert.
     \ENDFOR
     \STATE Form Monte Carlo responsibilities $\gamma_t^{(m)}\coloneqq \frac{1}{N_{\mathrm{samp}}}\sum_{s=1}^{N_{\mathrm{samp}}}\mathbf{1}\{z_t^{(s)}=m\}$ and sample-averaged moments; use $\mathbb{E}[\cdot]$ and $\mathbb{E}_m[\cdot]$ for unconditional and mode-conditional Monte Carlo averages.
     \STATE \textbf{// M-STEP: closed-form updates}
-    \STATE For each mode $m$, update
-    $A_m^{(g)}\leftarrow\left(S^{(m)}_{g g^-}+\lambda^{(g)}_A M^{(g)}_A\right)\left(S^{(m)}_{g^- g^-}+\lambda^{(g)}_A I\right)^{-1}$,
-    $Q_m^{(g)}\leftarrow\frac{\Psi^{(g)}+S^{(m)}_{g\mid g^-}}{\nu^{(g)}+N_m+d_g+1}$,
-    where $g^-$ denotes $g_{t-1}$,
-    $S^{(m)}_{g g^-}\!=\!\sum_t\gamma_t^{(m)}\mathbb{E}[\mathbf{g}_t\mathbf{g}_{t-1}^\top]$,
-    $S^{(m)}_{g^- g^-}\!=\!\sum_t\gamma_t^{(m)}\mathbb{E}[\mathbf{g}_{t-1}\mathbf{g}_{t-1}^\top]$,
-    $S^{(m)}_{g\mid g^-}\!=\!\sum_t\gamma_t^{(m)}\mathbb{E}[(\mathbf{g}_t-A_m^{(g)}\mathbf{g}_{t-1})(\mathbf{g}_t-A_m^{(g)}\mathbf{g}_{t-1})^\top]$,
-    and $N_m=\sum_t\gamma_t^{(m)}$.
-    \STATE For each mode $m$, update
-    $A_m^{(u)}\leftarrow\left(S^{(m)}_{u u^-}+\lambda^{(u)}_A M^{(u)}_A\right)\left(S^{(m)}_{u^- u^-}+\lambda^{(u)}_A I\right)^{-1}$,
-    $Q_m^{(u)}\leftarrow\frac{\Psi^{(u)}+S^{(m)}_{u\mid u^-}}{\nu^{(u)}+N^{(u)}_m+d_u+1}$,
-    where $u^-$ denotes $u_{t-1,k}$,
-    $S^{(m)}_{u u^-}\!=\!\sum_{k\in\mathcal{K}}\sum_t\gamma_t^{(m)}\mathbb{E}[\mathbf{u}_{t,k}\mathbf{u}_{t-1,k}^\top]$,
-    $S^{(m)}_{u^- u^-}\!=\!\sum_{k\in\mathcal{K}}\sum_t\gamma_t^{(m)}\mathbb{E}[\mathbf{u}_{t-1,k}\mathbf{u}_{t-1,k}^\top]$,
-    $S^{(m)}_{u\mid u^-}\!=\!\sum_{k\in\mathcal{K}}\sum_t\gamma_t^{(m)}\mathbb{E}[(\mathbf{u}_{t,k}-A_m^{(u)}\mathbf{u}_{t-1,k})(\mathbf{u}_{t,k}-A_m^{(u)}\mathbf{u}_{t-1,k})^\top]$,
-    and $N^{(u)}_m=\sum_{k\in\mathcal{K}}\sum_t\gamma_t^{(m)}$.
-    \STATE For each expert $k$, update $\mathbf{B}_k$ by weighted ridge regression on times $\{t:I_t=k\}$:
-    let $x_t=\mathbb{E}[\mathbf{g}_t]\otimes\phi(\mathbf{x}_t)$,
-    $y_t=e_t-\phi(\mathbf{x}_t)^\top\mathbb{E}[\mathbf{u}_{t,k}]$,
-    and $w_t=\sum_{m=1}^M \gamma_t^{(m)}/R_{m,k}$, then
-    \[
-    \mathrm{vec}(\mathbf{B}_k)\leftarrow\left(\sum_t w_t x_t x_t^\top+\lambda_B I\right)^{-1}\left(\sum_t w_t x_t y_t+\lambda_B\,\mathrm{vec}(M_B)\right).
-    \]
-    \STATE Update $R_{m,k}$ with an inverse-Gamma MAP estimate (prior $p(R)\propto R^{-(a_R+1)}e^{-b_R/R}$) using
-    \[
-    R_{m,k}\leftarrow\frac{b_R+\tfrac12\sum_{t:I_t=k}\gamma_t^{(m)}\,r_{t,k}^{(m)2}}{a_R+\tfrac12 N_{m,k}+1},
-    \qquad
-    r_{t,k}^{(m)}\coloneqq e_t-\phi(\mathbf{x}_t)^\top(\mathbf{B}_k\mathbb{E}_m[\mathbf{g}_t]+\mathbb{E}_m[\mathbf{u}_{t,k}]),
-    \]
-    where $N_{m,k}=\sum_{t:I_t=k}\gamma_t^{(m)}$.
+    \STATE For each mode $m$, compute $g^-\!=\!g_{t-1}$,
+    $S^{(m)}_{g g^-}\!=\!\sum_{t\in\mathcal{T}\setminus\{t_a\}}\gamma_t^{(m)}\mathbb{E}[\mathbf{g}_t\mathbf{g}_{t-1}^\top]$,
+    $S^{(m)}_{g^- g^-}\!=\!\sum_{t\in\mathcal{T}\setminus\{t_a\}}\gamma_t^{(m)}\mathbb{E}[\mathbf{g}_{t-1}\mathbf{g}_{t-1}^\top]$,
+    and $N_m=\sum_{t\in\mathcal{T}\setminus\{t_a\}}\gamma_t^{(m)}$.
+    \IF{$N_m \le \epsilon_N$}
+        \STATE Keep $A_m^{(g)}$ and $Q_m^{(g)}$ unchanged.
+    \ELSE
+        \STATE $A_m^{(g)}\leftarrow\left(S^{(m)}_{g g^-}+\lambda^{(g)}_A M^{(g)}_A\right)\left(S^{(m)}_{g^- g^-}+\lambda^{(g)}_A I\right)^{-1}$.
+        \STATE $S^{(m)}_{g\mid g^-}\leftarrow\sum_{t\in\mathcal{T}\setminus\{t_a\}}\gamma_t^{(m)}\mathbb{E}[(\mathbf{g}_t-A_m^{(g)}\mathbf{g}_{t-1})(\mathbf{g}_t-A_m^{(g)}\mathbf{g}_{t-1})^\top]$.
+        \STATE $Q_m^{(g)}\leftarrow\frac{\Psi^{(g)}+S^{(m)}_{g\mid g^-}}{\nu^{(g)}+N_m+d_g+1}$.
+    \ENDIF
+    \STATE For each mode $m$, compute $u^-\!=\!u_{t-1,k}$,
+    $S^{(m)}_{u u^-}\!=\!\sum_{k\in\mathcal{K}}\sum_{t\in\mathcal{T}\setminus\{t_a\}}\gamma_t^{(m)}\mathbb{E}[\mathbf{u}_{t,k}\mathbf{u}_{t-1,k}^\top]$,
+    $S^{(m)}_{u^- u^-}\!=\!\sum_{k\in\mathcal{K}}\sum_{t\in\mathcal{T}\setminus\{t_a\}}\gamma_t^{(m)}\mathbb{E}[\mathbf{u}_{t-1,k}\mathbf{u}_{t-1,k}^\top]$,
+    and $N^{(u)}_m=\sum_{k\in\mathcal{K}}\sum_{t\in\mathcal{T}\setminus\{t_a\}}\gamma_t^{(m)}$.
+    \IF{$N^{(u)}_m \le \epsilon_N$}
+        \STATE Keep $A_m^{(u)}$ and $Q_m^{(u)}$ unchanged.
+    \ELSE
+        \STATE $A_m^{(u)}\leftarrow\left(S^{(m)}_{u u^-}+\lambda^{(u)}_A M^{(u)}_A\right)\left(S^{(m)}_{u^- u^-}+\lambda^{(u)}_A I\right)^{-1}$.
+        \STATE $S^{(m)}_{u\mid u^-}\leftarrow\sum_{k\in\mathcal{K}}\sum_{t\in\mathcal{T}\setminus\{t_a\}}\gamma_t^{(m)}\mathbb{E}[(\mathbf{u}_{t,k}-A_m^{(u)}\mathbf{u}_{t-1,k})(\mathbf{u}_{t,k}-A_m^{(u)}\mathbf{u}_{t-1,k})^\top]$.
+        \STATE $Q_m^{(u)}\leftarrow\frac{\Psi^{(u)}+S^{(m)}_{u\mid u^-}}{\nu^{(u)}+N^{(u)}_m+d_u+1}$.
+    \ENDIF
+    \STATE For each expert $k$, compute $W_k\coloneqq \sum_{t\in\mathcal{T}:I_t=k}\sum_{m=1}^M \gamma_t^{(m)}$.
+    \IF{$W_k \le \epsilon_N$}
+        \STATE Keep $\mathbf{B}_k$ unchanged.
+    \ELSE
+        \STATE Define $x_t^{(m)}=\mathbb{E}_m[\mathbf{g}_t]\otimes\phi(\mathbf{x}_t)$,
+        $y_t^{(m)}=e_t-\phi(\mathbf{x}_t)^\top\mathbb{E}_m[\mathbf{u}_{t,k}]$,
+        and $w_t^{(m)}=\gamma_t^{(m)}/R_{m,k}$.
+        \STATE
+        \[
+        \mathrm{vec}(\mathbf{B}_k)\leftarrow\left(\sum_{t\in\mathcal{T}:I_t=k}\sum_{m=1}^M w_t^{(m)} x_t^{(m)} x_t^{(m)\top}+\lambda_B I\right)^{-1}\left(\sum_{t\in\mathcal{T}:I_t=k}\sum_{m=1}^M w_t^{(m)} x_t^{(m)} y_t^{(m)}+\lambda_B\,\mathrm{vec}(M_B)\right).
+        \]
+    \ENDIF
+    \STATE For each mode $m$ and expert $k$, compute $N_{m,k}\coloneqq\sum_{t\in\mathcal{T}:I_t=k}\gamma_t^{(m)}$.
+    \IF{$N_{m,k} \le \epsilon_N$}
+        \STATE Keep $R_{m,k}$ unchanged.
+    \ELSE
+        \STATE Assume prior $p(R)\propto R^{-(a_R+1)}e^{-b_R/R}$.
+        \STATE
+        \[
+        R_{m,k}\leftarrow\frac{b_R+\tfrac12\sum_{t\in\mathcal{T}:I_t=k}\gamma_t^{(m)}\,r_{t,k}^{(m)2}}{a_R+\tfrac12 N_{m,k}+1},
+        \qquad
+        r_{t,k}^{(m)}\coloneqq e_t-\phi(\mathbf{x}_t)^\top(\mathbf{B}_k\mathbb{E}_m[\mathbf{g}_t]+\mathbb{E}_m[\mathbf{u}_{t,k}]),
+        \]
+    \ENDIF
     \STATE Update transition parameters $\theta$ (the attention logits in $\Pi_\theta(\mathbf{x}_t)$) by maximizing
-    $\sum_{t}\sum_{\ell,m}\xi_{t-1}^{(\ell,m)}\log \Pi_{\ell\to m}(\mathbf{x}_t)-\frac{\lambda_\theta}{2}\lVert\theta\rVert_2^2$
+    $\sum_{t\in\mathcal{T}\setminus\{t_a\}}\sum_{\ell,m}\xi_{t-1}^{(\ell,m)}\log \Pi_{\ell\to m}(\mathbf{x}_t)-\frac{\lambda_\theta}{2}\lVert\theta\rVert_2^2$
     with gradient ascent, where
     $\xi_{t-1}^{(\ell,m)}\coloneqq \frac{1}{N_{\mathrm{samp}}}\sum_{s=1}^{N_{\mathrm{samp}}}\mathbf{1}\{z_{t-1}^{(s)}=\ell,z_t^{(s)}=m\}$.
 \ENDFOR
@@ -956,18 +947,35 @@ reduces to a single dominant expert.
 \end{algorithm}
 
 \begin{algorithm}[H]
+\caption{\textsc{OnlineUpdate}: Sliding-Window Monte Carlo EM (non-stationary adaptation)}
+\label{alg:online_em}
+\begin{algorithmic}[1]
+\STATE {\bfseries Input:} current time $t$; stream data $(\mathbf{x}_\tau,\mathcal{E}_\tau,I_\tau,e_\tau)_{\tau\le t}$; current parameters $\Theta^{(t-1)}$; window length $W$; update period $K$; small EM iterations $N_{\mathrm{EM}}^{\mathrm{win}}$; posterior samples $N_{\mathrm{samp}}$; burn-in $N_{\mathrm{burn}}$; occupancy floor $\epsilon_N$; priors and $\lambda_\theta$ as in Algorithm~\ref{alg:trainmodel_em}.
+\STATE Define window $\mathcal{T}_t \leftarrow \{\max(1,t-W+1),\dots,t\}$.
+\IF{$t < W$ \textbf{or} $t \bmod K \neq 0$}
+    \STATE $\Theta^{(t)} \leftarrow \Theta^{(t-1)}$ and \textbf{return}.
+\ENDIF
+\STATE Initialize state priors at $\tau=\min(\mathcal{T}_t)$ from the current filter posteriors (or population priors if unavailable).
+\STATE Run Algorithm~\ref{alg:trainmodel_em} on the window $\mathcal{T}_t$ with initialization $\Theta^{(t-1)}$, occupancy floor $\epsilon_N$, and $N_{\mathrm{EM}}^{\mathrm{win}}$ iterations.
+\STATE {\bfseries Return:} updated parameters $\Theta^{(t)}$.
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
 \caption{Context-Aware Router (Factorized SLDS + IMM)}
 \label{alg:router_main}
 \begin{algorithmic}[1]
-\STATE {\bfseries Input:} horizon $T$; parameters $\Theta$; feature map $\phi$; contexts $(\mathbf{x}_t)_{t=1}^T$; expert sets $(\mathcal{E}_t)_{t=1}^T$; loss $\psi$; fees $(\beta_k)_k$; side information for entering experts (optional).
+\STATE {\bfseries Input:} horizon $T$; parameters $\Theta$ (or an initial window $\mathcal{T}_0=\{1,\dots,t_0\}$ and EM settings for Algorithm~\ref{alg:trainmodel_em}); feature map $\phi$; contexts $(\mathbf{x}_t)_{t=1}^T$; expert sets $(\mathcal{E}_t)_{t=1}^T$; loss $\psi$; fees $(\beta_k)_k$; side information for entering experts (optional); online EM settings $(W,K,N_{\mathrm{EM}}^{\mathrm{win}},N_{\mathrm{samp}},N_{\mathrm{burn}},\epsilon_N)$ (optional).
 \STATE {\bfseries Initialize:} mode weights $w_0^m\!=\!\mathbb{P}(z_0\!=\!m)$; global posteriors $(\mu^{(m)}_{g,0|0},\Sigma^{(m)}_{g,0|0})$ for $m\!\in\![M]$; working registry $\mathcal{K}^{\text{work}}_0\!\leftarrow\!\emptyset$; $\tau_{\mathrm{last}}(k)\!\leftarrow\!0$.
-\STATE {\bfseries Hyperparameters:} population priors $(\mu^{(m)}_{\mathrm{pop}},\Sigma^{(m)}_{\mathrm{pop}})_{m=1}^M$; staleness $\Delta_{\max}$.
-\FOR{$t=1$ to $T$}
+\STATE {\bfseries Hyperparameters:} population priors $(\mu^{(m)}_{\mathrm{pop}},\Sigma^{(m)}_{\mathrm{pop}})_{m=1}^M$; staleness $\Delta_{\max}$; mixing floor $\epsilon_w$.
+\STATE {\bfseries Optional init:} if $\Theta$ is not provided, run Algorithm~\ref{alg:trainmodel_em} on $\mathcal{T}_0$ to obtain $\Theta$.
+\STATE {\bfseries Optional init:} if $\mathcal{T}_0$ is used, run a forward filtering pass over $\mathcal{T}_0$ with $\Theta$ (using the IMM/Kalman updates) to set $(w_{t_0},\{\mu^{(m)}_{g,t_0|t_0},\Sigma^{(m)}_{g,t_0|t_0}\},\{\mu^{(m)}_{u,k,t_0|t_0},\Sigma^{(m)}_{u,k,t_0|t_0}\},\mathcal{K}^{\text{work}}_{t_0},\tau_{\mathrm{last}})$; set $t_{\mathrm{start}}\leftarrow t_0+1$. Otherwise set $t_{\mathrm{start}}\leftarrow 1$.
+\FOR{$t=t_{\mathrm{start}}$ to $T$}
     \STATE Observe $(\mathbf{x}_t,\mathcal{E}_t)$.
     \STATE $(\mathcal{K}^{\text{work}}_t,\mathcal{E}^{\mathrm{init}}_t) \leftarrow \textsc{ManageRegistry}(\mathcal{K}^{\text{work}}_{t-1},\mathcal{E}_t,\tau_{\mathrm{last}},\Delta_{\max})$
     \STATE $\mathcal{K}^{\text{keep}}_t \leftarrow \mathcal{K}^{\text{work}}_t \setminus \mathcal{E}^{\mathrm{init}}_t$
     \STATE For each $k\in\mathcal{E}^{\mathrm{init}}_t$, set an entering prior $(\mu^{(m)}_{\mathrm{init},k},\Sigma^{(m)}_{\mathrm{init},k})_{m=1}^M$ from side information, defaulting to $(\mu^{(m)}_{\mathrm{pop}},\Sigma^{(m)}_{\mathrm{pop}})$.
-    \STATE $(\bar w_t,\{\bar\mu^{(m)}_{g,t-1},\bar\Sigma^{(m)}_{g,t-1}\},\{\bar\mu^{(m)}_{u,k,t-1},\bar\Sigma^{(m)}_{u,k,t-1}\}_{k\in\mathcal{K}^{\text{keep}}_t}) \leftarrow \textsc{IMM}(\mathbf{x}_t,w_{t-1},\{\mu^{(m)}_{g,t-1|t-1},\Sigma^{(m)}_{g,t-1|t-1}\},\{\mu^{(m)}_{u,k,t-1|t-1},\Sigma^{(m)}_{u,k,t-1|t-1}\}_{k\in\mathcal{K}^{\text{keep}}_t})$
+    \STATE $(\bar w_t,\{\bar\mu^{(m)}_{g,t-1},\bar\Sigma^{(m)}_{g,t-1}\},\{\bar\mu^{(m)}_{u,k,t-1},\bar\Sigma^{(m)}_{u,k,t-1}\}_{k\in\mathcal{K}^{\text{keep}}_t}) \leftarrow \textsc{IMM}(\mathbf{x}_t,w_{t-1},\{\mu^{(m)}_{g,t-1|t-1},\Sigma^{(m)}_{g,t-1|t-1}\},\{\mu^{(m)}_{u,k,t-1|t-1},\Sigma^{(m)}_{u,k,t-1|t-1}\}_{k\in\mathcal{K}^{\text{keep}}_t},\epsilon_w)$
     \STATE $(\{\mu^{(m)}_{g,t|t-1},\Sigma^{(m)}_{g,t|t-1}\},\{\mu^{(m)}_{u,k,t|t-1},\Sigma^{(m)}_{u,k,t|t-1}\},\{\bar{C}_{t,k}^{\mathrm{pred},(m)}\}_{m\in[M],\,k\in\mathcal{E}_t}) \leftarrow \textsc{PredictAndScore}(\mathbf{x}_t,\mathcal{E}_t,\mathcal{K}^{\text{work}}_t,\mathcal{E}^{\mathrm{init}}_t,\{(\mu^{(m)}_{\mathrm{init},k},\Sigma^{(m)}_{\mathrm{init},k})\}_{k\in\mathcal{E}^{\mathrm{init}}_t},\{\bar\mu,\bar\Sigma\},\{\mu^{(m)}_{\mathrm{pop}},\Sigma^{(m)}_{\mathrm{pop}}\}_{m=1}^M,\Theta,\psi,\beta)$
     \FOR{each $k\in\mathcal{E}_t$}
         \STATE $\bar{C}_{t,k}^{\mathrm{pred}} \leftarrow \sum_{m=1}^M \bar w_t^{(m)}\,\bar{C}_{t,k}^{\mathrm{pred},(m)}$
@@ -989,6 +997,9 @@ reduces to a single dominant expert.
     \STATE Choose $I_t \in \arg\min_{k\in\mathcal{E}_t}\Delta_t(k)^2 / \mathrm{IG}_t(k)$
     \STATE Observe $(\widehat y_{t,I_t},y_t)$ and set $e_t\leftarrow \widehat y_{t,I_t}-y_t$; $\tau_{\mathrm{last}}(I_t)\leftarrow t$
     \STATE $(w_t,\{\mu^{(m)}_{g,t|t},\Sigma^{(m)}_{g,t|t}\},\{\mu^{(m)}_{u,k,t|t},\Sigma^{(m)}_{u,k,t|t}\}) \leftarrow \textsc{Correct}(\mathbf{x}_t,e_t,I_t,\bar w_t,\{\mu^{(m)}_{g,t|t-1},\Sigma^{(m)}_{g,t|t-1}\},\{\mu^{(m)}_{u,k,t|t-1},\Sigma^{(m)}_{u,k,t|t-1}\},\Theta,\mathcal{K}^{\text{work}}_t)$
+    \IF{online adaptation is enabled}
+        \STATE $\Theta \leftarrow \textsc{OnlineUpdate}(t,\{(\mathbf{x}_\tau,\mathcal{E}_\tau,I_\tau,e_\tau)\}_{\tau\le t},\Theta,W,K,N_{\mathrm{EM}}^{\mathrm{win}},N_{\mathrm{samp}},N_{\mathrm{burn}},\epsilon_N)$
+    \ENDIF
 \ENDFOR
 \end{algorithmic}
 \end{algorithm}
@@ -997,11 +1008,19 @@ reduces to a single dominant expert.
 \caption{\textsc{IMM}: Context-Dependent IMM Mixing (Moment Matching)}
 \label{alg:imm_interact}
 \begin{algorithmic}[1]
-\STATE {\bfseries Input:} context $\mathbf{x}_t$; mode weights $w_{t-1}$; global posteriors $(\mu^{(i)}_{g,t-1|t-1},\Sigma^{(i)}_{g,t-1|t-1})$; idiosyncratic posteriors $(\mu^{(i)}_{u,k,t-1|t-1},\Sigma^{(i)}_{u,k,t-1|t-1})$ for $k\in\mathcal{K}^{\text{keep}}_t$.
+\STATE {\bfseries Input:} context $\mathbf{x}_t$; mode weights $w_{t-1}$; global posteriors $(\mu^{(i)}_{g,t-1|t-1},\Sigma^{(i)}_{g,t-1|t-1})$; idiosyncratic posteriors $(\mu^{(i)}_{u,k,t-1|t-1},\Sigma^{(i)}_{u,k,t-1|t-1})$ for $k\in\mathcal{K}^{\text{keep}}_t$; mixing floor $\epsilon_w>0$.
 \STATE Compute $\Pi_{i\to j}(\mathbf{x}_t)=\mathrm{softmax}_j(S_{ij}(\mathbf{x}_t))$ for all $i,j\in[M]$
 \STATE Predicted weights: $\bar w_t^j \leftarrow \sum_{i=1}^M \Pi_{i\to j}(\mathbf{x}_t)\, w_{t-1}^i$
-\STATE Mixing weights: $\mu_{t-1}^{i|j} \leftarrow \Pi_{i\to j}(\mathbf{x}_t)\, w_{t-1}^i / \bar w_t^j$
 \FOR{$j=1$ to $M$}
+    \IF{$\bar w_t^j \le \epsilon_w$}
+        \FOR{$i=1$ to $M$}
+            \STATE $\mu_{t-1}^{i|j} \leftarrow 1/M$
+        \ENDFOR
+    \ELSE
+        \FOR{$i=1$ to $M$}
+            \STATE $\mu_{t-1}^{i|j} \leftarrow \Pi_{i\to j}(\mathbf{x}_t)\, w_{t-1}^i / \bar w_t^j$
+        \ENDFOR
+    \ENDIF
     \STATE $\bar\mu^{(j)}_{g,t-1} \leftarrow \sum_{i=1}^M \mu_{t-1}^{i|j}\mu^{(i)}_{g,t-1|t-1}$
     \STATE $\bar\Sigma^{(j)}_{g,t-1} \leftarrow \sum_{i=1}^M \mu_{t-1}^{i|j}\!\left(\Sigma^{(i)}_{g,t-1|t-1}+(\mu^{(i)}_{g,t-1|t-1}-\bar\mu^{(j)}_{g,t-1})(\mu^{(i)}_{g,t-1|t-1}-\bar\mu^{(j)}_{g,t-1})^\top\right)$
 \FOR{each $k\in\mathcal{K}^{\text{keep}}_t$}

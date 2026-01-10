@@ -75,31 +75,38 @@ def _collect_factorized_em_data(
     residuals = []
     residuals_full = []
 
+    prev_suspend = getattr(router, "_online_em_suspended", False)
+    if hasattr(router, "suspend_online_em"):
+        router.suspend_online_em(True)
     router.reset_beliefs()
     t_end = min(int(t_end), env.T - 1)
-    for t in range(1, t_end + 1):
-        x_t = env.get_context(t)
-        available = env.get_available_experts(t)
-        r_t, cache = router.select_expert(x_t, available)
+    try:
+        for t in range(1, t_end + 1):
+            x_t = env.get_context(t)
+            available = env.get_available_experts(t)
+            r_t, cache = router.select_expert(x_t, available)
 
-        preds = env.all_expert_predictions(x_t)
-        residuals_all = preds - float(env.y[t])
-        residual = float(residuals_all[int(r_t)])
+            preds = env.all_expert_predictions(x_t)
+            residuals_all = preds - float(env.y[t])
+            residual = float(residuals_all[int(r_t)])
 
-        contexts.append(x_t)
-        available_sets.append(list(available))
-        actions.append(int(r_t))
-        residuals.append(residual)
-        residuals_full.append(residuals_all)
+            contexts.append(x_t)
+            available_sets.append(list(available))
+            actions.append(int(r_t))
+            residuals.append(residual)
+            residuals_full.append(residuals_all)
 
-        losses_full = residuals_all if router.feedback_mode == "full" else None
-        router.update_beliefs(
-            r_t=r_t,
-            loss_obs=residual,
-            losses_full=losses_full,
-            available_experts=available,
-            cache=cache,
-        )
+            losses_full = residuals_all if router.feedback_mode == "full" else None
+            router.update_beliefs(
+                r_t=r_t,
+                loss_obs=residual,
+                losses_full=losses_full,
+                available_experts=available,
+                cache=cache,
+            )
+    finally:
+        if hasattr(router, "suspend_online_em"):
+            router.suspend_online_em(prev_suspend)
 
     return contexts, available_sets, actions, residuals, residuals_full
 
@@ -1224,6 +1231,7 @@ if __name__ == "__main__":
             arrival_intervals=env_cfg.get("arrival_intervals", [(120, 200)]),
             setting=setting,
             noise_scale=env_cfg.get("noise_scale", None),
+            tri_cycle_cfg=env_cfg.get("tri_cycle", None),
         )
     # Visualization-only settings for plots.
     env.plot_shift = int(cfg.get("plot_shift", 1))
@@ -1245,12 +1253,15 @@ if __name__ == "__main__":
         n_samples = int(factorized_slds_cfg.get("em_samples", 10))
         burn_in = int(factorized_slds_cfg.get("em_burn_in", 5))
         val_fraction = float(factorized_slds_cfg.get("em_val_fraction", 0.2))
+        val_len_cfg = factorized_slds_cfg.get("em_val_len", None)
+        val_len = int(val_len_cfg) if val_len_cfg is not None else None
         theta_lr = float(factorized_slds_cfg.get("em_theta_lr", 1e-2))
         theta_steps = int(factorized_slds_cfg.get("em_theta_steps", 1))
         em_seed_cfg = factorized_slds_cfg.get("em_seed", env_cfg.get("seed", 0))
         em_seed = int(em_seed_cfg) if em_seed_cfg is not None else 0
         em_priors = factorized_slds_cfg.get("em_priors", None)
         print_val_loss = bool(factorized_slds_cfg.get("em_print_val_loss", True))
+        em_eps_n = float(factorized_slds_cfg.get("em_eps_n", 0.0))
 
         print(f"\n--- FactorizedSLDS EM ({label}) (t=1..{em_tk}, n_em={n_em}) ---")
         ctx_em, avail_em, actions_em, resid_em, resid_full_em = _collect_factorized_em_data(
@@ -1266,14 +1277,100 @@ if __name__ == "__main__":
             n_samples=n_samples,
             burn_in=burn_in,
             val_fraction=val_fraction,
+            val_len=val_len,
             priors=em_priors,
             theta_lr=theta_lr,
             theta_steps=theta_steps,
             seed=em_seed,
             print_val_loss=print_val_loss,
+            epsilon_N=em_eps_n,
+            use_validation=False,
         )
         router.em_tk = int(em_tk)
         router.reset_beliefs()
+
+    def _configure_factorized_online_em(
+        router: Optional[FactorizedSLDS],
+    ) -> None:
+        if router is None:
+            return
+        online_enabled = bool(factorized_slds_cfg.get("em_online_enabled", False))
+        if not online_enabled:
+            return
+
+        window_cfg = factorized_slds_cfg.get("em_online_window", None)
+        window = int(window_cfg) if window_cfg is not None else 0
+        if window <= 0:
+            return
+        period = int(factorized_slds_cfg.get("em_online_period", 1))
+        n_em = int(
+            factorized_slds_cfg.get(
+                "em_online_n", factorized_slds_cfg.get("em_n", 1)
+            )
+        )
+        n_samples = int(
+            factorized_slds_cfg.get(
+                "em_online_samples", factorized_slds_cfg.get("em_samples", 10)
+            )
+        )
+        burn_in = int(
+            factorized_slds_cfg.get(
+                "em_online_burn_in", factorized_slds_cfg.get("em_burn_in", 5)
+            )
+        )
+        theta_lr = float(
+            factorized_slds_cfg.get(
+                "em_online_theta_lr", factorized_slds_cfg.get("em_theta_lr", 1e-2)
+            )
+        )
+        theta_steps = int(
+            factorized_slds_cfg.get(
+                "em_online_theta_steps", factorized_slds_cfg.get("em_theta_steps", 1)
+            )
+        )
+        eps_n = float(
+            factorized_slds_cfg.get(
+                "em_online_eps_n", factorized_slds_cfg.get("em_eps_n", 0.0)
+            )
+        )
+        start_t_cfg = factorized_slds_cfg.get("em_online_start_t", None)
+        if start_t_cfg is None:
+            em_tk_local = getattr(router, "em_tk", None)
+            start_t = None if em_tk_local is None else int(em_tk_local) + 1
+        else:
+            start_t = int(start_t_cfg)
+        seed_cfg = factorized_slds_cfg.get(
+            "em_online_seed", factorized_slds_cfg.get("em_seed", None)
+        )
+        seed = None if seed_cfg is None else int(seed_cfg)
+        online_priors = factorized_slds_cfg.get("em_online_priors", None)
+        if online_priors is None:
+            online_priors = factorized_slds_cfg.get("em_priors", None)
+        print_val_loss = bool(
+            factorized_slds_cfg.get(
+                "em_online_print_val_loss",
+                factorized_slds_cfg.get("em_print_val_loss", True),
+            )
+        )
+        use_state_priors = bool(
+            factorized_slds_cfg.get("em_online_use_state_priors", True)
+        )
+        router.configure_online_em(
+            enabled=True,
+            window=window,
+            period=period,
+            n_em=n_em,
+            n_samples=n_samples,
+            burn_in=burn_in,
+            epsilon_N=eps_n,
+            theta_lr=theta_lr,
+            theta_steps=theta_steps,
+            priors=online_priors,
+            start_t=start_t,
+            seed=seed,
+            print_val_loss=print_val_loss,
+            use_state_priors=use_state_priors,
+        )
 
     if base_transition_mode is not None:
         _run_factorized_em(
@@ -1295,6 +1392,13 @@ if __name__ == "__main__":
         _run_factorized_em(
             fact_router_full_linear, f"{extra_transition_mode} full"
         )
+
+    _configure_factorized_online_em(fact_router_partial)
+    _configure_factorized_online_em(fact_router_full)
+    _configure_factorized_online_em(fact_router_partial_linear)
+    _configure_factorized_online_em(fact_router_full_linear)
+    _configure_factorized_online_em(router_partial_no_g)
+    _configure_factorized_online_em(router_full_no_g)
 
     # Plot the true series and expert predictions
     # plot_time_series(env)
