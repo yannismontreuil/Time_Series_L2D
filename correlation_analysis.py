@@ -139,15 +139,9 @@ def _parse_args() -> argparse.Namespace:
 
 def analysis_correlations_in_experts(
     env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,
-    router_partial_no_g,
-    router_full_no_g,
     router_factorial_partial: Optional[FactorizedSLDS],
     router_factorial_full: Optional[FactorizedSLDS],
     factorized_label: str = "Factorized SLDS",
-    router_factorial_partial_linear: Optional[FactorizedSLDS] = None,
-    router_factorial_full_linear: Optional[FactorizedSLDS] = None,
-    factorized_linear_label: str = "Factorized SLDS linear",
-    seed: int = 0,
 ) -> None:
     """
     Plot the underlying latent u_k for each expert k=0,...,N-1 over time, plot the mean and variance bar
@@ -173,10 +167,10 @@ def analysis_correlations_in_experts(
             This design makes the theoretical trap particularly challenging
             because the router cannot easily distinguish between the highly correlated Experts 0 & 1,
     """
-    # Note: not consider difference between attention and linear
     def _run_factorized_router_collect_u_k(router: FactorizedSLDS):
         u_ks = []
         router.reset_beliefs()
+
         idiosyncratic_states = run_f_router_on_env_return_idiosyncratic_factor(router, env)
 
         print(f"idiosyncratic_means: {idiosyncratic_states.mean()}")
@@ -187,7 +181,7 @@ def analysis_correlations_in_experts(
 
         u_ks = np.stack(u_ks, axis=0)
         N, T, _, _ = u_ks.shape
-        U = u_ks.reshape(N, T, -1)  # (N, T, 4)
+        U = u_ks.reshape(N, T, -1)  # (N, T, 6)
 
         def cosine_time(a, b):
             num = np.sum(a * b, axis=1)
@@ -196,9 +190,10 @@ def analysis_correlations_in_experts(
             den = norm_a * norm_b
 
             # Handle division by zero: return NaN where either vector is zero
-            result = np.full_like(num, np.nan)
+            result = np.zeros_like(num, dtype=float)
             mask = den != 0
             result[mask] = num[mask] / den[mask]
+
             return result
 
         # For tri_cycle_corr: plot all relevant expert pairs
@@ -206,27 +201,66 @@ def analysis_correlations_in_experts(
         # Regime 1: experts 2 & 3 correlated
         # Regime 2: experts 0 & 4 correlated
         setting = getattr(env, "setting", "")
-        if setting == "tri_cycle_corr" and N >= 5:
+        if setting == "tri_cycle_corr" and N == 5:
             expert_pairs = [(0, 1), (2, 3), (0, 4), (1, 2), (3, 4)]
-        else:
+        else: # for the easy synthetic setting
             expert_pairs = [(0, 1), (0, 2), (1, 2)]
 
-        plt.figure(figsize=(12, 6))
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+        # Add regime shading as background
+        if hasattr(env, "z"):
+            z = env.z
+            T_env = len(z)  # Use actual environment length for shading
+            # Regime colors
+            regime_colors = {
+                0: "lightcoral",    # Regime 0: red-ish (experts 0 & 1 correlated)
+                1: "lightgreen",    # Regime 1: green-ish (experts 2 & 3 correlated)
+                2: "lightskyblue",  # Regime 2: blue-ish (experts 0 & 4 correlated)
+            }
+            # Find regime boundaries and shade
+            t = 0
+            while t < T_env:
+                regime = int(z[t])
+                t_start = t
+                # Find end of this regime block
+                while t < T_env and z[t] == regime:
+                    t += 1
+                t_end = t
+                color = regime_colors.get(regime, "lightgray")
+                ax.axvspan(t_start, t_end, alpha=0.3, color=color, label=f"Regime {regime}" if t_start == 0 or z[t_start-1] != regime else "")
+
+        # Plot cosine similarities - note T from u_ks may differ from env.T
+        # We need to align x-axis with the actual environment timesteps
+        T_actual = min(T, len(env.z) if hasattr(env, "z") else T)
+        x_axis = np.arange(T_actual)
         for i, j in expert_pairs:
             if i < N and j < N:
-                plt.plot(cosine_time(U[i], U[j]), label=f"Expert {i} vs {j}")
+                cos_vals = cosine_time(U[i], U[j])
+                ax.plot(x_axis, cos_vals[:T_actual], label=f"Expert {i} vs {j}")
 
-        plt.axhline(0, color="black", linestyle="--", alpha=0.5)
-        plt.xlabel("Time t")
-        plt.ylabel("Cosine similarity")
-        plt.title("Time-resolved expert similarity (idiosyncratic factors u_k)")
-        plt.legend()
+        ax.axhline(0, color="black", linestyle="--", alpha=0.5)
+        ax.set_xlabel("Time t")
+        ax.set_ylabel("Cosine similarity")
+        ax.set_title("Time-resolved expert similarity (idiosyncratic factors u_k)")
+
+        # Create legend without duplicate regime labels
+        handles, labels = ax.get_legend_handles_labels()
+        seen = set()
+        unique_handles, unique_labels = [], []
+        for h, l in zip(handles, labels):
+            if l not in seen:
+                seen.add(l)
+                unique_handles.append(h)
+                unique_labels.append(l)
+        ax.legend(unique_handles, unique_labels, loc="upper right")
         plt.tight_layout()
         plt.show()
 
         # Print correlation statistics by regime for tri_cycle_corr
         if setting == "tri_cycle_corr" and hasattr(env, "z"):
             z = env.z
+            T_z = len(z)
             regime_pair_map = {
                 0: (0, 1),  # Regime 0: experts 0 & 1 correlated
                 1: (2, 3),  # Regime 1: experts 2 & 3 correlated
@@ -237,18 +271,12 @@ def analysis_correlations_in_experts(
                 if exp_i >= N or exp_j >= N:
                     continue
                 cosine_vals = cosine_time(U[exp_i], U[exp_j])
-                # Align z with cosine_vals length (cosine_vals may be shorter or longer than z)
-                T_cosine = len(cosine_vals)
-                T_z = len(z)
-                if T_cosine <= T_z:
-                    z_aligned = z[:T_cosine]
-                else:
-                    # Repeat or pad z if cosine_vals is longer (unlikely but handle it)
-                    z_aligned = np.tile(z, (T_cosine // T_z) + 1)[:T_cosine]
-                regime_mask = (z_aligned == regime_idx)
+                # Truncate cosine_vals to match z length
+                cosine_vals_aligned = cosine_vals[:T_z]
+                regime_mask = (z[:len(cosine_vals_aligned)] == regime_idx)
                 if not np.any(regime_mask):
                     continue
-                regime_cosines = cosine_vals[regime_mask]
+                regime_cosines = cosine_vals_aligned[regime_mask]
                 valid_cosines = regime_cosines[~np.isnan(regime_cosines)]
                 if len(valid_cosines) > 0:
                     print(f"Regime {regime_idx}: Experts {exp_i} & {exp_j} (expected correlated)")
@@ -260,6 +288,7 @@ def analysis_correlations_in_experts(
     if router_factorial_partial is not None:
         print(f"\n--- Analyzing idiosyncratic factors for {factorized_label} (partial) ---")
         _run_factorized_router_collect_u_k(router_factorial_partial)
+
     if router_factorial_full is not None:
         print(f"\n--- Analyzing idiosyncratic factors for {factorized_label} (full) ---")
         _run_factorized_router_collect_u_k(router_factorial_full)
@@ -292,12 +321,6 @@ if __name__ == "__main__":
         factorized_slds_cfg = factorized_slds_cfg_raw
     factorized_slds_enabled = bool(factorized_slds_cfg.get("enabled", True))
 
-    baselines_cfg = cfg.get("baselines", {})
-    l2d_cfg = baselines_cfg.get("l2d", {})
-    l2d_sw_cfg = baselines_cfg.get("l2d_sw", {})
-    linucb_cfg = baselines_cfg.get("linucb", {})
-    neuralucb_cfg = baselines_cfg.get("neural_ucb", {})
-    horizon_cfg = cfg.get("horizon_planning", {})
 
     # Model dimensions and core hyperparameters
     setting = env_cfg.get("setting", "easy_setting")
@@ -766,22 +789,10 @@ if __name__ == "__main__":
     _configure_factorized_online_em(router_partial_no_g)
     _configure_factorized_online_em(router_full_no_g)
 
-    # Plot the true series and expert predictions
-    # plot_time_series(env)
-
-    # Evaluate routers, L2D baseline, and constant-expert baselines,
-    # and plot their induced prediction time series.
     analysis_correlations_in_experts(
         env,
-        router_partial_no_g,
-        router_full_no_g,
         fact_router_partial,
         fact_router_full,
-        factorized_label=factorized_label,
-        router_factorial_partial_linear=fact_router_partial_linear,
-        router_factorial_full_linear=fact_router_full_linear,
-        factorized_linear_label=factorized_linear_label,
-        seed=seed,
     )
 
 

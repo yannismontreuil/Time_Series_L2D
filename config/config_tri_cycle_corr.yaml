@@ -2,10 +2,6 @@
 
 #1 -> 2 -> 3 -> 2 -> 3 -> 1 regime pattern.
 
-# Regime 1: experts 1 & 2 correlated
-# Regime 2: experts 3 & 4 correlated
-# Regime 3: experts 1 & 5 correlated
-
 # - Expert 4 (index 3) available in regimes 1 and 2.
 # - Expert 5 (index 4) available in regimes 2 and 3.
 

@@ -1,7 +1,49 @@
 import numpy as np
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+import json
+import time
+try:
+    import torch
+    import torch.nn as nn
+except ImportError:
+    torch = None
+    nn = None
+
 
 from models.router_model import SLDSIMMRouter
+
+
+# region agent log
+def _agent_debug_log(
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: Dict[str, Any],
+    run_id: str = "initial",
+) -> None:
+    """
+    Lightweight NDJSON logger for debugging (auto-ingested by Cursor).
+    """
+    try:
+        payload = {
+            "sessionId": "debug-session",
+            "runId": run_id,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with open(
+            "/Users/sky/PycharmProjects/Time_Series_L2D/.cursor/debug.log", "a"
+        ) as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception:
+        # Logging must never interfere with program execution
+        pass
+
+
+# endregion
 
 
 class FactorizedSLDS(SLDSIMMRouter):
@@ -1351,6 +1393,40 @@ class FactorizedSLDS(SLDSIMMRouter):
             optimizer.step()
         self.transition_model.eval()
 
+    def _ensure_psd(self, cov: np.ndarray) -> np.ndarray:
+        """
+        Ensure covariance matrix is positive semi-definite by clipping negative eigenvalues.
+        This prevents SVD convergence failures in multivariate_normal.
+        """
+        cov = 0.5 * (cov + cov.T)  # Ensure symmetry
+        try:
+            eigenvals, eigenvecs = np.linalg.eigh(cov)
+            min_eigenval_before = float(np.min(eigenvals))
+            eigenvals = np.maximum(eigenvals, self.eps)  # Clip negative eigenvalues to eps
+            min_eigenval_after = float(np.min(eigenvals))
+            cov_psd = eigenvecs @ np.diag(eigenvals) @ eigenvecs.T
+            result = 0.5 * (cov_psd + cov_psd.T)  # Ensure symmetry again
+            # region agent log
+            if min_eigenval_before < self.eps:
+                try:
+                    _agent_debug_log(
+                        hypothesis_id="H1_covariance_issue",
+                        location="models/factorized_slds.py:_ensure_psd",
+                        message="Clipped negative eigenvalues",
+                        data={
+                            "min_eigenval_before": min_eigenval_before,
+                            "min_eigenval_after": min_eigenval_after,
+                            "eps": float(self.eps),
+                        },
+                    )
+                except Exception:
+                    pass
+            # endregion
+            return result
+        except np.linalg.LinAlgError:
+            # Fallback: if eigendecomposition fails, just add more regularization
+            return cov + self.eps * np.eye(cov.shape[0])
+
     def _kalman_sample(
         self,
         A_seq: np.ndarray,
@@ -1364,6 +1440,20 @@ class FactorizedSLDS(SLDSIMMRouter):
         rng: np.random.Generator,
     ) -> np.ndarray:
         T, d = y_seq.shape[0], m0.shape[0]
+        # region agent log
+        try:
+            _agent_debug_log(
+                hypothesis_id="H1_covariance_issue",
+                location="models/factorized_slds.py:_kalman_sample:entry",
+                message="Entered _kalman_sample",
+                data={
+                    "T": int(T),
+                    "d": int(d),
+                },
+            )
+        except Exception:
+            pass
+        # endregion
         if d == 0:
             return np.zeros((T, 0), dtype=float)
         m_pred = np.zeros((T, d), dtype=float)
@@ -1395,7 +1485,53 @@ class FactorizedSLDS(SLDSIMMRouter):
                 P_filt[t] = P_pred[t]
 
         x = np.zeros((T, d), dtype=float)
-        x[T - 1] = rng.multivariate_normal(m_filt[T - 1], P_filt[T - 1])
+        # region agent log
+        try:
+            cov0 = P_filt[T - 1]
+            cov0_min = float(np.nanmin(cov0))
+            cov0_max = float(np.nanmax(cov0))
+            cov0_any_nan = bool(np.isnan(cov0).any())
+            cov0_any_inf = bool(np.isinf(cov0).any())
+            if (
+                cov0_any_nan
+                or cov0_any_inf
+                or cov0_min < -1e-6
+                or cov0_max > 1e6
+            ):
+                _agent_debug_log(
+                    hypothesis_id="H1_covariance_issue",
+                    location="models/factorized_slds.py:_kalman_sample:final_step",
+                    message="Suspicious covariance at final step",
+                    data={
+                        "t": int(T - 1),
+                        "cov_min": cov0_min,
+                        "cov_max": cov0_max,
+                        "cov_any_nan": cov0_any_nan,
+                        "cov_any_inf": cov0_any_inf,
+                    },
+                )
+        except Exception:
+            pass
+        # endregion
+        try:
+            P_filt_final = self._ensure_psd(P_filt[T - 1])
+            x[T - 1] = rng.multivariate_normal(m_filt[T - 1], P_filt_final)
+        except np.linalg.LinAlgError as e:
+            # region agent log
+            try:
+                _agent_debug_log(
+                    hypothesis_id="H1_covariance_issue",
+                    location="models/factorized_slds.py:_kalman_sample:final_step",
+                    message="multivariate_normal_failed",
+                    data={
+                        "t": int(T - 1),
+                        "error": str(e),
+                    },
+                )
+            except Exception:
+                pass
+            # endregion
+            raise
         for t in range(T - 2, -1, -1):
             P_pred_next = P_pred[t + 1]
             J = P_filt[t] @ A_seq[t + 1].T @ np.linalg.inv(
@@ -1404,8 +1540,51 @@ class FactorizedSLDS(SLDSIMMRouter):
             mean = m_filt[t] + J @ (x[t + 1] - m_pred[t + 1])
             cov = P_filt[t] - J @ P_pred_next @ J.T
             cov = 0.5 * (cov + cov.T) + self.eps * np.eye(d)
-            x[t] = rng.multivariate_normal(mean, cov)
-
+            # region agent log
+            try:
+                cov_min = float(np.nanmin(cov))
+                cov_max = float(np.nanmax(cov))
+                cov_any_nan = bool(np.isnan(cov).any())
+                cov_any_inf = bool(np.isinf(cov).any())
+                if cov_any_nan or cov_any_inf or cov_min < -1e-6 or cov_max > 1e6:
+                    _agent_debug_log(
+                        hypothesis_id="H1_covariance_issue",
+                        location="models/factorized_slds.py:_kalman_sample:backward_step",
+                        message="Suspicious covariance during backward sampling",
+                        data={
+                            "t": int(t),
+                            "cov_min": cov_min,
+                            "cov_max": cov_max,
+                            "cov_any_nan": cov_any_nan,
+                            "cov_any_inf": cov_any_inf,
+                        },
+                    )
+            except Exception:
+                pass
+            # endregion
+            try:
+                cov_psd = self._ensure_psd(cov)
+                x[t] = rng.multivariate_normal(mean, cov_psd)
+            except np.linalg.LinAlgError as e:
+                # region agent log
+                try:
+                    _agent_debug_log(
+                        hypothesis_id="H1_covariance_issue",
+                        location="models/factorized_slds.py:_kalman_sample:backward_step",
+                        message="multivariate_normal_failed",
+                        data={
+                            "t": int(t),
+                            "error": str(e),
+                            "cov_min": cov_min,
+                            "cov_max": cov_max,
+                            "cov_any_nan": cov_any_nan,
+                            "cov_any_inf": cov_any_inf,
+                        },
+                    )
+                except Exception:
+                    pass
+                # endregion
+                raise
         return x
 
     def _kalman_sample_multi(
@@ -1456,7 +1635,8 @@ class FactorizedSLDS(SLDSIMMRouter):
             P_filt[t] = P_t
 
         x = np.zeros((T, d), dtype=float)
-        x[T - 1] = rng.multivariate_normal(m_filt[T - 1], P_filt[T - 1])
+        P_filt_final = self._ensure_psd(P_filt[T - 1])
+        x[T - 1] = rng.multivariate_normal(m_filt[T - 1], P_filt_final)
         for t in range(T - 2, -1, -1):
             P_pred_next = P_pred[t + 1]
             J = P_filt[t] @ A_seq[t + 1].T @ np.linalg.inv(
@@ -1465,7 +1645,8 @@ class FactorizedSLDS(SLDSIMMRouter):
             mean = m_filt[t] + J @ (x[t + 1] - m_pred[t + 1])
             cov = P_filt[t] - J @ P_pred_next @ J.T
             cov = 0.5 * (cov + cov.T) + self.eps * np.eye(d)
-            x[t] = rng.multivariate_normal(mean, cov)
+            cov_psd = self._ensure_psd(cov)
+            x[t] = rng.multivariate_normal(mean, cov_psd)
 
         return x
 
