@@ -49,6 +49,19 @@ class FactorizedSLDS(SLDSIMMRouter):
         u_cov0: Optional[np.ndarray] = None,
         eps: float = 1e-8,
         feedback_mode: str = "partial",
+        exploration: str = "g",
+        exploration_mc_samples: int = 25,
+        exploration_ucb_samples: int = 200,
+        exploration_ucb_alpha: Optional[float] = None,
+        exploration_ucb_schedule: str = "inverse_t",
+        exploration_sampling_deterministic: bool = False,
+        exploration_diag_enabled: bool = False,
+        exploration_diag_stride: int = 100,
+        exploration_diag_samples: int = 50,
+        exploration_diag_print: bool = True,
+        exploration_diag_max_records: int = 2000,
+        state_clip: float = 1e6,
+        cov_clip: float = 1e12,
         observation_mode: str = "residual",
         transition_model: Optional[object] = None,
         transition_hidden_dims: Optional[Sequence[int]] = None,
@@ -132,12 +145,44 @@ class FactorizedSLDS(SLDSIMMRouter):
                 self.transition_input_dim = self.context_dim
         self.W_q: Optional[np.ndarray] = None
         self.W_k: Optional[np.ndarray] = None
+        self.b_attn: Optional[np.ndarray] = None
         if self.context_dim is not None:
             self._init_transition_params(self.context_dim)
 
         if feedback_mode not in ("partial", "full"):
             raise ValueError("feedback_mode must be 'partial' or 'full'.")
         self.feedback_mode = feedback_mode
+
+        exploration = str(exploration).lower()
+        if exploration not in ("g", "g_z", "ucb", "sampling"):
+            raise ValueError(
+                "exploration must be one of 'g', 'g_z', 'ucb', or 'sampling'."
+            )
+        self.exploration = exploration
+        self.exploration_mc_samples = max(int(exploration_mc_samples), 0)
+        self.exploration_ucb_samples = max(int(exploration_ucb_samples), 0)
+        if exploration_ucb_alpha is None:
+            self.exploration_ucb_alpha = None
+        else:
+            self.exploration_ucb_alpha = float(exploration_ucb_alpha)
+            if not (0.0 < self.exploration_ucb_alpha < 1.0):
+                raise ValueError("exploration_ucb_alpha must be in (0, 1).")
+        exploration_ucb_schedule = str(exploration_ucb_schedule).lower()
+        if exploration_ucb_schedule not in ("inverse_t", "inverse_t_log2", "fixed"):
+            raise ValueError(
+                "exploration_ucb_schedule must be 'inverse_t', "
+                "'inverse_t_log2', or 'fixed'."
+            )
+        self.exploration_ucb_schedule = exploration_ucb_schedule
+        self.exploration_sampling_deterministic = bool(exploration_sampling_deterministic)
+        self.exploration_diag_enabled = bool(exploration_diag_enabled)
+        self.exploration_diag_stride = max(int(exploration_diag_stride), 1)
+        self.exploration_diag_samples = max(int(exploration_diag_samples), 0)
+        self.exploration_diag_print = bool(exploration_diag_print)
+        self.exploration_diag_max_records = max(int(exploration_diag_max_records), 0)
+        self.exploration_diag_records: List[Tuple[int, float, float, float]] = []
+        self.state_clip = float(state_clip)
+        self.cov_clip = float(cov_clip)
 
         if observation_mode != "residual":
             raise ValueError(
@@ -165,6 +210,8 @@ class FactorizedSLDS(SLDSIMMRouter):
         self._online_em_suspended = False
         self._em_records: List[Dict[str, Any]] = []
         self._em_records_start: Optional[int] = None
+        self.transition_log_cfg: Optional[dict] = None
+        self.transition_log_label: Optional[str] = None
 
         self.registry: List[int] = []
         self.mu_u: Dict[int, np.ndarray] = {}
@@ -303,6 +350,57 @@ class FactorizedSLDS(SLDSIMMRouter):
         denom = np.maximum(denom, self.eps)
         return expX / denom
 
+    def _sanitize_vector(self, vec: np.ndarray, fallback: np.ndarray) -> np.ndarray:
+        vec = np.asarray(vec, dtype=float)
+        if not np.isfinite(vec).all():
+            return np.asarray(fallback, dtype=float).copy()
+        return np.clip(vec, -self.state_clip, self.state_clip)
+
+    def _sanitize_cov(self, cov: np.ndarray, fallback: np.ndarray) -> np.ndarray:
+        cov = np.asarray(cov, dtype=float)
+        if not np.isfinite(cov).all():
+            return np.asarray(fallback, dtype=float).copy()
+        cov = np.clip(cov, -self.cov_clip, self.cov_clip)
+        cov = 0.5 * (cov + cov.T)
+        return cov
+
+    def _transition_log_enabled(self) -> bool:
+        if not isinstance(self.transition_log_cfg, dict):
+            return False
+        return bool(self.transition_log_cfg.get("enabled", False))
+
+    def _transition_log_precision(self) -> int:
+        cfg = self.transition_log_cfg or {}
+        try:
+            return int(cfg.get("precision", 4))
+        except (TypeError, ValueError):
+            return 4
+
+    def _maybe_log_transition_params(self, stage: str) -> None:
+        if not self._transition_log_enabled():
+            return
+        if not bool(self.transition_log_cfg.get("print_wlin_blin", False)):
+            return
+        if self.transition_mode != "linear":
+            return
+        if self.W_lin is None or self.b_lin is None:
+            return
+        label = self.transition_log_label or "FactorizedSLDS"
+        precision = self._transition_log_precision()
+        w_str = np.array2string(
+            self.W_lin,
+            precision=precision,
+            floatmode="fixed",
+            separator=", ",
+        )
+        b_str = np.array2string(
+            self.b_lin,
+            precision=precision,
+            floatmode="fixed",
+            separator=", ",
+        )
+        print(f"[transition-params] {label} {stage} W_lin={w_str} b_lin={b_str}")
+
     def _init_transition_params(self, context_dim: int) -> None:
         self.context_dim = int(context_dim)
         if self.transition_mode == "linear":
@@ -312,6 +410,8 @@ class FactorizedSLDS(SLDSIMMRouter):
             self.b_lin = np.zeros((self.M, self.M), dtype=float)
             self.W_q = None
             self.W_k = None
+            self.b_attn = None
+            self._maybe_log_transition_params("init")
         else:
             self.W_q = self._rng.normal(
                 scale=0.1, size=(self.M, self.attn_dim, self.context_dim)
@@ -319,6 +419,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             self.W_k = self._rng.normal(
                 scale=0.1, size=(self.M, self.attn_dim, self.context_dim)
             )
+            self.b_attn = np.zeros((self.M, self.M), dtype=float)
             self.W_lin = None
             self.b_lin = None
 
@@ -384,6 +485,8 @@ class FactorizedSLDS(SLDSIMMRouter):
         q = np.einsum("mad,d->ma", self.W_q, x)
         k = np.einsum("mad,d->ma", self.W_k, x)
         scores = (q @ k.T) / np.sqrt(float(self.attn_dim))
+        if self.b_attn is not None:
+            scores = scores + self.b_attn
         return self._softmax_rows(scores)
 
     def reset_beliefs(self) -> None:
@@ -542,6 +645,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             init_state=init_state,
             use_validation=False,
             set_em_tk=False,
+            transition_log_stage=f"post_online_em t={t_now}",
         )
 
     def _interaction_and_time_update(
@@ -571,6 +675,7 @@ class FactorizedSLDS(SLDSIMMRouter):
                 else:
                     mu_ij[:, j] /= s
 
+        mu_g_prev = np.clip(mu_g_prev, -self.state_clip, self.state_clip)
         mixed_mu_g = np.zeros_like(mu_g_prev)
         mixed_Sigma_g = np.zeros_like(Sigma_g_prev)
         for j in range(self.M):
@@ -580,14 +685,17 @@ class FactorizedSLDS(SLDSIMMRouter):
             for i in range(self.M):
                 w_ij = mu_ij[i, j]
                 diff = mu_g_prev[i] - mixed_mu_g[j]
+                diff = np.clip(diff, -self.state_clip, self.state_clip)
                 mixed_Sigma_g[j] += w_ij * (
                     Sigma_g_prev[i] + np.outer(diff, diff)
                 )
+            mixed_mu_g[j] = self._sanitize_vector(mixed_mu_g[j], self.g_mean0[j])
+            mixed_Sigma_g[j] = self._sanitize_cov(mixed_Sigma_g[j], self.g_cov0[j])
 
         mixed_mu_u: Dict[int, np.ndarray] = {}
         mixed_Sigma_u: Dict[int, np.ndarray] = {}
         for k in self.registry:
-            mu_modes = mu_u_prev[k]
+            mu_modes = np.clip(mu_u_prev[k], -self.state_clip, self.state_clip)
             Sigma_modes = Sigma_u_prev[k]
             mixed_mu_u[k] = np.zeros_like(mu_modes)
             mixed_Sigma_u[k] = np.zeros_like(Sigma_modes)
@@ -598,9 +706,16 @@ class FactorizedSLDS(SLDSIMMRouter):
                 for i in range(self.M):
                     w_ij = mu_ij[i, j]
                     diff = mu_modes[i] - mixed_mu_u[k][j]
+                    diff = np.clip(diff, -self.state_clip, self.state_clip)
                     mixed_Sigma_u[k][j] += w_ij * (
                         Sigma_modes[i] + np.outer(diff, diff)
                     )
+                mixed_mu_u[k][j] = self._sanitize_vector(
+                    mixed_mu_u[k][j], self.u_mean0[j]
+                )
+                mixed_Sigma_u[k][j] = self._sanitize_cov(
+                    mixed_Sigma_u[k][j], self.u_cov0[j]
+                )
 
         mu_g_pred = np.zeros_like(mixed_mu_g)
         Sigma_g_pred = np.zeros_like(mixed_Sigma_g)
@@ -612,6 +727,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             Sigma_g_pred[m] = (
                 self.A_g[m] @ mixed_Sigma_g[m] @ self.A_g[m].T + self.Q_g[m]
             )
+            Sigma_g_pred[m] = self._sanitize_cov(Sigma_g_pred[m], self.g_cov0[m])
             Sigma_g_pred[m] = 0.5 * (Sigma_g_pred[m] + Sigma_g_pred[m].T) + self.eps * np.eye(
                 self.d_g, dtype=float
             )
@@ -624,11 +740,81 @@ class FactorizedSLDS(SLDSIMMRouter):
                 Sigma_u_pred[k][m] = (
                     self.A_u[m] @ mixed_Sigma_u[k][m] @ self.A_u[m].T + self.Q_u[m]
                 )
+                Sigma_u_pred[k][m] = self._sanitize_cov(
+                    Sigma_u_pred[k][m], self.u_cov0[m]
+                )
                 Sigma_u_pred[k][m] = 0.5 * (
                     Sigma_u_pred[k][m] + Sigma_u_pred[k][m].T
                 ) + self.eps * np.eye(self.d_phi, dtype=float)
 
         return w_pred, mu_g_pred, Sigma_g_pred, mu_u_pred, Sigma_u_pred
+
+    def _compute_predictive_stats(
+        self,
+        phi: np.ndarray,
+        w_pred: np.ndarray,
+        mu_g_pred: np.ndarray,
+        Sigma_g_pred: np.ndarray,
+        mu_u_pred: Dict[int, np.ndarray],
+        Sigma_u_pred: Dict[int, np.ndarray],
+        available_experts: Sequence[int],
+    ) -> Tuple[Dict[int, float], Dict[int, float], Dict[int, dict]]:
+        costs: Dict[int, float] = {}
+        info_gains: Dict[int, float] = {}
+        stats: Dict[int, dict] = {}
+
+        for k in available_experts:
+            k = int(k)
+            if k not in mu_u_pred or k not in Sigma_u_pred:
+                continue
+            Bk = self._ensure_B(k)
+            h = (Bk.T @ phi) if self.d_g > 0 else np.zeros(0, dtype=float)
+            mean_modes = np.zeros(self.M, dtype=float)
+            var_modes = np.zeros(self.M, dtype=float)
+            signal_modes = np.zeros(self.M, dtype=float)
+            noise_modes = np.zeros(self.M, dtype=float)
+            b_modes = np.zeros(self.M, dtype=float)
+            s_modes = np.zeros(self.M, dtype=float)
+            ig_modes = np.zeros(self.M, dtype=float)
+            for m in range(self.M):
+                mu_u_m = mu_u_pred[k][m]
+                Sigma_u_m = Sigma_u_pred[k][m]
+                b_m = float(phi @ mu_u_m)
+                s_m = float(phi @ (Sigma_u_m @ phi)) + self._get_R(m, k)
+                s_m = max(s_m, self.eps)
+                if self.d_g > 0:
+                    mu_g_m = mu_g_pred[m]
+                    Sigma_g_m = Sigma_g_pred[m]
+                    mean_m = float(h @ mu_g_m) + b_m
+                    signal = float(h @ (Sigma_g_m @ h))
+                    signal = max(signal, 0.0)
+                else:
+                    mean_m = b_m
+                    signal = 0.0
+                mean_modes[m] = mean_m
+                var_modes[m] = signal + s_m
+                signal_modes[m] = signal
+                noise_modes[m] = s_m
+                b_modes[m] = b_m
+                s_modes[m] = s_m
+                ig_modes[m] = 0.5 * np.log1p(signal / s_m)
+
+            cost = float(w_pred @ (var_modes + mean_modes ** 2)) + self._get_beta(k)
+            ig = float(w_pred @ ig_modes)
+
+            costs[k] = cost
+            info_gains[k] = ig
+            stats[k] = {
+                "h": h,
+                "mean": mean_modes,
+                "var": var_modes,
+                "signal": signal_modes,
+                "noise": noise_modes,
+                "b": b_modes,
+                "s": s_modes,
+            }
+
+        return costs, info_gains, stats
 
     def _score_experts(
         self,
@@ -640,38 +826,209 @@ class FactorizedSLDS(SLDSIMMRouter):
         Sigma_u_pred: Dict[int, np.ndarray],
         available_experts: Sequence[int],
     ) -> Tuple[Dict[int, float], Dict[int, float]]:
-        costs: Dict[int, float] = {}
-        info_gains: Dict[int, float] = {}
-
-        for k in available_experts:
-            k = int(k)
-            if k not in mu_u_pred or k not in Sigma_u_pred:
-                continue
-            Bk = self._ensure_B(k)
-            mu_modes = np.zeros(self.M, dtype=float)
-            var_modes = np.zeros(self.M, dtype=float)
-            ig_modes = np.zeros(self.M, dtype=float)
-            for m in range(self.M):
-                mu_g_m = mu_g_pred[m]
-                Sigma_g_m = Sigma_g_pred[m]
-                mu_u_m = mu_u_pred[k][m]
-                Sigma_u_m = Sigma_u_pred[k][m]
-                mean_m = float(phi @ (Bk @ mu_g_m + mu_u_m))
-                signal = float(phi @ (Bk @ (Sigma_g_m @ (Bk.T @ phi))))
-                noise = float(phi @ (Sigma_u_m @ phi)) + self._get_R(m, k)
-                noise = max(noise, self.eps)
-                signal = max(signal, 0.0)
-                mu_modes[m] = mean_m
-                var_modes[m] = signal + noise
-                ig_modes[m] = 0.5 * np.log1p(signal / noise)
-
-            cost = float(w_pred @ (var_modes + mu_modes ** 2)) + self._get_beta(k)
-            ig = float(w_pred @ ig_modes)
-
-            costs[k] = cost
-            info_gains[k] = ig
-
+        costs, info_gains, _ = self._compute_predictive_stats(
+            phi,
+            w_pred,
+            mu_g_pred,
+            Sigma_g_pred,
+            mu_u_pred,
+            Sigma_u_pred,
+            available_experts,
+        )
         return costs, info_gains
+
+    def _gaussian_logpdf_vec(
+        self,
+        x: np.ndarray,
+        mean: np.ndarray,
+        var: np.ndarray,
+    ) -> np.ndarray:
+        var = np.maximum(var, self.eps)
+        return -0.5 * (np.log(2.0 * np.pi * var) + ((x - mean) ** 2) / var)
+
+    def _logsumexp_vec(self, values: np.ndarray, axis: int = 0) -> np.ndarray:
+        vmax = np.max(values, axis=axis, keepdims=True)
+        return (vmax + np.log(np.sum(np.exp(values - vmax), axis=axis, keepdims=True))).squeeze(
+            axis
+        )
+
+    def _estimate_iz(
+        self,
+        mean_modes: np.ndarray,
+        var_modes: np.ndarray,
+        w_pred: np.ndarray,
+        n_samples: int,
+    ) -> float:
+        M = int(w_pred.shape[0])
+        if M <= 1 or n_samples <= 0:
+            return 0.0
+        log_w = np.log(np.maximum(w_pred, self.eps))
+        ig = 0.0
+        for m in range(M):
+            weight = float(w_pred[m])
+            if weight <= 0.0:
+                continue
+            samples = self._rng.normal(
+                loc=float(mean_modes[m]),
+                scale=float(np.sqrt(var_modes[m])),
+                size=int(n_samples),
+            )
+            log_p_m = self._gaussian_logpdf_vec(
+                samples, float(mean_modes[m]), float(var_modes[m])
+            )
+            log_p_all = self._gaussian_logpdf_vec(
+                samples[None, :], mean_modes[:, None], var_modes[:, None]
+            )
+            log_mix = self._logsumexp_vec(log_w[:, None] + log_p_all, axis=0)
+            ig += weight * float(np.mean(log_p_m - log_mix))
+        return max(float(ig), 0.0)
+
+    def _compute_iz_scores(
+        self,
+        stats: Dict[int, dict],
+        w_pred: np.ndarray,
+        n_samples: int,
+    ) -> Dict[int, float]:
+        iz_scores: Dict[int, float] = {}
+        if self.M <= 1 or n_samples <= 0:
+            for k in stats:
+                iz_scores[int(k)] = 0.0
+            return iz_scores
+        for k, stat in stats.items():
+            iz_scores[int(k)] = self._estimate_iz(
+                stat["mean"], stat["var"], w_pred, n_samples
+            )
+        return iz_scores
+
+    def _ucb_alpha(self, t_now: int) -> float:
+        t_val = max(int(t_now), 1)
+        if self.exploration_ucb_schedule == "fixed":
+            alpha = (
+                float(self.exploration_ucb_alpha)
+                if self.exploration_ucb_alpha is not None
+                else 0.1
+            )
+        elif self.exploration_ucb_schedule == "inverse_t_log2":
+            alpha = 1.0 / (t_val * (np.log(float(t_val) + 1.0) ** 2))
+        else:
+            alpha = 1.0 / t_val
+        if self.exploration_ucb_alpha is not None and self.exploration_ucb_schedule != "fixed":
+            alpha = min(alpha, float(self.exploration_ucb_alpha))
+        return float(np.clip(alpha, self.eps, 1.0 - self.eps))
+
+    def _sample_predictive_costs_from_stats(
+        self,
+        w_pred: np.ndarray,
+        mu_g_pred: np.ndarray,
+        Sigma_g_pred: np.ndarray,
+        stats: Dict[int, dict],
+        available_experts: Sequence[int],
+        n_samples: int,
+        deterministic: bool,
+    ) -> Tuple[np.ndarray, List[int]]:
+        avail = [int(k) for k in available_experts if int(k) in stats]
+        if not avail or n_samples <= 0:
+            return np.zeros((0, 0), dtype=float), avail
+        H = np.stack([stats[k]["h"] for k in avail], axis=0)
+        b_modes = np.stack([stats[k]["b"] for k in avail], axis=0)
+        s_modes = np.stack([stats[k]["s"] for k in avail], axis=0)
+        beta = np.array([self._get_beta(k) for k in avail], dtype=float)
+
+        costs = np.zeros((int(n_samples), len(avail)), dtype=float)
+        for n in range(int(n_samples)):
+            z = int(self._rng.choice(self.M, p=w_pred))
+            if self.d_g > 0:
+                g = self._rng.multivariate_normal(mu_g_pred[z], Sigma_g_pred[z])
+                mean = H @ g + b_modes[:, z]
+            else:
+                mean = b_modes[:, z]
+            s = np.maximum(s_modes[:, z], self.eps)
+            if deterministic:
+                cost = s + mean**2
+            else:
+                e = mean + self._rng.normal(scale=np.sqrt(s), size=mean.shape)
+                cost = e**2
+            costs[n] = cost + beta
+        return costs, avail
+
+    def _select_ids(
+        self,
+        costs: Dict[int, float],
+        info_gains: Dict[int, float],
+    ) -> int:
+        min_cost = min(costs.values())
+        scores: Dict[int, float] = {}
+        for k, cost in costs.items():
+            delta = cost - min_cost
+            ig = info_gains.get(k, 0.0)
+            if ig <= self.eps:
+                scores[k] = 0.0 if abs(delta) <= self.eps else np.inf
+            else:
+                scores[k] = (delta ** 2) / ig
+        if all(np.isinf(score) for score in scores.values()):
+            return int(min(costs, key=costs.get))
+        return int(min(scores, key=scores.get))
+
+    def _select_expert_from_stats(
+        self,
+        w_pred: np.ndarray,
+        mu_g_pred: np.ndarray,
+        Sigma_g_pred: np.ndarray,
+        costs: Dict[int, float],
+        info_gains_g: Dict[int, float],
+        stats: Dict[int, dict],
+        available_experts: Sequence[int],
+        t_now: int,
+        iz_scores: Optional[Dict[int, float]] = None,
+    ) -> int:
+        if self.feedback_mode == "full":
+            return int(min(costs, key=costs.get))
+
+        if self.exploration == "sampling":
+            cost_samples, avail = self._sample_predictive_costs_from_stats(
+                w_pred,
+                mu_g_pred,
+                Sigma_g_pred,
+                stats,
+                available_experts,
+                n_samples=1,
+                deterministic=self.exploration_sampling_deterministic,
+            )
+            if cost_samples.size == 0:
+                return int(min(costs, key=costs.get))
+            idx = int(np.argmin(cost_samples[0]))
+            return int(avail[idx])
+
+        if self.exploration == "ucb":
+            n_samples = int(self.exploration_ucb_samples)
+            cost_samples, avail = self._sample_predictive_costs_from_stats(
+                w_pred,
+                mu_g_pred,
+                Sigma_g_pred,
+                stats,
+                available_experts,
+                n_samples=n_samples,
+                deterministic=False,
+            )
+            if cost_samples.size == 0:
+                return int(min(costs, key=costs.get))
+            alpha_t = self._ucb_alpha(t_now)
+            quantiles = np.quantile(cost_samples, alpha_t, axis=0)
+            idx = int(np.argmin(quantiles))
+            return int(avail[idx])
+
+        if self.exploration == "g_z":
+            info_gains: Dict[int, float] = {}
+            if iz_scores is None:
+                iz_scores = self._compute_iz_scores(
+                    stats, w_pred, self.exploration_mc_samples
+                )
+            for k in stats:
+                iz = iz_scores.get(k, 0.0)
+                info_gains[k] = max(iz, 0.0) + info_gains_g.get(k, 0.0)
+            return self._select_ids(costs, info_gains)
+
+        return self._select_ids(costs, info_gains_g)
 
     def select_expert(
         self,
@@ -698,7 +1055,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             mu_u_pred[int(k)] = self.u_mean0.copy()
             Sigma_u_pred[int(k)] = self.u_cov0.copy()
 
-        costs, info_gains = self._score_experts(
+        costs, info_gains, stats = self._compute_predictive_stats(
             phi,
             w_pred,
             mu_g_pred,
@@ -709,24 +1066,37 @@ class FactorizedSLDS(SLDSIMMRouter):
         )
         if not costs:
             raise ValueError("No expert statistics available for selection.")
-
-        if self.feedback_mode == "full":
-            r_t = min(costs, key=costs.get)
-        else:
-            min_cost = min(costs.values())
-            scores: Dict[int, float] = {}
-            for k, cost in costs.items():
-                delta = cost - min_cost
-                ig = info_gains.get(k, 0.0)
-                if ig <= self.eps:
-                    scores[k] = 0.0 if abs(delta) <= self.eps else np.inf
-                else:
-                    scores[k] = (delta ** 2) / ig
-
-            if all(np.isinf(score) for score in scores.values()):
-                r_t = min(costs, key=costs.get)
-            else:
-                r_t = min(scores, key=scores.get)
+        iz_scores = None
+        if self.exploration_diag_enabled:
+            iz_scores = self._compute_iz_scores(
+                stats, w_pred, self.exploration_diag_samples
+            )
+        r_t = self._select_expert_from_stats(
+            w_pred,
+            mu_g_pred,
+            Sigma_g_pred,
+            costs,
+            info_gains,
+            stats,
+            avail_arr,
+            t_now,
+            iz_scores=iz_scores,
+        )
+        if self.exploration_diag_enabled:
+            iz_vals = np.array(
+                [iz_scores.get(int(k), 0.0) for k in avail_arr], dtype=float
+            )
+            iz_avg = float(np.mean(iz_vals)) if iz_vals.size else 0.0
+            iz_max = float(np.max(iz_vals)) if iz_vals.size else 0.0
+            iz_sel = float(iz_scores.get(int(r_t), 0.0))
+            if self.exploration_diag_max_records > 0:
+                if len(self.exploration_diag_records) < self.exploration_diag_max_records:
+                    self.exploration_diag_records.append((t_now, iz_avg, iz_max, iz_sel))
+            if self.exploration_diag_print and ((t_now - 1) % self.exploration_diag_stride == 0):
+                print(
+                    f"[Exploration diag] t={t_now} "
+                    f"iz_avg={iz_avg:.6f} iz_max={iz_max:.6f} iz_sel={iz_sel:.6f}"
+                )
 
         cache = {
             "x_t": np.asarray(x_t, dtype=float),
@@ -743,7 +1113,13 @@ class FactorizedSLDS(SLDSIMMRouter):
 
     def _gaussian_logpdf(self, x: float, mean: float, var: float) -> float:
         var = max(float(var), self.eps)
-        return -0.5 * (np.log(2.0 * np.pi * var) + (float(x) - float(mean)) ** 2 / var)
+        if not np.isfinite(var):
+            return -np.inf
+        diff = float(x) - float(mean)
+        if not np.isfinite(diff):
+            return -np.inf
+        diff = float(np.clip(diff, -self.state_clip, self.state_clip))
+        return -0.5 * (np.log(2.0 * np.pi * var) + (diff * diff) / var)
 
     def _update_from_predicted(
         self,
@@ -1004,7 +1380,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         if active_experts is None:
             active_experts = list(self.registry)
         phi = self._compute_phi(context_x)
-        costs, info_gains = self._score_experts(
+        costs, info_gains, stats = self._compute_predictive_stats(
             phi,
             self.w,
             self.mu_g,
@@ -1015,20 +1391,16 @@ class FactorizedSLDS(SLDSIMMRouter):
         )
         if not costs:
             return -1
-        if self.feedback_mode == "full":
-            return int(min(costs, key=costs.get))
-        min_cost = min(costs.values())
-        scores: Dict[int, float] = {}
-        for k, cost in costs.items():
-            delta = cost - min_cost
-            ig = info_gains.get(k, 0.0)
-            if ig <= self.eps:
-                scores[k] = 0.0 if abs(delta) <= self.eps else np.inf
-            else:
-                scores[k] = (delta ** 2) / ig
-        if all(np.isinf(score) for score in scores.values()):
-            return int(min(costs, key=costs.get))
-        return int(min(scores, key=scores.get))
+        return self._select_expert_from_stats(
+            self.w,
+            self.mu_g,
+            self.Sigma_g,
+            costs,
+            info_gains,
+            stats,
+            active_experts,
+            self.current_step + 1,
+        )
 
     def update_step(
         self,
@@ -1107,6 +1479,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             "R": float(self.R) if np.ndim(self.R) == 0 else self.R.copy(),
             "W_q": None if self.W_q is None else self.W_q.copy(),
             "W_k": None if self.W_k is None else self.W_k.copy(),
+            "b_attn": None if self.b_attn is None else self.b_attn.copy(),
             "W_lin": None if self.W_lin is None else self.W_lin.copy(),
             "b_lin": None if self.b_lin is None else self.b_lin.copy(),
             "transition_mode": self.transition_mode,
@@ -1126,6 +1499,9 @@ class FactorizedSLDS(SLDSIMMRouter):
         self.transition_mode = params.get("transition_mode", self.transition_mode)
         self.W_q = None if params["W_q"] is None else params["W_q"].copy()
         self.W_k = None if params["W_k"] is None else params["W_k"].copy()
+        self.b_attn = (
+            None if params.get("b_attn", None) is None else params["b_attn"].copy()
+        )
         self.W_lin = None if params.get("W_lin", None) is None else params["W_lin"].copy()
         self.b_lin = None if params.get("b_lin", None) is None else params["b_lin"].copy()
         self.context_dim = params.get("context_dim", self.context_dim)
@@ -1558,6 +1934,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         init_state: Optional[dict] = None,
         use_validation: bool = True,
         set_em_tk: bool = True,
+        transition_log_stage: Optional[str] = None,
     ) -> dict:
         rng = np.random.default_rng(None if seed is None else int(seed))
         contexts = list(contexts)
@@ -2057,6 +2434,11 @@ class FactorizedSLDS(SLDSIMMRouter):
                 for _ in range(max(theta_steps, 1)):
                     grad_W_q = np.zeros_like(self.W_q)
                     grad_W_k = np.zeros_like(self.W_k)
+                    grad_b_attn = (
+                        np.zeros_like(self.b_attn)
+                        if self.b_attn is not None
+                        else None
+                    )
                     for t in range(1, T_train):
                         x_t = np.asarray(train_ctx[t], dtype=float).reshape(-1)
                         Pi = self._context_transition(x_t)
@@ -2074,6 +2456,8 @@ class FactorizedSLDS(SLDSIMMRouter):
                                     * np.outer(q[i], x_t)
                                     / np.sqrt(float(self.attn_dim))
                                 )
+                                if grad_b_attn is not None:
+                                    grad_b_attn[i, j] += delta[j]
                             grad_W_q[i] += (
                                 np.outer(grad_q, x_t) / np.sqrt(float(self.attn_dim))
                             )
@@ -2081,6 +2465,8 @@ class FactorizedSLDS(SLDSIMMRouter):
                     grad_W_k -= lambda_theta * self.W_k
                     self.W_q += theta_lr * grad_W_q
                     self.W_k += theta_lr * grad_W_k
+                    if grad_b_attn is not None:
+                        self.b_attn += theta_lr * grad_b_attn
 
             if do_validation:
                 score = self._evaluate_nll(
@@ -2110,6 +2496,8 @@ class FactorizedSLDS(SLDSIMMRouter):
                 best_params = self._snapshot_params()
 
         self._restore_params(best_params)
+        stage = transition_log_stage or "post_em"
+        self._maybe_log_transition_params(stage)
         if print_val_loss:
             if do_validation:
                 print(f"[FactorizedSLDS EM] best_val_nll={best_score:.6f}")

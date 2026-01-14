@@ -11,6 +11,158 @@ from models.neuralucb_baseline import NeuralUCB
 
 TimeSeriesEnv = SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv
 
+_TRANSITION_LOG_CFG: Optional[dict] = None
+_TRANSITION_LOG_LABELS: dict[int, str] = {}
+_TRANSITION_LOG_STORE: dict[str, list[tuple[int, Optional[np.ndarray]]]] = {}
+
+
+def set_transition_log_config(cfg: Optional[dict]) -> None:
+    global _TRANSITION_LOG_CFG
+    if cfg is None or not isinstance(cfg, dict):
+        _TRANSITION_LOG_CFG = None
+        return
+    _TRANSITION_LOG_CFG = cfg
+
+
+def register_transition_log_label(obj: object, label: str) -> None:
+    if obj is None:
+        return
+    _TRANSITION_LOG_LABELS[id(obj)] = str(label)
+
+def get_transition_log_config() -> Optional[dict]:
+    cfg = _get_transition_log_cfg()
+    return None if cfg is None else dict(cfg)
+
+
+def get_transition_log_store(reset: bool = False) -> dict[str, list[tuple[int, Optional[np.ndarray]]]]:
+    snapshot: dict[str, list[tuple[int, Optional[np.ndarray]]]] = {}
+    for label, series in _TRANSITION_LOG_STORE.items():
+        snapshot[label] = [
+            (int(t), None if mat is None else np.array(mat, copy=True))
+            for t, mat in series
+        ]
+    if reset:
+        _TRANSITION_LOG_STORE.clear()
+    return snapshot
+
+
+def _get_transition_log_cfg() -> Optional[dict]:
+    cfg = _TRANSITION_LOG_CFG
+    if not isinstance(cfg, dict):
+        return None
+    if not cfg.get("enabled", False):
+        return None
+    return cfg
+
+
+def _transition_log_precision(cfg: dict) -> int:
+    try:
+        return int(cfg.get("precision", 4))
+    except (TypeError, ValueError):
+        return 4
+
+
+def _should_log_transition(t: int, cfg: dict) -> bool:
+    try:
+        stride = int(cfg.get("stride", 1))
+    except (TypeError, ValueError):
+        stride = 1
+    if stride <= 1:
+        stride = 1
+    start_t = cfg.get("start_t", None)
+    end_t = cfg.get("end_t", None)
+    if start_t is not None:
+        try:
+            if t < int(start_t):
+                return False
+        except (TypeError, ValueError):
+            pass
+    if end_t is not None:
+        try:
+            if t > int(end_t):
+                return False
+        except (TypeError, ValueError):
+            pass
+    if stride == 1:
+        return True
+    return ((t - 1) % stride) == 0
+
+
+def _format_matrix(mat: np.ndarray, precision: int) -> str:
+    return np.array2string(
+        mat,
+        precision=precision,
+        floatmode="fixed",
+        separator=", ",
+    )
+
+
+def _resolve_transition_label(obj: object, fallback: Optional[str]) -> str:
+    if obj is not None:
+        label = _TRANSITION_LOG_LABELS.get(id(obj))
+        if label:
+            return label
+    if fallback:
+        return str(fallback)
+    if obj is None:
+        return "unknown"
+    name = getattr(obj, "__class__", type(obj)).__name__
+    extras = []
+    feedback_mode = getattr(obj, "feedback_mode", None)
+    if feedback_mode:
+        extras.append(str(feedback_mode))
+    if isinstance(obj, FactorizedSLDS):
+        extras.append(str(getattr(obj, "transition_mode", "transition")))
+        if getattr(obj, "d_g", None) == 0:
+            extras.append("no_g")
+    if extras:
+        return f"{name}({', '.join(extras)})"
+    return name
+
+
+def _record_transition(label: str, t: int, mat: Optional[np.ndarray]) -> None:
+    if label not in _TRANSITION_LOG_STORE:
+        _TRANSITION_LOG_STORE[label] = []
+    if mat is None:
+        _TRANSITION_LOG_STORE[label].append((int(t), None))
+    else:
+        _TRANSITION_LOG_STORE[label].append((int(t), np.array(mat, copy=True)))
+
+
+def _transition_matrix_for(obj: object, x_t: np.ndarray) -> Optional[np.ndarray]:
+    if obj is None:
+        return None
+    if isinstance(obj, FactorizedSLDS):
+        return obj._context_transition(x_t)
+    if hasattr(obj, "Pi"):
+        return np.asarray(getattr(obj, "Pi"), dtype=float)
+    return None
+
+
+def _log_transition(
+    obj: object,
+    t: int,
+    x_t: np.ndarray,
+    fallback_label: Optional[str] = None,
+) -> None:
+    cfg = _get_transition_log_cfg()
+    if cfg is None:
+        return
+    if not _should_log_transition(t, cfg):
+        return
+    label = _resolve_transition_label(obj, fallback_label)
+    mat = _transition_matrix_for(obj, x_t)
+    if bool(cfg.get("plot", False)) or bool(cfg.get("collect", False)):
+        _record_transition(label, t, mat)
+    if not bool(cfg.get("print", True)):
+        return
+    if mat is None:
+        print(f"[transition] {label} t={t} Pi=N/A")
+        return
+    precision = _transition_log_precision(cfg)
+    mat_str = _format_matrix(np.asarray(mat, dtype=float), precision)
+    print(f"[transition] {label} t={t} Pi={mat_str}")
+
 
 def _router_observes_residual(router: SLDSIMMRouter) -> bool:
     return getattr(router, "observation_mode", "loss") == "residual"
@@ -89,6 +241,7 @@ def _train_router_offline(
 
     for t in range(1, t_end_clipped + 1):
         x_t = env.get_context(t)
+        _log_transition(router, t, x_t)
         available = env.get_available_experts(t)
         r_t, cache = router.select_expert(x_t, available)
         loss_obs, loss_r, losses_full = _get_router_observation(
@@ -149,6 +302,7 @@ def _run_router_online_window(
 
     for t in range(t_start, t_end + 1):
         x_t = env.get_context(t)
+        _log_transition(router, t, x_t)
         available = env.get_available_experts(t)
         r_t, cache = router.select_expert(x_t, available)
 
@@ -283,6 +437,7 @@ def run_router_on_env(
 
     for t in range(1, T):
         x_t = env.get_context(t)
+        _log_transition(router, t, x_t)
         available = env.get_available_experts(t)
 
         # Router decision for step t (select expert for loss at time t)
@@ -344,6 +499,7 @@ def run_router_on_env_training_window(
 
     for t in range(1, t_train_end + 1):
         x_t = env.get_context(t)
+        _log_transition(router, t, x_t)
         available = env.get_available_experts(t)
         r_t, cache = router.select_expert(x_t, available)
         loss_obs, loss_r, losses_full = _get_router_observation(
@@ -424,11 +580,12 @@ def run_factored_router_on_env(
 def run_l2d_on_env(
     baseline: L2D,
     env: TimeSeriesEnv,
+    t_start: int = 1,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run the usual learning-to-defer baseline on the synthetic environment.
 
-    At each time t (1,...,T-1):
+    At each time t (t_start,...,T-1):
       - context x_t = env.get_context(t)
       - baseline selects expert r_t via π
       - environment reveals squared losses at time t
@@ -439,15 +596,18 @@ def run_l2d_on_env(
     -------
     costs : np.ndarray of shape (T-1,)
     choices : np.ndarray of shape (T-1,)
+        Entries before t_start are NaN in costs and zeros in choices.
     """
     T = env.T
     N = env.num_experts
+    t_start = max(1, int(t_start))
 
-    costs = []
-    choices = []
+    costs = np.full(T - 1, np.nan, dtype=float)
+    choices = np.zeros(T - 1, dtype=int)
 
-    for t in range(1, T):
+    for t in range(t_start, T):
         x_t = env.get_context(t)
+        _log_transition(baseline, t, x_t)
         available = env.get_available_experts(t)
 
         r_t = baseline.select_expert(x_t, available)
@@ -456,23 +616,24 @@ def run_l2d_on_env(
         loss_r = float(loss_all[r_t])
         cost_t = loss_r + baseline.beta[r_t]
 
-        costs.append(cost_t)
-        choices.append(r_t)
+        costs[t - 1] = cost_t
+        choices[t - 1] = int(r_t)
 
         # Full-feedback update on all experts' losses for available experts
         baseline.update(x_t, loss_all, available)
 
-    return np.array(costs), np.array(choices)
+    return costs, choices
 
 
 def run_linucb_on_env(
     baseline: LinUCB,
     env: TimeSeriesEnv,
+    t_start: int = 1,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run a LinUCB baseline on the synthetic environment.
 
-    At each time t (1,...,T-1):
+    At each time t (t_start,...,T-1):
       - context x_t = env.get_context(t)
       - policy selects expert r_t via LinUCB
       - environment reveals squared losses at time t
@@ -481,12 +642,14 @@ def run_linucb_on_env(
     """
     T = env.T
     N = env.num_experts
+    t_start = max(1, int(t_start))
 
-    costs: list[float] = []
-    choices: list[int] = []
+    costs = np.full(T - 1, np.nan, dtype=float)
+    choices = np.zeros(T - 1, dtype=int)
 
-    for t in range(1, T):
+    for t in range(t_start, T):
         x_t = env.get_context(t)
+        _log_transition(baseline, t, x_t)
         available = env.get_available_experts(t)
 
         r_t = baseline.select_expert(x_t, available)
@@ -495,22 +658,23 @@ def run_linucb_on_env(
         loss_r = float(loss_all[r_t])
         cost_t = loss_r + baseline.beta[r_t]
 
-        costs.append(cost_t)
-        choices.append(int(r_t))
+        costs[t - 1] = cost_t
+        choices[t - 1] = int(r_t)
 
         baseline.update(x_t, loss_all, available)
 
-    return np.array(costs), np.array(choices)
+    return costs, choices
 
 
 def run_neuralucb_on_env(
     baseline: NeuralUCB,
     env: TimeSeriesEnv,
+    t_start: int = 1,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run a NeuralUCB baseline on the synthetic environment.
 
-    At each time t (1,...,T-1):
+    At each time t (t_start,...,T-1):
       - context x_t = env.get_context(t)
       - policy selects expert r_t via NeuralUCB
       - environment reveals squared losses at time t
@@ -519,12 +683,14 @@ def run_neuralucb_on_env(
     """
     T = env.T
     N = env.num_experts
+    t_start = max(1, int(t_start))
 
-    costs: list[float] = []
-    choices: list[int] = []
+    costs = np.full(T - 1, np.nan, dtype=float)
+    choices = np.zeros(T - 1, dtype=int)
 
-    for t in range(1, T):
+    for t in range(t_start, T):
         x_t = env.get_context(t)
+        _log_transition(baseline, t, x_t)
         available = env.get_available_experts(t)
 
         r_t = baseline.select_expert(x_t, available)
@@ -533,12 +699,12 @@ def run_neuralucb_on_env(
         loss_r = float(loss_all[r_t])
         cost_t = loss_r + baseline.beta[r_t]
 
-        costs.append(cost_t)
-        choices.append(int(r_t))
+        costs[t - 1] = cost_t
+        choices[t - 1] = int(r_t)
 
         baseline.update(x_t, loss_all, available)
 
-    return np.array(costs), np.array(choices)
+    return costs, choices
 
 
 def run_random_on_env(
@@ -576,6 +742,7 @@ def run_random_on_env(
     choices = np.zeros(T - 1, dtype=int)
 
     for t in range(1, T):
+        _log_transition(None, t, np.asarray([]), fallback_label="Random")
         available = env.get_available_experts(t)
         if available.size == 0:
             available = np.arange(N, dtype=int)
@@ -621,6 +788,7 @@ def run_oracle_on_env(
     choices = np.zeros(T - 1, dtype=int)
 
     for t in range(1, T):
+        _log_transition(None, t, np.asarray([]), fallback_label="Oracle")
         loss_all = env.losses(t)
         total_costs = loss_all + beta
 
