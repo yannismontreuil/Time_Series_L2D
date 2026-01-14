@@ -124,6 +124,7 @@ class SyntheticTimeSeriesEnv:
                         z[t:] = z[t - 1]
             elif setting == "tri_cycle_corr":
                 # Three-regime cycle: 0 -> 1 -> 2 -> 1 -> 2 -> 0, repeated.
+                # time of each regime is block_len
                 pattern = tri_cycle_cfg.get("regime_pattern", [0, 1, 2, 1, 2, 0])
                 if not pattern:
                     pattern = [0, 1, 2, 1, 2, 0]

@@ -2,7 +2,6 @@
 # %matplotlib widget
 
 import argparse
-import copy
 import json
 import os
 import random
@@ -13,19 +12,9 @@ import matplotlib.pyplot as plt
 from environment.etth1_env import ETTh1TimeSeriesEnv
 
 from models.router_model import SLDSIMMRouter, feature_phi
-from models.router_model_corr import SLDSIMMRouter_Corr, RecurrentSLDSIMMRouter_Corr
-from models.router_model_corr_em import SLDSIMMRouter_Corr_EM
 from environment.synthetic_env import SyntheticTimeSeriesEnv
-from models.l2d_baseline import L2D, L2D_SW
-from models.linucb_baseline import LinUCB
-from models.neuralucb_baseline import NeuralUCB
 from models.factorized_slds import FactorizedSLDS
 
-from plot_utils import (
-    evaluate_routers_and_baselines,
-    analysis_late_arrival,
-)
-from horizon_planning import evaluate_horizon_planning
 from router_eval import run_f_router_on_env_return_idiosyncratic_factor
 
 try:
@@ -34,7 +23,7 @@ except Exception:  # pragma: no cover - optional dependency
     yaml = None
 
 
-def _load_config(path: str = "config/config_synth_paper.yaml") -> dict:
+def _load_config(path) -> dict:
     if not os.path.exists(path):
         return {}
     with open(path, "r", encoding="utf-8") as f:  # "r" means read mode
@@ -77,31 +66,40 @@ def _collect_factorized_em_data(
     residuals = []
     residuals_full = []
 
+    prev_suspend = getattr(router, "_online_em_suspended", False)
+    if hasattr(router, "suspend_online_em"):
+        router.suspend_online_em(True)
+
     router.reset_beliefs()
     t_end = min(int(t_end), env.T - 1)
-    for t in range(1, t_end + 1):
-        x_t = env.get_context(t)
-        available = env.get_available_experts(t)
-        r_t, cache = router.select_expert(x_t, available)
 
-        preds = env.all_expert_predictions(x_t)
-        residuals_all = preds - float(env.y[t])
-        residual = float(residuals_all[int(r_t)])
+    try:
+        for t in range(1, t_end + 1):
+            x_t = env.get_context(t)
+            available = env.get_available_experts(t)
+            r_t, cache = router.select_expert(x_t, available)
 
-        contexts.append(x_t)
-        available_sets.append(list(available))
-        actions.append(int(r_t))
-        residuals.append(residual)
-        residuals_full.append(residuals_all)
+            preds = env.all_expert_predictions(x_t)
+            residuals_all = preds - float(env.y[t])
+            residual = float(residuals_all[int(r_t)])
 
-        losses_full = residuals_all if router.feedback_mode == "full" else None
-        router.update_beliefs(
-            r_t=r_t,
-            loss_obs=residual,
-            losses_full=losses_full,
-            available_experts=available,
-            cache=cache,
-        )
+            contexts.append(x_t)
+            available_sets.append(list(available))
+            actions.append(int(r_t))
+            residuals.append(residual)
+            residuals_full.append(residuals_all)
+
+            losses_full = residuals_all if router.feedback_mode == "full" else None
+            router.update_beliefs(
+                r_t=r_t,
+                loss_obs=residual,
+                losses_full=losses_full,
+                available_experts=available,
+                cache=cache,
+            )
+    finally:
+        if hasattr(router, "suspend_online_em"):
+            router.suspend_online_em(prev_suspend)
 
     return contexts, available_sets, actions, residuals, residuals_full
 
@@ -181,31 +179,11 @@ def analysis_correlations_in_experts(
         router.reset_beliefs()
         idiosyncratic_states = run_f_router_on_env_return_idiosyncratic_factor(router, env)
 
-        print(f"idiosyncratic_means: {idiosyncratic_states.mean}")
+        print(f"idiosyncratic_means: {idiosyncratic_states.mean()}")
         N = router._get_N()
         for expert_idx in range(N):
             u_k = idiosyncratic_states[expert_idx]
             u_ks.append(u_k)
-
-        # each u_ks[i] is array of shape (T, d_u)
-        # N = len(u_ks)
-        # T, d_r, d_c = u_ks[0].shape  # (T, 2, 2)
-        #
-        # for k in range(N):
-        #     plt.figure()
-        #     for i in range(d_r):
-        #         for j in range(d_c):
-        #             plt.plot(
-        #                 u_ks[k][:, i, j],
-        #                 label=f"({i},{j})"
-        #             )
-        #
-        #     plt.title(f"Expert {k}: entries of $u_k(t)$")
-        #     plt.xlabel("Time t")
-        #     plt.ylabel("Value")
-        #     plt.legend()
-        #     plt.tight_layout()
-        #     plt.show()
 
         u_ks = np.stack(u_ks, axis=0)
         N, T, _, _ = u_ks.shape
@@ -213,21 +191,71 @@ def analysis_correlations_in_experts(
 
         def cosine_time(a, b):
             num = np.sum(a * b, axis=1)
-            den = np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1)
-            return num / den
+            norm_a = np.linalg.norm(a, axis=1)
+            norm_b = np.linalg.norm(b, axis=1)
+            den = norm_a * norm_b
 
-        plt.figure()
-        plt.plot(cosine_time(U[0], U[1]), label="0 vs 1")
-        plt.plot(cosine_time(U[0], U[2]), label="0 vs 2")
-        plt.plot(cosine_time(U[1], U[2]), label="1 vs 2")
+            # Handle division by zero: return NaN where either vector is zero
+            result = np.full_like(num, np.nan)
+            mask = den != 0
+            result[mask] = num[mask] / den[mask]
+            return result
+
+        # For tri_cycle_corr: plot all relevant expert pairs
+        # Regime 0: experts 0 & 1 correlated
+        # Regime 1: experts 2 & 3 correlated
+        # Regime 2: experts 0 & 4 correlated
+        setting = getattr(env, "setting", "")
+        if setting == "tri_cycle_corr" and N >= 5:
+            expert_pairs = [(0, 1), (2, 3), (0, 4), (1, 2), (3, 4)]
+        else:
+            expert_pairs = [(0, 1), (0, 2), (1, 2)]
+
+        plt.figure(figsize=(12, 6))
+        for i, j in expert_pairs:
+            if i < N and j < N:
+                plt.plot(cosine_time(U[i], U[j]), label=f"Expert {i} vs {j}")
 
         plt.axhline(0, color="black", linestyle="--", alpha=0.5)
         plt.xlabel("Time t")
         plt.ylabel("Cosine similarity")
-        plt.title("Time-resolved expert similarity")
+        plt.title("Time-resolved expert similarity (idiosyncratic factors u_k)")
         plt.legend()
         plt.tight_layout()
         plt.show()
+
+        # Print correlation statistics by regime for tri_cycle_corr
+        if setting == "tri_cycle_corr" and hasattr(env, "z"):
+            z = env.z
+            regime_pair_map = {
+                0: (0, 1),  # Regime 0: experts 0 & 1 correlated
+                1: (2, 3),  # Regime 1: experts 2 & 3 correlated
+                2: (0, 4),  # Regime 2: experts 0 & 4 correlated
+            }
+            print("\n=== Correlation Analysis by Regime (tri_cycle_corr) ===")
+            for regime_idx, (exp_i, exp_j) in regime_pair_map.items():
+                if exp_i >= N or exp_j >= N:
+                    continue
+                cosine_vals = cosine_time(U[exp_i], U[exp_j])
+                # Align z with cosine_vals length (cosine_vals may be shorter or longer than z)
+                T_cosine = len(cosine_vals)
+                T_z = len(z)
+                if T_cosine <= T_z:
+                    z_aligned = z[:T_cosine]
+                else:
+                    # Repeat or pad z if cosine_vals is longer (unlikely but handle it)
+                    z_aligned = np.tile(z, (T_cosine // T_z) + 1)[:T_cosine]
+                regime_mask = (z_aligned == regime_idx)
+                if not np.any(regime_mask):
+                    continue
+                regime_cosines = cosine_vals[regime_mask]
+                valid_cosines = regime_cosines[~np.isnan(regime_cosines)]
+                if len(valid_cosines) > 0:
+                    print(f"Regime {regime_idx}: Experts {exp_i} & {exp_j} (expected correlated)")
+                    print(f"  Mean cosine similarity: {valid_cosines.mean():.4f}")
+                    print(f"  Std cosine similarity:  {valid_cosines.std():.4f}")
+                    print(f"  Min: {valid_cosines.min():.4f}, Max: {valid_cosines.max():.4f}")
+            print("")
 
     if router_factorial_partial is not None:
         print(f"\n--- Analyzing idiosyncratic factors for {factorized_label} (partial) ---")
@@ -558,6 +586,7 @@ if __name__ == "__main__":
         # - Expert 1: unavailable on [10, 50] and [200, 250] (inclusive).
         # - Expert 4: arrives after t=100 and leaves at t=150, i.e.
         #   available on [101, 150] and unavailable outside that window.
+        tri_cycle_cfg = env_cfg.get("tri_cycle", None)
         env = SyntheticTimeSeriesEnv(
             num_experts=N,
             num_regimes=M,
@@ -569,6 +598,7 @@ if __name__ == "__main__":
             arrival_intervals=env_cfg.get("arrival_intervals", [(120, 200)]),
             setting=setting,
             noise_scale=env_cfg.get("noise_scale", None),
+            tri_cycle_cfg=tri_cycle_cfg,
         )
     # Visualization-only settings for plots.
     env.plot_shift = int(cfg.get("plot_shift", 1))
@@ -597,6 +627,7 @@ if __name__ == "__main__":
         em_seed = int(em_seed_cfg) if em_seed_cfg is not None else 0
         em_priors = factorized_slds_cfg.get("em_priors", None)
         print_val_loss = bool(factorized_slds_cfg.get("em_print_val_loss", True))
+        em_eps_n = float(factorized_slds_cfg.get("em_eps_n", 0.0))
 
         print(f"\n--- FactorizedSLDS EM ({label}) (t=1..{em_tk}, n_em={n_em}) ---")
         ctx_em, avail_em, actions_em, resid_em, resid_full_em = _collect_factorized_em_data(
@@ -617,9 +648,94 @@ if __name__ == "__main__":
             theta_steps=theta_steps,
             seed=em_seed,
             print_val_loss=print_val_loss,
+            epsilon_N=em_eps_n,
+            use_validation=False,
         )
         router.em_tk = int(em_tk)
         router.reset_beliefs()
+
+    def _configure_factorized_online_em(
+        router: Optional[FactorizedSLDS],
+    ) -> None:
+        if router is None:
+            return
+        online_enabled = bool(factorized_slds_cfg.get("em_online_enabled", False))
+        if not online_enabled:
+            return
+
+        window_cfg = factorized_slds_cfg.get("em_online_window", None)
+        window = int(window_cfg) if window_cfg is not None else 0
+        if window <= 0:
+            return
+        period = int(factorized_slds_cfg.get("em_online_period", 1))
+        n_em = int(
+            factorized_slds_cfg.get(
+                "em_online_n", factorized_slds_cfg.get("em_n", 1)
+            )
+        )
+        n_samples = int(
+            factorized_slds_cfg.get(
+                "em_online_samples", factorized_slds_cfg.get("em_samples", 10)
+            )
+        )
+        burn_in = int(
+            factorized_slds_cfg.get(
+                "em_online_burn_in", factorized_slds_cfg.get("em_burn_in", 5)
+            )
+        )
+        theta_lr = float(
+            factorized_slds_cfg.get(
+                "em_online_theta_lr", factorized_slds_cfg.get("em_theta_lr", 1e-2)
+            )
+        )
+        theta_steps = int(
+            factorized_slds_cfg.get(
+                "em_online_theta_steps", factorized_slds_cfg.get("em_theta_steps", 1)
+            )
+        )
+        eps_n = float(
+            factorized_slds_cfg.get(
+                "em_online_eps_n", factorized_slds_cfg.get("em_eps_n", 0.0)
+            )
+        )
+        start_t_cfg = factorized_slds_cfg.get("em_online_start_t", None)
+        if start_t_cfg is None:
+            em_tk_local = getattr(router, "em_tk", None)
+            start_t = None if em_tk_local is None else int(em_tk_local) + 1
+        else:
+            start_t = int(start_t_cfg)
+        seed_cfg = factorized_slds_cfg.get(
+            "em_online_seed", factorized_slds_cfg.get("em_seed", None)
+        )
+        seed = None if seed_cfg is None else int(seed_cfg)
+        online_priors = factorized_slds_cfg.get("em_online_priors", None)
+        if online_priors is None:
+            online_priors = factorized_slds_cfg.get("em_priors", None)
+        print_val_loss = bool(
+            factorized_slds_cfg.get(
+                "em_online_print_val_loss",
+                factorized_slds_cfg.get("em_print_val_loss", True),
+            )
+        )
+        use_state_priors = bool(
+            factorized_slds_cfg.get("em_online_use_state_priors", True)
+        )
+        router.configure_online_em(
+            enabled=True,
+            window=window,
+            period=period,
+            n_em=n_em,
+            n_samples=n_samples,
+            burn_in=burn_in,
+            epsilon_N=eps_n,
+            theta_lr=theta_lr,
+            theta_steps=theta_steps,
+            priors=online_priors,
+            start_t=start_t,
+            seed=seed,
+            print_val_loss=print_val_loss,
+            use_state_priors=use_state_priors,
+        )
 
 
     if base_transition_mode is not None:
@@ -642,6 +758,13 @@ if __name__ == "__main__":
         _run_factorized_em(
             fact_router_full_linear, f"{extra_transition_mode} full"
         )
+
+    _configure_factorized_online_em(fact_router_partial)
+    _configure_factorized_online_em(fact_router_full)
+    _configure_factorized_online_em(fact_router_partial_linear)
+    _configure_factorized_online_em(fact_router_full_linear)
+    _configure_factorized_online_em(router_partial_no_g)
+    _configure_factorized_online_em(router_full_no_g)
 
     # Plot the true series and expert predictions
     # plot_time_series(env)

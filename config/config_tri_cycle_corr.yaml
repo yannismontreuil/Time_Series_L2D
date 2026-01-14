@@ -1,5 +1,16 @@
 # Tri-cycle correlation experiment (synthetic).
 
+#1 -> 2 -> 3 -> 2 -> 3 -> 1 regime pattern.
+
+# Regime 1: experts 1 & 2 correlated
+# Regime 2: experts 3 & 4 correlated
+# Regime 3: experts 1 & 5 correlated
+
+# - Expert 4 (index 3) available in regimes 1 and 2.
+# - Expert 5 (index 4) available in regimes 2 and 3.
+
+
+
 plot_shift: 1
 plot_target: "y"
 
@@ -48,6 +59,7 @@ routers:
 
     em_enabled: true
     em_tk: 0
+    # rounds of EM to run during warm-start.
     em_n: 5
     em_samples: 10
     em_burn_in: 5
