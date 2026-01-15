@@ -31,12 +31,14 @@ class SyntheticTimeSeriesEnv:
         arrival_intervals: list[tuple[int, int]] | None = None,
         setting: str = "easy_setting",
         noise_scale: float | None = None,
+        tri_cycle_cfg: dict | None = None,
     ):
         rng = np.random.default_rng(seed)
         self.num_experts = num_experts
         self.num_regimes = num_regimes
         self.T = T
         self.setting = setting
+        tri_cycle_cfg = tri_cycle_cfg or {}
         M = self.num_regimes
 
         # True regime transition matrix (for reference). For M=2 we keep
@@ -79,6 +81,8 @@ class SyntheticTimeSeriesEnv:
         #   - "theoretical_trap": Phase 1 (t=0..999) in regime 0 (good times),
         #                         Phase 2+3 (t≥1000) in regime 1 (bad times),
         #                         for the "Stale Prior" trap experiment.
+        #   - "tri_cycle_corr": three-regime cycle 0→1→2→1→2→0 repeated,
+        #                       with regime-dependent expert correlations.
         z = np.zeros(T, dtype=int)
         if T > 1:
             if setting == "noisy_forgetting":
@@ -118,6 +122,25 @@ class SyntheticTimeSeriesEnv:
                         t = t_end
                     if t < T:
                         z[t:] = z[t - 1]
+            elif setting == "tri_cycle_corr":
+                # Three-regime cycle: 0 -> 1 -> 2 -> 1 -> 2 -> 0, repeated.
+                pattern = tri_cycle_cfg.get("regime_pattern", [0, 1, 2, 1, 2, 0])
+                if not pattern:
+                    pattern = [0, 1, 2, 1, 2, 0]
+                block_len = tri_cycle_cfg.get("regime_block_len", None)
+                if block_len is None:
+                    block_len = max(1, T // len(pattern))
+                else:
+                    block_len = max(1, int(block_len))
+                t = 0
+                while t < T:
+                    for k in pattern:
+                        if t >= T:
+                            break
+                        k_eff = int(min(max(int(k), 0), M - 1))
+                        t_end = min(T, t + block_len)
+                        z[t:t_end] = k_eff
+                        t = t_end
             elif setting == "sidekick_trap":
                 # Explicit two-regime pattern: first 1000 steps in regime 0,
                 # remaining steps in regime 1 (storm).
@@ -175,6 +198,27 @@ class SyntheticTimeSeriesEnv:
                 if int(z[t_idx]) == 1:
                     noise_scale_expert[t_idx, : min(2, num_experts)] = 0.1
             self._expert_noise = base_noise * noise_scale_expert
+        elif setting == "tri_cycle_corr":
+            rng_noise = np.random.default_rng(int(seed) + 23456)
+            shared_scale = float(tri_cycle_cfg.get("shared_noise_scale", 0.2))
+            indiv_scale = float(tri_cycle_cfg.get("indiv_noise_scale", 0.05))
+            base_noise = rng_noise.normal(scale=indiv_scale, size=(T, num_experts))
+            pair_map = {
+                0: (0, 1),  # Regime 1: experts 1 & 2 correlated
+                1: (2, 3),  # Regime 2: experts 3 & 4 correlated
+                2: (0, 4),  # Regime 3: experts 1 & 5 correlated
+            }
+            for t_idx in range(T):
+                reg = int(z[t_idx])
+                pair = pair_map.get(reg)
+                if pair is None:
+                    continue
+                shared = rng_noise.normal(scale=shared_scale)
+                for j_idx in pair:
+                    if 0 <= j_idx < num_experts:
+                        base_noise[t_idx, j_idx] += shared
+            self._expert_noise = base_noise
+            self._tri_cycle_pair_map = pair_map
 
         # Time series / shared factor dynamics.
         # - For "sidekick_trap", we construct an explicit "Day/Night"
@@ -231,7 +275,17 @@ class SyntheticTimeSeriesEnv:
             else:
                 noise = float(noise_scale)
 
-            if (setting == "noisy_forgetting" and M > 2) or (setting == "division_by_M" and M > 2):
+            if setting == "tri_cycle_corr":
+                drift_levels = tri_cycle_cfg.get("drift_levels", [0.0, 1.0, 2.0])
+                if not drift_levels:
+                    drift_levels = [0.0, 1.0, 2.0]
+                drift_levels = [float(d) for d in drift_levels]
+                for t in range(T):
+                    k = int(z[t])
+                    drift = drift_levels[k % len(drift_levels)]
+                    y = 0.8 * y + drift + rng.normal(scale=noise)
+                    self.y[t] = y
+            elif (setting == "noisy_forgetting" and M > 2) or (setting == "division_by_M" and M > 2):
                 # For noisy_forgetting or division_by_M with more than 2 regimes, assign a
                 # distinct drift level to each regime so that the time
                 # series exhibits visibly different regime-dependent
@@ -380,6 +434,30 @@ class SyntheticTimeSeriesEnv:
             self.expert_weights = np.concatenate([base_weights, extra_w])
             self.expert_biases = np.concatenate([base_biases, extra_b])
 
+        # Regime-dependent expert behaviour for the tri_cycle_corr setting.
+        if setting == "tri_cycle_corr":
+            base_slope = float(tri_cycle_cfg.get("base_slope", 0.8))
+            slopes = np.full((M, num_experts), base_slope, dtype=float)
+            default_biases = [
+                [0.0, 0.1, 1.2, 1.4, 2.0],  # Regime 1: experts 1&2 best
+                [0.2, 0.4, 1.0, 1.1, 2.0],  # Regime 2: experts 3&4 best
+                [1.6, 0.5, 1.2, 1.4, 2.0],  # Regime 3: experts 5&1 correlated
+            ]
+            biases_cfg = tri_cycle_cfg.get("biases_by_regime", default_biases)
+            biases = np.zeros((M, num_experts), dtype=float)
+            for reg_idx in range(min(M, len(biases_cfg))):
+                reg_biases = biases_cfg[reg_idx]
+                for j_idx in range(min(num_experts, len(reg_biases))):
+                    biases[reg_idx, j_idx] = float(reg_biases[j_idx])
+            slopes_cfg = tri_cycle_cfg.get("slopes_by_regime", None)
+            if slopes_cfg is not None:
+                for reg_idx in range(min(M, len(slopes_cfg))):
+                    reg_slopes = slopes_cfg[reg_idx]
+                    for j_idx in range(min(num_experts, len(reg_slopes))):
+                        slopes[reg_idx, j_idx] = float(reg_slopes[j_idx])
+            self._tri_cycle_slopes = slopes
+            self._tri_cycle_biases = biases
+
         # Expert availability over time.
         # By default:
         #   - all experts available at all times, optionally modified by
@@ -453,6 +531,19 @@ class SyntheticTimeSeriesEnv:
                 t_end = min(2000, T)
                 if t_start < t_end:
                     self.availability[t_start:t_end, 1] = 0
+        elif setting == "tri_cycle_corr":
+            # Regime-dependent availability:
+            #   - Expert 4 (index 3) available in regimes 1 and 2.
+            #   - Expert 5 (index 4) available in regimes 2 and 3.
+            self.availability = np.ones((T, self.num_experts), dtype=int)
+            if self.num_experts > 3:
+                self.availability[:, 3] = 0
+                mask = (z == 0) | (z == 1)
+                self.availability[mask, 3] = 1
+            if self.num_experts > 4:
+                self.availability[:, 4] = 0
+                mask = (z == 1) | (z == 2)
+                self.availability[mask, 4] = 1
         else:
             # Default: all experts available, then apply optional masks.
             self.availability = np.ones((T, self.num_experts), dtype=int)
@@ -547,6 +638,23 @@ class SyntheticTimeSeriesEnv:
                 else:
                     mean = 3.0
                     return mean + noise_val
+
+        if getattr(self, "setting", None) == "tri_cycle_corr" and self._last_t is not None:
+            t = int(self._last_t)
+            if not (0 <= t < self.T):
+                t = max(0, min(t, self.T - 1))
+            reg = int(self.z[t])
+            x_val = float(x_t[0])
+            slopes = getattr(self, "_tri_cycle_slopes", None)
+            biases = getattr(self, "_tri_cycle_biases", None)
+            if slopes is None or biases is None:
+                return float(self.expert_weights[j] * x_val + self.expert_biases[j])
+            slope = float(slopes[reg, int(j)]) if reg < slopes.shape[0] else float(self.expert_weights[j])
+            bias = float(biases[reg, int(j)]) if reg < biases.shape[0] else float(self.expert_biases[j])
+            noise_val = 0.0
+            if self._expert_noise is not None:
+                noise_val = float(self._expert_noise[t, int(j)])
+            return slope * x_val + bias + noise_val
 
         # Default linear expert for all other settings.
         w = self.expert_weights[j]

@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
@@ -17,6 +18,9 @@ from router_eval import (
     run_linucb_on_env,
     run_neuralucb_on_env, run_factored_router_on_env,
     run_router_on_env_em_split,
+    get_transition_log_store,
+    get_transition_log_config,
+    set_transition_log_config,
 )
 
 # ---------------------------------------------------------------------
@@ -97,6 +101,130 @@ def get_model_color(name: str) -> str:
         "random": "tab:green",
     }
     return mapping.get(name, "tab:purple")
+
+
+def _sanitize_transition_label(label: str) -> str:
+    safe = []
+    for ch in str(label):
+        if ch.isalnum() or ch in ("-", "_"):
+            safe.append(ch)
+        else:
+            safe.append("_")
+    return "".join(safe).strip("_") or "transition"
+
+
+def plot_transition_matrices(
+    log_store: dict[str, list[tuple[int, Optional[np.ndarray]]]],
+    cfg: dict,
+) -> None:
+    if not log_store:
+        return
+    show_plots = bool(cfg.get("plot_show", True))
+    save_plots = bool(cfg.get("plot_save", False))
+    plot_na = bool(cfg.get("plot_na", False))
+    if not show_plots and not save_plots:
+        return
+    out_dir = cfg.get("plot_dir", "out/transition_matrices")
+    if save_plots:
+        os.makedirs(out_dir, exist_ok=True)
+
+    def _is_ours(label: str) -> bool:
+        label_l = str(label).lower()
+        return (
+            label_l.startswith("slds-imm")
+            or label_l.startswith("corr slds-imm")
+            or label_l.startswith("factorized slds")
+        )
+
+    plot_only_ours = bool(cfg.get("plot_only_ours", False))
+
+    plot_entropy = bool(cfg.get("plot_entropy", True))
+
+    for label in sorted(log_store.keys()):
+        if plot_only_ours and not _is_ours(label):
+            continue
+        series = log_store[label]
+        if not series:
+            continue
+        series_sorted = sorted(series, key=lambda x: x[0])
+        valid = [(t, mat) for t, mat in series_sorted if mat is not None]
+        if not valid:
+            if not plot_na:
+                continue
+            fig, ax = plt.subplots(figsize=(6, 2))
+            ax.axis("off")
+            ax.text(
+                0.5,
+                0.5,
+                f"{label}\nPi=N/A",
+                ha="center",
+                va="center",
+            )
+            fig.tight_layout()
+            if save_plots:
+                fname = f"transition_{_sanitize_transition_label(label)}.png"
+                fig.savefig(os.path.join(out_dir, fname))
+            if show_plots:
+                plt.show()
+            plt.close(fig)
+            continue
+
+        times = [t for t, _ in valid]
+        mats = np.stack([np.asarray(m, dtype=float) for _, m in valid], axis=0)
+        if mats.ndim != 3 or mats.shape[1] != mats.shape[2]:
+            print(f"[transition-plot] Skipping {label}: invalid Pi shape {mats.shape}")
+            continue
+        M = mats.shape[1]
+        fig, axes = plt.subplots(
+            M,
+            1,
+            sharex=True,
+            figsize=(9, max(2.2 * M, 2.2)),
+        )
+        if M == 1:
+            axes = [axes]
+        for i in range(M):
+            for j in range(M):
+                axes[i].plot(
+                    times,
+                    mats[:, i, j],
+                    label=f"{i}->{j}",
+                )
+            axes[i].set_ylabel(f"Row {i}")
+            axes[i].set_ylim(-0.05, 1.05)
+            axes[i].grid(True, alpha=0.3)
+            axes[i].legend(loc="upper right", fontsize=8, ncol=min(M, 3))
+        axes[-1].set_xlabel("Time $t$")
+        fig.suptitle(f"Transition matrix over time: {label}")
+        fig.tight_layout()
+        if save_plots:
+            fname = f"transition_{_sanitize_transition_label(label)}.png"
+            fig.savefig(os.path.join(out_dir, fname))
+        if show_plots:
+            plt.show()
+        plt.close(fig)
+
+        if plot_entropy:
+            entropy = -np.sum(
+                mats * np.log(np.maximum(mats, 1e-12)),
+                axis=2,
+            )
+            fig_ent, ax_ent = plt.subplots(figsize=(9, 3))
+            for i in range(M):
+                ax_ent.plot(times, entropy[:, i], label=f"Row {i}")
+            ax_ent.set_xlabel("Time $t$")
+            ax_ent.set_ylabel("Row entropy")
+            ax_ent.set_ylim(-0.05, np.log(float(M)) + 0.05)
+            ax_ent.grid(True, alpha=0.3)
+            ax_ent.legend(loc="upper right", fontsize=8, ncol=min(M, 3))
+            fig_ent.suptitle(f"Transition row entropy over time: {label}")
+            fig_ent.tight_layout()
+            if save_plots:
+                fname = f"transition_entropy_{_sanitize_transition_label(label)}.png"
+                fig_ent.savefig(os.path.join(out_dir, fname))
+            if show_plots:
+                plt.show()
+            plt.close(fig_ent)
 
 
 def add_unavailability_regions(
@@ -314,6 +442,40 @@ def evaluate_routers_and_baselines(
     environment, compare their average cost to constant-expert baselines,
     and plot the induced prediction time series and selections.
     """
+    def _get_em_tk_anchor(*routers) -> Optional[int]:
+        candidates = []
+        for router in routers:
+            if router is None:
+                continue
+            em_tk_val = getattr(router, "em_tk", None)
+            if em_tk_val is None:
+                continue
+            try:
+                em_tk_int = int(em_tk_val)
+            except (TypeError, ValueError):
+                continue
+            if em_tk_int > 0:
+                candidates.append(em_tk_int)
+        return max(candidates) if candidates else None
+
+    em_tk_anchor = _get_em_tk_anchor(
+        router_partial,
+        router_full,
+        router_factorial_partial,
+        router_factorial_full,
+        router_factorial_partial_linear,
+        router_factorial_full_linear,
+        router_partial_corr_em,
+        router_full_corr_em,
+    )
+    baseline_start_t = 1 if em_tk_anchor is None else int(em_tk_anchor) + 1
+    transition_cfg = get_transition_log_config()
+    if transition_cfg is not None and transition_cfg.get("online_only", False):
+        if transition_cfg.get("start_t") is None:
+            transition_cfg = dict(transition_cfg)
+            transition_cfg["start_t"] = baseline_start_t
+            set_transition_log_config(transition_cfg)
+
     # Run both base routers to obtain costs and choices
     def _run_base_router(router: SLDSIMMRouter):
         em_tk = getattr(router, "em_tk", None)
@@ -439,26 +601,30 @@ def evaluate_routers_and_baselines(
 
     # Run learning-to-defer baselines if provided
     if l2d_baseline is not None:
-        costs_l2d, choices_l2d = run_l2d_on_env(l2d_baseline, env)
+        costs_l2d, choices_l2d = run_l2d_on_env(
+            l2d_baseline, env, t_start=baseline_start_t
+        )
     else:
         costs_l2d, choices_l2d = None, None
 
     if l2d_sw_baseline is not None:
-        costs_l2d_sw, choices_l2d_sw = run_l2d_on_env(l2d_sw_baseline, env)
+        costs_l2d_sw, choices_l2d_sw = run_l2d_on_env(
+            l2d_sw_baseline, env, t_start=baseline_start_t
+        )
     else:
         costs_l2d_sw, choices_l2d_sw = None, None
 
     # Run LinUCB baselines if provided
     if linucb_partial is not None:
         costs_linucb_partial, choices_linucb_partial = run_linucb_on_env(
-            linucb_partial, env
+            linucb_partial, env, t_start=baseline_start_t
         )
     else:
         costs_linucb_partial, choices_linucb_partial = None, None
 
     if linucb_full is not None:
         costs_linucb_full, choices_linucb_full = run_linucb_on_env(
-            linucb_full, env
+            linucb_full, env, t_start=baseline_start_t
         )
     else:
         costs_linucb_full, choices_linucb_full = None, None
@@ -466,14 +632,14 @@ def evaluate_routers_and_baselines(
     # Run NeuralUCB baselines if provided
     if neuralucb_partial is not None:
         costs_neuralucb_partial, choices_neuralucb_partial = run_neuralucb_on_env(
-            neuralucb_partial, env
+            neuralucb_partial, env, t_start=baseline_start_t
         )
     else:
         costs_neuralucb_partial, choices_neuralucb_partial = None, None
 
     if neuralucb_full is not None:
         costs_neuralucb_full, choices_neuralucb_full = run_neuralucb_on_env(
-            neuralucb_full, env
+            neuralucb_full, env, t_start=baseline_start_t
         )
     else:
         costs_neuralucb_full, choices_neuralucb_full = None, None
@@ -615,6 +781,15 @@ def evaluate_routers_and_baselines(
             costs_factorial_linear_full,
             getattr(router_factorial_full_linear, "em_tk", None),
         )
+    if em_tk_anchor is not None:
+        costs_l2d = _mask_em_costs(costs_l2d, em_tk_anchor)
+        costs_l2d_sw = _mask_em_costs(costs_l2d_sw, em_tk_anchor)
+        costs_linucb_partial = _mask_em_costs(costs_linucb_partial, em_tk_anchor)
+        costs_linucb_full = _mask_em_costs(costs_linucb_full, em_tk_anchor)
+        costs_neuralucb_partial = _mask_em_costs(costs_neuralucb_partial, em_tk_anchor)
+        costs_neuralucb_full = _mask_em_costs(costs_neuralucb_full, em_tk_anchor)
+        costs_random = _mask_em_costs(costs_random, em_tk_anchor)
+        costs_oracle = _mask_em_costs(costs_oracle, em_tk_anchor)
 
     T = env.T
     t_grid = np.arange(1, T)
@@ -627,11 +802,17 @@ def evaluate_routers_and_baselines(
         true_label = "True $y_t$"
 
     # Constant-expert baselines (always pick the same expert)
-    cum_costs = np.zeros(env.num_experts, dtype=float)
-    for t in range(1, T):
-        loss_all = env.losses(t)
-        cum_costs += loss_all + beta
-    avg_cost_experts = cum_costs / (T - 1)
+    t_start = 1
+    if em_tk_anchor is not None and em_tk_anchor > 0:
+        t_start = min(int(em_tk_anchor) + 1, T)
+    if t_start >= T:
+        avg_cost_experts = np.full(env.num_experts, np.nan, dtype=float)
+    else:
+        cum_costs = np.zeros(env.num_experts, dtype=float)
+        for t in range(t_start, T):
+            loss_all = env.losses(t)
+            cum_costs += loss_all + beta
+        avg_cost_experts = cum_costs / float(T - t_start)
 
     avg_cost_partial = float(np.nanmean(costs_partial))
     avg_cost_full = float(np.nanmean(costs_full))
@@ -1303,6 +1484,11 @@ def evaluate_routers_and_baselines(
 
     plt.tight_layout()
     plt.show()
+
+    transition_cfg = get_transition_log_config()
+    if transition_cfg is not None and transition_cfg.get("plot", False):
+        log_store = get_transition_log_store(reset=True)
+        plot_transition_matrices(log_store, transition_cfg)
 
     # --------------------------------------------------------------
     # Correlated Sidekick Trap: cumulative regret from t = 2000
