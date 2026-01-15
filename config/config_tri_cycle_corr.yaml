@@ -74,6 +74,10 @@ routers:
     # Parallelize exploration runs across CPUs.
     parallel_exploration: true
     parallel_workers: null
+    # Parallelize full pipelines per exploration mode.
+    parallel_pipeline: true
+    parallel_pipeline_workers: 8
+    parallel_pipeline_disable_plot_show: true
 
     em_enabled: true
     # If true, offline EM uses full feedback even for partial routers.

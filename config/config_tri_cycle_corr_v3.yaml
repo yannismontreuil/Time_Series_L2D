@@ -1,4 +1,4 @@
-# Tri-cycle correlation experiment (synthetic) - v2 (stronger shared signal).
+# Tri-cycle correlation experiment (synthetic) - v3 (shared-factor favored).
 
 plot_shift: 1
 plot_target: "y"
@@ -20,7 +20,7 @@ transition_log:
 environment:
   data_source: synthetic
   setting: tri_cycle_corr
-  T: 2400
+  T: 3000
   seed: 7
 
   # Dimensions
@@ -28,26 +28,24 @@ environment:
   num_regimes: 3
   state_dim: 2
 
-  # Lower target noise for clearer signal.
-  noise_scale: 0.15
+  # Lower target noise; residuals dominated by shared expert noise.
+  noise_scale: 0.12
 
   # Regime cycle and expert behavior configuration.
-  # Regime indices are 0-based in code:
-  #   Regime 0 (paper regime 1): experts 0 & 1 correlated
-  #   Regime 1 (paper regime 2): experts 2 & 3 correlated
-  #   Regime 2 (paper regime 3): experts 4 & 0 correlated
   tri_cycle:
-    regime_pattern: [0, 1, 2, 1, 2, 0]
-    regime_block_len: 400
+    regime_pattern: [0, 1, 2, 1, 0, 2]
+    # Shorter blocks increase non-stationarity and favor IMM structure.
+    regime_block_len: 200
     drift_levels: [0.0, 1.0, 2.0]
-    # Stronger shared signal and weaker idiosyncratic noise.
-    shared_noise_scale: 0.5
-    indiv_noise_scale: 0.02
+    # Strong shared correlation, moderate idiosyncratic noise.
+    shared_noise_scale: 0.8
+    indiv_noise_scale: 0.08
     base_slope: 0.8
+    # Make the correlated pair best but not dominant (noisy routing).
     biases_by_regime:
-      - [0.0, 0.1, 1.2, 1.4, 2.0]
-      - [0.2, 0.4, 1.0, 1.1, 2.0]
-      - [1.6, 0.5, 1.2, 1.4, 2.0]
+      - [0.3, 1.2, 1.1, 1.3, 1.6]
+      - [1.0, 1.2, 0.4, 0.6, 1.6]
+      - [0.4, 1.3, 1.0, 1.2, 0.6]
 
 routers:
   beta: 0.0
@@ -58,47 +56,53 @@ routers:
     num_regimes: 3
     shared_dim: 1
     idiosyncratic_dim: 2
-    delta_max: 10000
+    delta_max: 10000 # keep 1000 if no pruning
     R_scalar: 0.5
-    Q_g_scales: [0.02, 0.08, 0.04]
-    Q_u_scales: [0.005, 0.015, 0.01]
+    Q_g_scales: [0.05, 0.05, 0.05]
+    Q_u_scales: [0.02, 0.02, 0.02]
     # Exploration mode for partial feedback:
     #   - "g": IDS using only shared-factor information (current default)
     #   - "g_z": IDS using joint (z, g) information
     #   - "ucb": Bayes-UCB (LCB) on predictive costs
     #   - "sampling": posterior sampling on predictive costs
-    exploration: ["g_z", "g"]
+    exploration: ["g_z", 'g', 'ucb', 'sampling']
     # Diagnostic: log I(z; e) estimates to verify g vs g_z differences.
-    exploration_diag_enabled: false
+    exploration_diag_enabled: true
     exploration_diag_stride: 200
     exploration_diag_samples: 50
-    exploration_diag_print: false
-    # Parallelize full pipelines per exploration mode.
-    parallel_pipeline: true
-    parallel_pipeline_workers: 8
-    parallel_pipeline_disable_plot_show: true
+    exploration_diag_print: true
 
     em_enabled: true
     # Offline EM uses full feedback even for partial routers.
     em_offline_full_feedback: true
-    em_tk: 500
-    em_n: 5
-    em_samples: 30
-    em_burn_in: 5
-    # Offline EM runs without validation.
-    em_val_fraction: 0.0
+    em_tk: 1500
+    em_n: 25
+    em_samples: 100
+    em_burn_in: 20
+    # Offline EM validation.
+    em_use_validation: true
+    # Validation strategy: "tail" or "rolling".
+    em_val_strategy: "rolling"
+    # Size of the validation tail (fraction of em_tk).
+    em_val_fraction: 0.4
+    # Rolling-origin window length (steps). Falls back to em_val_len if null.
+    em_val_roll_len: 200
+    # Number of rolling validation windows in the tail.
+    em_val_roll_splits: 3
+    # Optional stride between rolling windows; null -> evenly spaced.
+    em_val_roll_stride: null
     em_val_len: null
-    em_theta_lr: 0.005
-    em_theta_steps: 1
+    em_theta_lr: 0.001
+    em_theta_steps: 5
     em_print_val_loss: true
     em_eps_n: 1.0e-3
 
     # Online (sliding-window) EM adaptation.
-    em_online_enabled: true
-    em_online_window: 1200 #most recent steps of stored observation
-    em_online_period: 400 #train every steps
+    em_online_enabled: false
+    em_online_window: 1500
+    em_online_period: 400
     em_online_n: 2
-    em_online_samples: 5
+    em_online_samples: 20
     em_online_burn_in: 3
     em_online_theta_lr: 0.005
     em_online_theta_steps: 1
@@ -107,7 +111,11 @@ routers:
     # If null, defaults to em_tk + 1.
     em_online_start_t: null
 
-    transition_mode: "attention"
+    transition_mode: "linear"
+    # Parallelize full pipelines per exploration mode.
+    parallel_pipeline: true
+    parallel_pipeline_workers: 4
+    parallel_pipeline_disable_plot_show: true
 
 baselines:
   l2d:
@@ -137,7 +145,7 @@ baselines:
 
 horizon_planning:
   # Start horizon planning after EM warm-start.
-  t0: 2000
+  t0: 2200
 
   H: 10
   method: "20_monte_carlo"

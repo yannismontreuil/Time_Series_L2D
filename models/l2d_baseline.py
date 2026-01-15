@@ -207,6 +207,7 @@ class L2D:
         x: np.ndarray,
         losses_all: np.ndarray,
         available_experts: Sequence[int],
+        selected_expert: int | None = None,
     ) -> None:
         losses_all = np.asarray(losses_all, dtype=float).reshape(self.N)
         available_experts = np.asarray(list(available_experts), dtype=int)
