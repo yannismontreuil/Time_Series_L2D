@@ -134,6 +134,7 @@ class NeuralUCB:
         x: np.ndarray,
         losses_all: np.ndarray,
         available_experts: Sequence[int],
+        selected_expert: int | None = None,
     ) -> None:
         phi = self._phi(x)
         h, z = self._embed(phi)
@@ -145,7 +146,12 @@ class NeuralUCB:
 
         # Determine which experts to update (partial vs full feedback).
         if self.feedback_mode == "partial":
-            j_sel = self.select_expert(x, available_experts)
+            if selected_expert is None:
+                j_sel = self.select_expert(x, available_experts)
+            else:
+                j_sel = int(selected_expert)
+                if j_sel not in available_experts:
+                    j_sel = self.select_expert(x, available_experts)
             update_indices = [int(j_sel)]
         else:
             update_indices = [int(j) for j in available_experts]

@@ -1,0 +1,75 @@
+\section*{Algorithms: Factorized SLDS (Corrected)}
+
+\paragraph{Model.}
+For each mode $m \in \{1,\dots,M\}$:
+\[
+g_t = A^{(g)}_m g_{t-1} + w^{(g)}_t,\quad
+u_{t,k} = A^{(u)}_m u_{t-1,k} + w^{(u)}_{t,k},
+\]
+with $w^{(g)}_t \sim \mathcal{N}(0, Q^{(g)}_m)$ and
+$w^{(u)}_{t,k} \sim \mathcal{N}(0, Q^{(u)}_m)$, independent across time and experts.
+The emission for expert $k$ is
+\[
+e_{t,k} \mid (z_t=m, g_t, u_{t,k}, x_t)
+\sim \mathcal{N}\!\big(\phi(x_t)^\top (B_k g_t + u_{t,k}), R_{m,k}\big).
+\]
+Contextual transitions satisfy
+$\mathbb{P}(z_t=m \mid z_{t-1}=\ell, x_t) = \Pi_\theta(x_t)_{\ell m}$.
+
+\begin{algorithm}[H]
+\caption{Context-Aware Router (Factorized SLDS + IMM + IDS)}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} horizon $T$, features $\phi$, parameters $\Theta$, fees $(\beta_k)_k$, loss $\psi$ (assume $\psi(e)=e^2$ for closed form), staleness $\Delta_{\max}$.
+\STATE \textbf{Initialize:} $w_0$, $(\mu^{(m)}_{g,0|0},\Sigma^{(m)}_{g,0|0})$, empty registry.
+\FOR{$t=1$ to $T$}
+  \STATE Observe $(x_t, \mathcal{E}_t)$.
+  \STATE Update registry with pruning and entering experts.
+  \STATE \textbf{IMM interaction:} compute $w_{t|t-1}$ and mixed moments using $\Pi_\theta(x_t)$.
+  \STATE \textbf{Time update:} propagate $(g_{t-1}, u_{t-1,k})$ with $(A^{(g)}_m,Q^{(g)}_m)$ and $(A^{(u)}_m,Q^{(u)}_m)$.
+  \STATE For entering experts, set predictive priors $(\mu^{(m)}_{u,k,t|t-1},\Sigma^{(m)}_{u,k,t|t-1})$ from population or side information.
+  \FOR{each $k\in\mathcal{E}_t$}
+    \STATE $h_{t,k} \leftarrow B_k^\top \phi(x_t)$.
+    \STATE $b^{(m)}_{t,k} \leftarrow \phi(x_t)^\top \mu^{(m)}_{u,k,t|t-1}$.
+    \STATE $s^{(m)}_{t,k} \leftarrow \phi(x_t)^\top \Sigma^{(m)}_{u,k,t|t-1}\phi(x_t) + R_{m,k}$.
+    \STATE $\mu^{(m)}_{t,k} \leftarrow h_{t,k}^\top \mu^{(m)}_{g,t|t-1} + b^{(m)}_{t,k}$.
+    \STATE $\sigma^{2,(m)}_{t,k} \leftarrow h_{t,k}^\top \Sigma^{(m)}_{g,t|t-1} h_{t,k} + s^{(m)}_{t,k}$.
+    \STATE $\bar C_{t,k} \leftarrow \sum_m w_{t|t-1}^{(m)}\big(\sigma^{2,(m)}_{t,k} + (\mu^{(m)}_{t,k})^2\big) + \beta_k$.
+    \STATE $\mathrm{IG}_t(k) \leftarrow \sum_m w_{t|t-1}^{(m)} \tfrac12 \log\!\left(1 + \frac{h_{t,k}^\top \Sigma^{(m)}_{g,t|t-1} h_{t,k}}{s^{(m)}_{t,k}}\right)$.
+  \ENDFOR
+  \STATE Choose $I_t$ by IDS: minimize $\Delta_t(k)^2/\mathrm{IG}_t(k)$, default to myopic if $\mathrm{IG}_t(k)=0$.
+  \STATE Observe $e_t$ for $I_t$ and update $(w_t, g_t, u_{t,I_t})$ with a Kalman correction; leave $u_{t,k}$ for $k\neq I_t$ at predictive marginals.
+  \STATE (Optional) run online EM on a sliding window.
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsc{LearnParameter\_EM} (Monte Carlo EM, corrected)}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} window $\mathcal{T}=\{t_a,\dots,t_b\}$, contexts $(x_t)$, available sets $(\mathcal{E}_t)$, actions $(I_t)$, residuals $(e_t)$ (and $e_{t,k}$ for full feedback), priors, $N_{\mathrm{EM}}, N_{\mathrm{samp}}, N_{\mathrm{burn}}$, occupancy floor $\epsilon_N$.
+\STATE \textbf{Initialize:} parameters $\Theta^{(0)}$ and priors for $(z_{t_a}, g_{t_a}, u_{t_a,k})$. If $w_0$ is not provided, set $w_0 = \mathbf{1}/M$.
+\STATE \textbf{Warm start:} initialize the Gibbs chain from the previous EM iteration's last sample (for the first EM iteration, draw from the priors).
+\FOR{iteration $i=1$ to $N_{\mathrm{EM}}$}
+  \FOR{sample $s=1$ to $N_{\mathrm{burn}} + N_{\mathrm{samp}}$}
+    \STATE \textbf{Sample $z_{t_a:t_b}$ via FFBS} using transitions $\Pi_\theta(x_t)$ and local evidence
+    \[
+      \ell_t^{(m)} \propto
+      p(e_t \mid z_t=m, g_t, u_{t,I_t})\,
+      p(g_t \mid g_{t-1}, z_t=m)\,
+      \prod_{k\in\mathcal{E}_t} p(u_{t,k} \mid u_{t-1,k}, z_t=m).
+    \]
+    \STATE For full feedback, replace $p(e_t \mid \cdot)$ with $\prod_{k\in\mathcal{E}_t} p(e_{t,k} \mid z_t=m, g_t, u_{t,k})$.
+    \STATE \textbf{Sample $g_{t_a:t_b}$} via Kalman smoothing given $z_{t_a:t_b}$ and $\{u_{t,k}\}$.
+    \STATE \textbf{Sample $u_{t_a:t_b,k}$} for each $k$ via Kalman smoothing using times where $k$ is observed (bandit) or available (full feedback).
+    \IF{$s > N_{\mathrm{burn}}$}
+      \STATE Accumulate Monte Carlo sufficient statistics for $\gamma_t^{(m)}$ and $\xi_{t-1}^{(\ell,m)}$.
+    \ENDIF
+  \ENDFOR
+  \STATE \textbf{M-step:} update $A^{(g)}_m,Q^{(g)}_m$ from $g$ samples.
+  \STATE \textbf{M-step (availability-masked):} update $A^{(u)}_m,Q^{(u)}_m$ using only $(t,k)$ with $k\in\mathcal{E}_t$.
+  \STATE \textbf{M-step:} update $B_k$ and $R_{m,k}$ using sample averages (bandit or full feedback).
+  \STATE \textbf{M-step:} update transition parameters $\theta$ by maximizing the expected log-likelihood from $\xi_{t-1}^{(\ell,m)}$.
+\ENDFOR
+\STATE \textbf{Return:} $\Theta^{(N_{\mathrm{EM}})}$.
+\end{algorithmic}
+\end{algorithm}

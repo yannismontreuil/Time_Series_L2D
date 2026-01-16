@@ -118,6 +118,7 @@ class LinUCB:
         x: np.ndarray,
         losses_all: np.ndarray,
         available_experts: Sequence[int],
+        selected_expert: int | None = None,
     ) -> None:
         """
         Update the per-expert linear models using the current feature
@@ -131,9 +132,14 @@ class LinUCB:
             available_experts = np.arange(self.N, dtype=int)
 
         if self.feedback_mode == "partial":
-            # Use LinUCB's own selection under the current parameters to
-            # determine which expert was chosen for this step.
-            j_sel = self.select_expert(x, available_experts)
+            # Use the provided selection when available to avoid updating
+            # a different (counterfactual) expert.
+            if selected_expert is None:
+                j_sel = self.select_expert(x, available_experts)
+            else:
+                j_sel = int(selected_expert)
+                if j_sel not in available_experts:
+                    j_sel = self.select_expert(x, available_experts)
             ell = float(losses_all[j_sel])
             j_idx = int(j_sel)
             self.A[j_idx] += np.outer(phi, phi)
@@ -146,4 +152,3 @@ class LinUCB:
                 j_idx = int(j)
                 self.A[j_idx] += np.outer(phi, phi)
                 self.b[j_idx] += phi * ell
-

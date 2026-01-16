@@ -1280,6 +1280,11 @@ def evaluate_routers_and_baselines(
         _running_avg(costs_linucb_full) if costs_linucb_full is not None else None
     )
     avg_neuralucb_partial_t = (
+        _running_avg(costs_neuralucb_partial)
+        if costs_neuralucb_partial is not None
+        else None
+    )
+    avg_neuralucb_full_t = (
         _running_avg(costs_neuralucb_full)
         if costs_neuralucb_full is not None
         else None
@@ -1436,6 +1441,14 @@ def evaluate_routers_and_baselines(
             label="NeuralUCB (partial, avg cost)",
             color=get_model_color("neuralucb"),
             linestyle="-",
+        )
+    if avg_neuralucb_full_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_neuralucb_full_t,
+            label="NeuralUCB (full, avg cost)",
+            color=get_model_color("neuralucb"),
+            linestyle="--",
         )
     if avg_factorized_partial_t is not None:
         ax_cost.plot(

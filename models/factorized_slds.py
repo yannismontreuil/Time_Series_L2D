@@ -3,6 +3,47 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from models.router_model import SLDSIMMRouter
 
+try:  # pragma: no cover - optional dependency
+    import torch
+    import torch.nn as nn
+except Exception:  # pragma: no cover - optional dependency
+    torch = None
+    nn = None
+
+
+if torch is not None:
+    class TransitionMLP(nn.Module):
+        def __init__(
+            self,
+            input_dim: int,
+            hidden_dims: Sequence[int],
+            num_modes: int,
+            activation: str = "tanh",
+        ) -> None:
+            super().__init__()
+            dims = [int(input_dim)] + [int(h) for h in hidden_dims] + [int(num_modes) ** 2]
+            layers: List[nn.Module] = []
+            act = str(activation).lower()
+            for idx in range(len(dims) - 1):
+                layers.append(nn.Linear(dims[idx], dims[idx + 1]))
+                if idx < len(dims) - 2:
+                    if act == "tanh":
+                        layers.append(nn.Tanh())
+                    elif act == "relu":
+                        layers.append(nn.ReLU())
+                    elif act == "gelu":
+                        layers.append(nn.GELU())
+                    elif act == "elu":
+                        layers.append(nn.ELU())
+                    else:
+                        raise ValueError("Unsupported transition_activation.")
+            self.net = nn.Sequential(*layers)
+            self.M = int(num_modes)
+
+        def forward(self, x: "torch.Tensor") -> "torch.Tensor":
+            out = self.net(x)
+            return out.view(-1, self.M, self.M)
+
 
 class FactorizedSLDS(SLDSIMMRouter):
     """
@@ -360,9 +401,21 @@ class FactorizedSLDS(SLDSIMMRouter):
         cov = np.asarray(cov, dtype=float)
         if not np.isfinite(cov).all():
             return np.asarray(fallback, dtype=float).copy()
+        if cov.size == 0:
+            return cov.copy()
         cov = np.clip(cov, -self.cov_clip, self.cov_clip)
         cov = 0.5 * (cov + cov.T)
-        return cov
+        # Ensure the covariance is symmetric PSD for stable filtering.
+        try:
+            np.linalg.cholesky(cov + self.eps * np.eye(cov.shape[0]))
+            return cov
+        except np.linalg.LinAlgError:
+            try:
+                eigvals, eigvecs = np.linalg.eigh(cov)
+                eigvals = np.clip(eigvals, self.eps, self.cov_clip)
+                return (eigvecs * eigvals) @ eigvecs.T
+            except np.linalg.LinAlgError:
+                return np.asarray(fallback, dtype=float).copy()
 
     def _transition_log_enabled(self) -> bool:
         if not isinstance(self.transition_log_cfg, dict):
@@ -560,6 +613,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         action: int,
         residual: float,
         residuals_full: Optional[np.ndarray],
+        state_override: Optional[Dict[str, Any]] = None,
     ) -> None:
         cfg = self._online_em_cfg
         if not cfg.get("enabled", False) or self._online_em_suspended:
@@ -568,9 +622,12 @@ class FactorizedSLDS(SLDSIMMRouter):
             return
         if not self._em_records:
             self._em_records_start = int(self.current_step)
-        state_post = None
+        state_prior = None
         if cfg.get("use_state_priors", True):
-            state_post = self._snapshot_em_state()
+            if state_override is None:
+                state_prior = self._snapshot_em_state()
+            else:
+                state_prior = state_override
         record = {
             "t": int(self.current_step),
             "context": np.asarray(x_t, dtype=float).reshape(-1).copy(),
@@ -580,7 +637,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             "residual_full": None
             if residuals_full is None
             else np.asarray(residuals_full, dtype=float).copy(),
-            "state_post": state_post,
+            "state_prior": state_prior,
         }
         self._em_records.append(record)
 
@@ -621,7 +678,9 @@ class FactorizedSLDS(SLDSIMMRouter):
 
         init_state = None
         if cfg.get("use_state_priors", True):
-            init_state = window_records[0].get("state_post", None)
+            init_state = window_records[0].get("state_prior", None)
+            if init_state is None:
+                init_state = window_records[0].get("state_post", None)
 
         seed_cfg = cfg.get("seed", None)
         seed = None if seed_cfg is None else int(seed_cfg) + int(t_now)
@@ -909,12 +968,15 @@ class FactorizedSLDS(SLDSIMMRouter):
                 else 0.1
             )
         elif self.exploration_ucb_schedule == "inverse_t_log2":
-            alpha = 1.0 / (t_val * (np.log(float(t_val) + 1.0) ** 2))
+            denom = t_val * (np.log(float(t_val) + 1.0) ** 2)
+            alpha = 0.5 - 0.5 / max(denom, 1.0)
         else:
-            alpha = 1.0 / t_val
+            alpha = 0.5 - 0.5 / t_val
         if self.exploration_ucb_alpha is not None and self.exploration_ucb_schedule != "fixed":
             alpha = min(alpha, float(self.exploration_ucb_alpha))
-        return float(np.clip(alpha, self.eps, 1.0 - self.eps))
+        if self.exploration_ucb_schedule == "fixed":
+            return float(np.clip(alpha, self.eps, 1.0 - self.eps))
+        return float(np.clip(alpha, self.eps, 0.5 - self.eps))
 
     def _sample_predictive_costs_from_stats(
         self,
@@ -1121,6 +1183,43 @@ class FactorizedSLDS(SLDSIMMRouter):
         diff = float(np.clip(diff, -self.state_clip, self.state_clip))
         return -0.5 * (np.log(2.0 * np.pi * var) + (diff * diff) / var)
 
+    def _gaussian_logpdf_mvn(
+        self,
+        x: np.ndarray,
+        mean: np.ndarray,
+        cov: np.ndarray,
+    ) -> float:
+        x = np.asarray(x, dtype=float).reshape(-1)
+        d = int(x.shape[0])
+        if d == 0:
+            return 0.0
+        mean = np.asarray(mean, dtype=float).reshape(-1)
+        if mean.shape[0] != d:
+            raise ValueError("Mean dimension mismatch in multivariate logpdf.")
+        cov = np.asarray(cov, dtype=float)
+        if cov.shape != (d, d):
+            raise ValueError("Covariance dimension mismatch in multivariate logpdf.")
+        cov = 0.5 * (cov + cov.T)
+        for i in range(3):
+            jitter = (10.0**i) * self.eps
+            cov_j = cov + jitter * np.eye(d, dtype=float)
+            try:
+                L = np.linalg.cholesky(cov_j)
+                diff = x - mean
+                solve = np.linalg.solve(L, diff)
+                log_det = 2.0 * float(np.sum(np.log(np.diag(L))))
+                quad = float(np.dot(solve, solve))
+                return -0.5 * (d * np.log(2.0 * np.pi) + log_det + quad)
+            except np.linalg.LinAlgError:
+                continue
+        cov_j = cov + self.eps * np.eye(d, dtype=float)
+        sign, logdet = np.linalg.slogdet(cov_j)
+        if sign <= 0:
+            return -np.inf
+        diff = x - mean
+        quad = float(diff.T @ np.linalg.inv(cov_j) @ diff)
+        return -0.5 * (d * np.log(2.0 * np.pi) + float(logdet) + quad)
+
     def _update_from_predicted(
         self,
         selected_expert: int,
@@ -1302,6 +1401,18 @@ class FactorizedSLDS(SLDSIMMRouter):
         mu_u_pred = dict(cache["mu_u_pred"])
         Sigma_u_pred = dict(cache["Sigma_u_pred"])
 
+        state_prior = None
+        if self._online_em_cfg.get("enabled", False) and self._online_em_cfg.get(
+            "use_state_priors", True
+        ):
+            state_prior = {
+                "w": w_pred.copy(),
+                "mu_g": mu_g_pred.copy(),
+                "Sigma_g": Sigma_g_pred.copy(),
+                "mu_u": {k: v.copy() for k, v in mu_u_pred.items()},
+                "Sigma_u": {k: v.copy() for k, v in Sigma_u_pred.items()},
+            }
+
         if self.feedback_mode == "full":
             if losses_full is None:
                 raise ValueError("losses_full must be provided in full feedback mode.")
@@ -1352,6 +1463,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             action=int(r_t),
             residual=float(loss_obs),
             residuals_full=residuals_full,
+            state_override=state_prior,
         )
         self._maybe_online_em_update()
 
@@ -1565,19 +1677,15 @@ class FactorizedSLDS(SLDSIMMRouter):
             var_modes[m] = max(signal + noise, self.eps)
         return mean_modes, var_modes
 
-    def _evaluate_nll(
+    def _filter_block_nll(
         self,
         contexts: Sequence[np.ndarray],
         available_sets: Sequence[Sequence[int]],
         actions: Sequence[int],
         residuals: Sequence[float],
         residuals_full: Optional[Sequence[np.ndarray]] = None,
+        accumulate: bool = True,
     ) -> float:
-        state = self._snapshot_state()
-        em_records = list(self._em_records)
-        em_start = self._em_records_start
-        self.reset_beliefs()
-
         nll = 0.0
         T = len(contexts)
         full_feedback = self.feedback_mode == "full" and residuals_full is not None
@@ -1586,7 +1694,8 @@ class FactorizedSLDS(SLDSIMMRouter):
             available = available_sets[t]
             phi = self._compute_phi(x_t)
 
-            entering = self.manage_registry(available, t_now=t + 1)
+            t_now = self.current_step + 1
+            entering = self.manage_registry(available, t_now=t_now)
             w_pred, mu_g_pred, Sigma_g_pred, mu_u_pred, Sigma_u_pred = self._interaction_and_time_update(
                 x_t,
                 self.w,
@@ -1612,7 +1721,8 @@ class FactorizedSLDS(SLDSIMMRouter):
                         loglikes[m] += self._gaussian_logpdf(
                             resid, mean_modes[m], var_modes[m]
                         )
-                nll += -self._logsumexp(loglikes)
+                if accumulate:
+                    nll += -self._logsumexp(loglikes)
 
                 w_post, mu_g_post, Sigma_g_post, mu_u_post, Sigma_u_post = (
                     self._update_from_predicted_full(
@@ -1637,7 +1747,8 @@ class FactorizedSLDS(SLDSIMMRouter):
                     loglikes[m] += self._gaussian_logpdf(
                         residual, mean_modes[m], var_modes[m]
                     )
-                nll += -self._logsumexp(loglikes)
+                if accumulate:
+                    nll += -self._logsumexp(loglikes)
 
                 w_post, mu_g_post, Sigma_g_post, mu_u_post, Sigma_u_post = (
                     self._update_from_predicted(
@@ -1656,17 +1767,169 @@ class FactorizedSLDS(SLDSIMMRouter):
             self.Sigma_g = Sigma_g_post
             self.mu_u = mu_u_post
             self.Sigma_u = Sigma_u_post
-            self.current_step = t + 1
+            self.current_step = t_now
             if full_feedback:
                 for k in available:
-                    self.last_selected_time[int(k)] = t + 1
+                    self.last_selected_time[int(k)] = t_now
             else:
-                self.last_selected_time[action] = t + 1
+                self.last_selected_time[action] = t_now
+
+        return nll
+
+    def _evaluate_nll(
+        self,
+        contexts: Sequence[np.ndarray],
+        available_sets: Sequence[Sequence[int]],
+        actions: Sequence[int],
+        residuals: Sequence[float],
+        residuals_full: Optional[Sequence[np.ndarray]] = None,
+    ) -> float:
+        state = self._snapshot_state()
+        em_records = list(self._em_records)
+        em_start = self._em_records_start
+        self.reset_beliefs()
+
+        nll = self._filter_block_nll(
+            contexts,
+            available_sets,
+            actions,
+            residuals,
+            residuals_full=residuals_full,
+            accumulate=True,
+        )
 
         self._restore_state(state)
         self._em_records = em_records
         self._em_records_start = em_start
-        return nll / max(T, 1)
+        return nll / max(len(contexts), 1)
+
+    def _evaluate_nll_with_prefix(
+        self,
+        prefix_contexts: Sequence[np.ndarray],
+        prefix_available_sets: Sequence[Sequence[int]],
+        prefix_actions: Sequence[int],
+        prefix_residuals: Sequence[float],
+        prefix_residuals_full: Optional[Sequence[np.ndarray]],
+        contexts: Sequence[np.ndarray],
+        available_sets: Sequence[Sequence[int]],
+        actions: Sequence[int],
+        residuals: Sequence[float],
+        residuals_full: Optional[Sequence[np.ndarray]] = None,
+    ) -> float:
+        state = self._snapshot_state()
+        em_records = list(self._em_records)
+        em_start = self._em_records_start
+        self.reset_beliefs()
+
+        if prefix_contexts:
+            self._filter_block_nll(
+                prefix_contexts,
+                prefix_available_sets,
+                prefix_actions,
+                prefix_residuals,
+                residuals_full=prefix_residuals_full,
+                accumulate=False,
+            )
+        nll = self._filter_block_nll(
+            contexts,
+            available_sets,
+            actions,
+            residuals,
+            residuals_full=residuals_full,
+            accumulate=True,
+        )
+
+        self._restore_state(state)
+        self._em_records = em_records
+        self._em_records_start = em_start
+        return nll / max(len(contexts), 1)
+
+    def _evaluate_nll_rolling(
+        self,
+        contexts: Sequence[np.ndarray],
+        available_sets: Sequence[Sequence[int]],
+        actions: Sequence[int],
+        residuals: Sequence[float],
+        residuals_full: Optional[Sequence[np.ndarray]],
+        train_end: int,
+        val_window_len: int,
+        n_splits: int,
+        stride: Optional[int] = None,
+    ) -> Tuple[float, float, int]:
+        T = len(contexts)
+        train_end = max(1, min(int(train_end), T))
+        val_window_len = max(1, int(val_window_len))
+        val_tail_len = max(0, T - train_end)
+        if val_tail_len <= 0:
+            return float("inf"), 0.0, 0
+        if val_window_len > val_tail_len:
+            val_window_len = val_tail_len
+        max_offset = max(0, val_tail_len - val_window_len)
+        n_splits = max(1, int(n_splits))
+
+        if stride is not None:
+            stride = max(1, int(stride))
+            offsets = list(range(0, max_offset + 1, stride))
+        else:
+            if max_offset == 0 or n_splits <= 1:
+                offsets = [0]
+            else:
+                offsets = [
+                    int(round(x))
+                    for x in np.linspace(0, max_offset, num=n_splits)
+                ]
+        offsets = sorted(set(int(o) for o in offsets))
+        if not offsets:
+            offsets = [0]
+        if len(offsets) > n_splits:
+            idxs = np.linspace(0, len(offsets) - 1, num=n_splits)
+            offsets = [offsets[int(round(i))] for i in idxs]
+            offsets = sorted(set(offsets))
+
+        scores = []
+        for offset in offsets:
+            offset = int(offset)
+            prefix_len = train_end + offset
+            val_start = prefix_len
+            val_end = min(T, val_start + val_window_len)
+            if val_start >= val_end:
+                continue
+            prefix_ctx = contexts[:prefix_len]
+            prefix_avail = available_sets[:prefix_len]
+            prefix_actions = actions[:prefix_len]
+            prefix_residuals = residuals[:prefix_len]
+            prefix_residuals_full = (
+                None
+                if residuals_full is None
+                else residuals_full[:prefix_len]
+            )
+            val_ctx = contexts[val_start:val_end]
+            val_avail = available_sets[val_start:val_end]
+            val_actions = actions[val_start:val_end]
+            val_residuals = residuals[val_start:val_end]
+            val_residuals_full = (
+                None
+                if residuals_full is None
+                else residuals_full[val_start:val_end]
+            )
+            score = self._evaluate_nll_with_prefix(
+                prefix_ctx,
+                prefix_avail,
+                prefix_actions,
+                prefix_residuals,
+                prefix_residuals_full,
+                val_ctx,
+                val_avail,
+                val_actions,
+                val_residuals,
+                residuals_full=val_residuals_full,
+            )
+            scores.append(float(score))
+        if not scores:
+            return float("inf"), 0.0, 0
+        mean = float(np.mean(scores))
+        std = float(np.std(scores, ddof=1)) if len(scores) > 1 else 0.0
+        return mean, std, len(scores)
 
     def _train_transition_model(
         self,
@@ -1846,6 +2109,11 @@ class FactorizedSLDS(SLDSIMMRouter):
         w0: Optional[np.ndarray] = None,
         residuals_full: Optional[Sequence[np.ndarray]] = None,
         available_sets: Optional[Sequence[Sequence[int]]] = None,
+        g_init_mean: Optional[np.ndarray] = None,
+        g_init_cov: Optional[np.ndarray] = None,
+        u_init_mean: Optional[Dict[int, np.ndarray]] = None,
+        u_init_cov: Optional[Dict[int, np.ndarray]] = None,
+        rng: Optional[np.random.Generator] = None,
     ) -> np.ndarray:
         T = len(contexts)
         phi_seq = [self._compute_phi(x) for x in contexts]
@@ -1855,6 +2123,15 @@ class FactorizedSLDS(SLDSIMMRouter):
             and residuals_full is not None
             and available_sets is not None
         )
+        if g_init_mean is None:
+            g_init_mean = self.g_mean0
+        if g_init_cov is None:
+            g_init_cov = self.g_cov0
+        if u_init_mean is None:
+            u_init_mean = {}
+        if u_init_cov is None:
+            u_init_cov = {}
+        expert_ids = sorted(int(k) for k in u_prev.keys())
 
         for t in range(T):
             phi_t = phi_seq[t]
@@ -1877,6 +2154,36 @@ class FactorizedSLDS(SLDSIMMRouter):
                     log_emission[t, m] = self._gaussian_logpdf(
                         float(residuals[t]), mean_shared, var
                     )
+            for m in range(self.M):
+                if self.d_g > 0:
+                    if t == 0:
+                        log_emission[t, m] += self._gaussian_logpdf_mvn(
+                            g_prev[t], g_init_mean[m], g_init_cov[m]
+                        )
+                    else:
+                        mean_g = self.A_g[m] @ g_prev[t - 1]
+                        log_emission[t, m] += self._gaussian_logpdf_mvn(
+                            g_prev[t], mean_g, self.Q_g[m]
+                        )
+                if self.d_phi > 0 and expert_ids:
+                    if available_sets is None or t >= len(available_sets):
+                        experts_t = expert_ids
+                    else:
+                        experts_t = [int(k) for k in available_sets[t]]
+                    for k in experts_t:
+                        if k not in u_prev:
+                            continue
+                        if t == 0:
+                            u0_mean = u_init_mean.get(k, self.u_mean0)[m]
+                            u0_cov = u_init_cov.get(k, self.u_cov0)[m]
+                            log_emission[t, m] += self._gaussian_logpdf_mvn(
+                                u_prev[k][t], u0_mean, u0_cov
+                            )
+                        else:
+                            mean_u = self.A_u[m] @ u_prev[k][t - 1]
+                            log_emission[t, m] += self._gaussian_logpdf_mvn(
+                                u_prev[k][t], mean_u, self.Q_u[m]
+                            )
 
         Pi_seq = np.zeros((T, self.M, self.M), dtype=float)
         for t in range(T):
@@ -1884,7 +2191,7 @@ class FactorizedSLDS(SLDSIMMRouter):
 
         alpha = np.zeros((T, self.M), dtype=float)
         if w0 is None:
-            w_init = np.asarray(self.w, dtype=float)
+            w_init = np.ones(self.M, dtype=float)
         else:
             w_init = np.asarray(w0, dtype=float)
         if w_init.shape != (self.M,):
@@ -1899,7 +2206,8 @@ class FactorizedSLDS(SLDSIMMRouter):
                 alpha[t, j] = log_emission[t, j] + self._logsumexp(prev)
             alpha[t] -= self._logsumexp(alpha[t])
 
-        rng = self._rng
+        if rng is None:
+            rng = self._rng
         z = np.zeros(T, dtype=int)
         probs = np.exp(alpha[T - 1] - np.max(alpha[T - 1]))
         probs = probs / probs.sum()
@@ -1925,6 +2233,10 @@ class FactorizedSLDS(SLDSIMMRouter):
         burn_in: int = 5,
         val_fraction: float = 0.2,
         val_len: Optional[int] = None,
+        val_strategy: str = "tail",
+        val_roll_splits: Optional[int] = None,
+        val_roll_len: Optional[int] = None,
+        val_roll_stride: Optional[int] = None,
         priors: Optional[dict] = None,
         theta_lr: float = 1e-2,
         theta_steps: int = 1,
@@ -1961,9 +2273,41 @@ class FactorizedSLDS(SLDSIMMRouter):
         if T == 0:
             raise ValueError("Empty training data.")
 
+        val_strategy = str(val_strategy).lower()
+        if val_strategy not in ("tail", "rolling"):
+            raise ValueError("val_strategy must be 'tail' or 'rolling'.")
         split_idx = T
-        do_validation = bool(use_validation)
-        if do_validation and T > 1:
+        do_validation = bool(use_validation and T > 1)
+        val_window_len = None
+        if do_validation and val_strategy == "rolling":
+            if val_roll_len is not None:
+                val_window_len = int(val_roll_len)
+            elif val_len is not None:
+                val_window_len = int(val_len)
+            elif val_fraction > 0:
+                val_window_len = max(1, int(val_fraction * T))
+            else:
+                do_validation = False
+            if do_validation:
+                if val_fraction > 0:
+                    split_idx = max(1, int((1.0 - val_fraction) * T))
+                else:
+                    split_idx = max(1, T - int(val_window_len))
+                if split_idx >= T:
+                    do_validation = False
+                    split_idx = T
+            if do_validation:
+                val_tail_len = T - split_idx
+                if val_tail_len <= 0:
+                    do_validation = False
+                else:
+                    if val_window_len is None:
+                        val_window_len = val_tail_len
+                    if val_window_len <= 0:
+                        do_validation = False
+                    elif val_window_len > val_tail_len:
+                        val_window_len = val_tail_len
+        elif do_validation:
             if val_len is not None:
                 val_len_int = int(val_len)
                 if val_len_int <= 0:
@@ -1976,7 +2320,6 @@ class FactorizedSLDS(SLDSIMMRouter):
                 do_validation = False
                 split_idx = T
         else:
-            do_validation = False
             split_idx = T
 
         train_ctx = contexts[:split_idx]
@@ -2042,26 +2385,27 @@ class FactorizedSLDS(SLDSIMMRouter):
         best_params = self._snapshot_params()
         best_score = np.inf
 
-        for em_idx in range(n_em):
-            expert_ids = sorted({int(a) for a in train_actions})
-            for avail in train_avail:
-                expert_ids.extend(int(k) for k in avail)
-            expert_ids = sorted(set(expert_ids))
-            for k in expert_ids:
-                self._ensure_B(k)
+        expert_ids = sorted({int(a) for a in train_actions})
+        for avail in train_avail:
+            expert_ids.extend(int(k) for k in avail)
+        expert_ids = sorted(set(expert_ids))
+        for k in expert_ids:
+            self._ensure_B(k)
 
-            g_prev = np.stack(
-                [g_init_mean[rng.integers(self.M)] for _ in range(len(train_ctx))]
+        g_prev = np.stack(
+            [g_init_mean[rng.integers(self.M)] for _ in range(len(train_ctx))]
+        )
+        u_prev = {
+            k: np.stack(
+                [
+                    u_init_mean.get(k, self.u_mean0)[rng.integers(self.M)]
+                    for _ in range(len(train_ctx))
+                ]
             )
-            u_prev = {
-                k: np.stack(
-                    [
-                        u_init_mean.get(k, self.u_mean0)[rng.integers(self.M)]
-                        for _ in range(len(train_ctx))
-                    ]
-                )
-                for k in expert_ids
-            }
+            for k in expert_ids
+        }
+
+        for em_idx in range(n_em):
 
             z_samples = []
             g_samples = []
@@ -2078,7 +2422,12 @@ class FactorizedSLDS(SLDSIMMRouter):
                     u_prev,
                     w0=w0,
                     residuals_full=train_residuals_full,
-                    available_sets=train_avail if full_feedback else None,
+                    available_sets=train_avail,
+                    g_init_mean=g_init_mean,
+                    g_init_cov=g_init_cov,
+                    u_init_mean=u_init_mean,
+                    u_init_cov=u_init_cov,
+                    rng=rng,
                 )
 
                 A_seq_g = self.A_g[z_seq]
@@ -2280,6 +2629,8 @@ class FactorizedSLDS(SLDSIMMRouter):
                         z_seq = z_samples[s]
                         u_seq = u_samp[s]
                         for t in range(1, T_train):
+                            if k not in train_avail[t]:
+                                continue
                             if z_seq[t] != m:
                                 continue
                             sum_uu += np.outer(u_seq[t], u_seq[t - 1])
@@ -2301,6 +2652,8 @@ class FactorizedSLDS(SLDSIMMRouter):
                         z_seq = z_samples[s]
                         u_seq = u_samp[s]
                         for t in range(1, T_train):
+                            if k not in train_avail[t]:
+                                continue
                             if z_seq[t] != m:
                                 continue
                             diff = u_seq[t] - self.A_u[m] @ u_seq[t - 1]
@@ -2313,7 +2666,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             # Update B_k via ridge regression (mode-conditional)
             if self.d_g > 0 and self.d_phi > 0:
                 for k in expert_ids:
-                    W_k = 0.0
+                    obs_count = 0
                     for t in range(T_train):
                         if full_feedback:
                             if k not in train_avail[t]:
@@ -2321,8 +2674,8 @@ class FactorizedSLDS(SLDSIMMRouter):
                         else:
                             if int(train_actions[t]) != k:
                                 continue
-                        W_k += float(np.sum(gamma[t]))
-                    if W_k <= epsilon_N:
+                        obs_count += 1
+                    if obs_count <= epsilon_N:
                         continue
 
                     XTX = np.zeros(
@@ -2339,15 +2692,16 @@ class FactorizedSLDS(SLDSIMMRouter):
                                 continue
                             resid_val = float(train_residuals[t])
                         phi_t = phi_seq[t]
-                        for m in range(self.M):
-                            gamma_tm = float(gamma[t, m])
-                            if gamma_tm <= 0:
-                                continue
-                            x_vec = np.kron(g_cond_mean[t, m], phi_t)
-                            y_val = float(resid_val - phi_t @ u_cond_mean[k][t, m])
-                            w_tm = gamma_tm / max(self._get_R(m, k), self.eps)
-                            XTX += w_tm * np.outer(x_vec, x_vec)
-                            XTy += w_tm * x_vec * y_val
+                        for s in range(z_samples.shape[0]):
+                            m = int(z_samples[s, t])
+                            g_t = g_samples[s, t]
+                            u_t = u_samples[k][s, t]
+                            x_vec = np.kron(g_t, phi_t)
+                            y_val = float(resid_val - phi_t @ u_t)
+                            w_tm = 1.0 / max(self._get_R(m, k), self.eps)
+                            weight = w_tm / S
+                            XTX += weight * np.outer(x_vec, x_vec)
+                            XTy += weight * x_vec * y_val
                     reg = lambda_B * np.eye(self.d_phi * self.d_g)
                     vec_M = M_B.reshape(-1)
                     vec_B = np.linalg.solve(XTX + reg, XTy + lambda_B * vec_M)
@@ -2375,21 +2729,16 @@ class FactorizedSLDS(SLDSIMMRouter):
                             if int(train_actions[t]) != k:
                                 continue
                             resid_val = float(train_residuals[t])
-                        gamma_tm = float(gamma[t, m])
-                        if gamma_tm <= 0:
-                            continue
                         phi_t = phi_seq[t]
                         Bk = self._ensure_B(k)
-                        resid = float(
-                            resid_val
-                            - phi_t
-                            @ (
-                                Bk @ g_cond_mean[t, m]
-                                + u_cond_mean[k][t, m]
-                            )
-                        )
-                        num += gamma_tm * (resid ** 2)
-                        denom += gamma_tm
+                        for s in range(z_samples.shape[0]):
+                            if int(z_samples[s, t]) != m:
+                                continue
+                            g_t = g_samples[s, t]
+                            u_t = u_samples[k][s, t]
+                            resid = float(resid_val - phi_t @ (Bk @ g_t + u_t))
+                            num += (resid ** 2) / S
+                            denom += 1.0 / S
                     if denom <= epsilon_N:
                         continue
                     self.R[m, k] = (b_R + 0.5 * num) / (a_R + 0.5 * denom + 1.0)
@@ -2468,15 +2817,32 @@ class FactorizedSLDS(SLDSIMMRouter):
                     if grad_b_attn is not None:
                         self.b_attn += theta_lr * grad_b_attn
 
+            score_std = None
+            score_n = None
             if do_validation:
-                score = self._evaluate_nll(
-                    val_ctx,
-                    val_avail,
-                    val_actions,
-                    val_residuals,
-                    residuals_full=val_residuals_full if full_feedback else None,
-                )
-                metric_label = "val_nll"
+                if val_strategy == "rolling":
+                    n_splits = int(val_roll_splits) if val_roll_splits is not None else 3
+                    score, score_std, score_n = self._evaluate_nll_rolling(
+                        contexts,
+                        available_sets,
+                        actions,
+                        residuals,
+                        residuals_full_arr if full_feedback else None,
+                        train_end=split_idx,
+                        val_window_len=int(val_window_len),
+                        n_splits=n_splits,
+                        stride=val_roll_stride,
+                    )
+                    metric_label = "val_roll_nll_mean"
+                else:
+                    score = self._evaluate_nll(
+                        val_ctx,
+                        val_avail,
+                        val_actions,
+                        val_residuals,
+                        residuals_full=val_residuals_full if full_feedback else None,
+                    )
+                    metric_label = "val_nll"
             else:
                 score = self._evaluate_nll(
                     train_ctx,
@@ -2487,10 +2853,28 @@ class FactorizedSLDS(SLDSIMMRouter):
                 )
                 metric_label = "train_nll"
             if print_val_loss:
-                print(
-                    f"[FactorizedSLDS EM] iter {em_idx + 1}/{n_em} "
-                    f"{metric_label}={score:.6f}"
-                )
+                if metric_label == "val_roll_nll_mean":
+                    std_str = (
+                        f" val_roll_nll_std={float(score_std):.6f}" if score_std is not None else ""
+                    )
+                    split_str = (
+                        f" splits={int(score_n)}" if score_n is not None else ""
+                    )
+                    print(
+                        f"[FactorizedSLDS EM] iter {em_idx + 1}/{n_em} "
+                        f"{metric_label}={score:.6f}{std_str}{split_str}"
+                    )
+                    if score_n is not None and int(score_n) < 2:
+                        print(
+                            "[FactorizedSLDS EM] rolling validation collapsed to a single "
+                            "split; reduce em_val_roll_len or increase em_val_fraction/em_tk "
+                            "to enable multiple windows."
+                        )
+                else:
+                    print(
+                        f"[FactorizedSLDS EM] iter {em_idx + 1}/{n_em} "
+                        f"{metric_label}={score:.6f}"
+                    )
             if score < best_score:
                 best_score = score
                 best_params = self._snapshot_params()
@@ -2500,7 +2884,10 @@ class FactorizedSLDS(SLDSIMMRouter):
         self._maybe_log_transition_params(stage)
         if print_val_loss:
             if do_validation:
-                print(f"[FactorizedSLDS EM] best_val_nll={best_score:.6f}")
+                if val_strategy == "rolling":
+                    print(f"[FactorizedSLDS EM] best_val_roll_nll_mean={best_score:.6f}")
+                else:
+                    print(f"[FactorizedSLDS EM] best_val_nll={best_score:.6f}")
             else:
                 print(f"[FactorizedSLDS EM] best_train_nll={best_score:.6f}")
         return {"best_nll": best_score}

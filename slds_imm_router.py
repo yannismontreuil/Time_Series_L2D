@@ -7,6 +7,8 @@ import json
 import os
 import random
 import multiprocessing as mp
+import subprocess
+import sys
 from typing import Optional
 import numpy as np
 
@@ -143,6 +145,18 @@ def _evaluate_factorized_run_worker(payload: dict) -> None:
     )
 
 
+def _run_pipeline_subprocess(payload: dict) -> None:
+    config_path = payload["config_path"]
+    exploration_mode = payload["exploration_mode"]
+    disable_show = payload.get("disable_show", True)
+    env = os.environ.copy()
+    env["FACTOR_EXPLORATION_MODE"] = exploration_mode
+    if disable_show:
+        env["FACTOR_DISABLE_PLOT_SHOW"] = "1"
+    cmd = [sys.executable, os.path.abspath(__file__), "--config", config_path]
+    subprocess.run(cmd, check=True, env=env)
+
+
 def _parse_args() -> argparse.Namespace:
     """
     Parse command-line arguments.
@@ -182,6 +196,11 @@ if __name__ == "__main__":
     transition_log_cfg = cfg.get("transition_log", None)
     if transition_log_cfg is None:
         transition_log_cfg = cfg.get("debug", {}).get("transition_log", None)
+    if os.environ.get("FACTOR_DISABLE_PLOT_SHOW") == "1" and isinstance(
+        transition_log_cfg, dict
+    ):
+        transition_log_cfg = dict(transition_log_cfg)
+        transition_log_cfg["plot_show"] = False
     if isinstance(transition_log_cfg, dict) and transition_log_cfg.get("enabled", False):
         set_transition_log_config(transition_log_cfg)
     else:
@@ -212,6 +231,43 @@ if __name__ == "__main__":
             raise ValueError("routers.factorized_slds must be a mapping when provided.")
         factorized_slds_cfg = factorized_slds_cfg_raw
     factorized_slds_enabled = bool(factorized_slds_cfg.get("enabled", True))
+    exploration_override = os.environ.get("FACTOR_EXPLORATION_MODE", None)
+    if exploration_override:
+        factorized_slds_cfg = dict(factorized_slds_cfg)
+        factorized_slds_cfg["exploration"] = exploration_override
+
+    if factorized_slds_enabled and not exploration_override:
+        parallel_pipeline = bool(factorized_slds_cfg.get("parallel_pipeline", False))
+        if parallel_pipeline:
+            exploration_cfg = factorized_slds_cfg.get("exploration", "g")
+            if isinstance(exploration_cfg, (list, tuple)):
+                exploration_modes = [str(x).lower() for x in exploration_cfg]
+            else:
+                exploration_modes = [str(exploration_cfg).lower()]
+            exploration_modes = [m for m in exploration_modes if m]
+            exploration_modes = exploration_modes or ["g"]
+            if len(exploration_modes) > 1:
+                workers_cfg = factorized_slds_cfg.get("parallel_pipeline_workers", None)
+                disable_show = bool(
+                    factorized_slds_cfg.get("parallel_pipeline_disable_plot_show", True)
+                )
+                max_workers = (
+                    min(len(exploration_modes), int(workers_cfg))
+                    if workers_cfg is not None
+                    else min(len(exploration_modes), os.cpu_count() or 1)
+                )
+                payloads = [
+                    {
+                        "config_path": args.config,
+                        "exploration_mode": mode,
+                        "disable_show": disable_show,
+                    }
+                    for mode in exploration_modes
+                ]
+                ctx = mp.get_context("spawn")
+                with ctx.Pool(processes=max_workers) as pool:
+                    pool.map(_run_pipeline_subprocess, payloads)
+                sys.exit(0)
 
     baselines_cfg = cfg.get("baselines", {})
     l2d_cfg = baselines_cfg.get("l2d", {})
@@ -1396,7 +1452,7 @@ if __name__ == "__main__":
             return
         em_enabled = bool(factorized_slds_cfg.get("em_enabled", True))
         em_force_full_feedback = bool(
-            factorized_slds_cfg.get("em_offline_full_feedback", False)
+            factorized_slds_cfg.get("em_offline_full_feedback", True)
         )
         em_tk_cfg = factorized_slds_cfg.get("em_tk", None)
         if em_tk_cfg is None:
@@ -1412,12 +1468,32 @@ if __name__ == "__main__":
         val_fraction = float(factorized_slds_cfg.get("em_val_fraction", 0.2))
         val_len_cfg = factorized_slds_cfg.get("em_val_len", None)
         val_len = int(val_len_cfg) if val_len_cfg is not None else None
+        val_strategy = str(factorized_slds_cfg.get("em_val_strategy", "tail"))
+        val_roll_splits_cfg = factorized_slds_cfg.get("em_val_roll_splits", None)
+        val_roll_splits = (
+            int(val_roll_splits_cfg) if val_roll_splits_cfg is not None else None
+        )
+        val_roll_len_cfg = factorized_slds_cfg.get("em_val_roll_len", None)
+        val_roll_len = int(val_roll_len_cfg) if val_roll_len_cfg is not None else None
+        val_roll_stride_cfg = factorized_slds_cfg.get("em_val_roll_stride", None)
+        val_roll_stride = (
+            int(val_roll_stride_cfg) if val_roll_stride_cfg is not None else None
+        )
         theta_lr = float(factorized_slds_cfg.get("em_theta_lr", 1e-2))
         theta_steps = int(factorized_slds_cfg.get("em_theta_steps", 1))
         em_seed_cfg = factorized_slds_cfg.get("em_seed", env_cfg.get("seed", 0))
         em_seed = int(em_seed_cfg) if em_seed_cfg is not None else 0
         em_priors = factorized_slds_cfg.get("em_priors", None)
         print_val_loss = bool(factorized_slds_cfg.get("em_print_val_loss", True))
+        use_validation_cfg = factorized_slds_cfg.get("em_use_validation", None)
+        if use_validation_cfg is None:
+            use_validation = bool(
+                val_fraction > 0.0
+                or val_len is not None
+                or str(val_strategy).lower() == "rolling"
+            )
+        else:
+            use_validation = bool(use_validation_cfg)
         em_eps_n = float(factorized_slds_cfg.get("em_eps_n", 0.0))
 
         print(f"\n--- FactorizedSLDS EM ({label}) (t=1..{em_tk}, n_em={n_em}) ---")
@@ -1441,13 +1517,17 @@ if __name__ == "__main__":
                 burn_in=burn_in,
                 val_fraction=val_fraction,
                 val_len=val_len,
+                val_strategy=val_strategy,
+                val_roll_splits=val_roll_splits,
+                val_roll_len=val_roll_len,
+                val_roll_stride=val_roll_stride,
                 priors=em_priors,
                 theta_lr=theta_lr,
                 theta_steps=theta_steps,
                 seed=em_seed,
                 print_val_loss=print_val_loss,
                 epsilon_N=em_eps_n,
-                use_validation=False,
+                use_validation=use_validation,
                 transition_log_stage="post_offline_em",
             )
         finally:

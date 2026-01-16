@@ -620,7 +620,7 @@ def run_l2d_on_env(
         choices[t - 1] = int(r_t)
 
         # Full-feedback update on all experts' losses for available experts
-        baseline.update(x_t, loss_all, available)
+        baseline.update(x_t, loss_all, available, selected_expert=r_t)
 
     return costs, choices
 
@@ -661,7 +661,7 @@ def run_linucb_on_env(
         costs[t - 1] = cost_t
         choices[t - 1] = int(r_t)
 
-        baseline.update(x_t, loss_all, available)
+        baseline.update(x_t, loss_all, available, selected_expert=r_t)
 
     return costs, choices
 

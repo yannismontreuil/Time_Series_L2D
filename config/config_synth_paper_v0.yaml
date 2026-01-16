@@ -32,61 +32,34 @@ routers:
   # Factorized SLDS router (train on [1..em_tk], then deploy)
   factorized_slds:
     enabled: true
-    num_regimes: 3
+
+    # Dimensions
+    # Tweak: number of regimes and latent dims.
+    num_regimes: 2
     shared_dim: 1
     idiosyncratic_dim: 2
-    delta_max: 2000
-    R_scalar: 0.5
-    Q_g_scales: [0.02, 0.08, 0.04]
-    Q_u_scales: [0.005, 0.015, 0.01]
-    # Exploration mode for partial feedback:
-    #   - "g": IDS using only shared-factor information (current default)
-    #   - "g_z": IDS using joint (z, g) information
-    #   - "ucb": Bayes-UCB (LCB) on predictive costs
-    #   - "sampling": posterior sampling on predictive costs
-    exploration: ["g_z", "g"]
-    # Diagnostic: log I(z; e) estimates to verify g vs g_z differences.
-    exploration_diag_enabled: true
-    exploration_diag_stride: 200
-    exploration_diag_samples: 50
-    exploration_diag_print: true
-    # Parallelize exploration runs across CPUs.
-    parallel_exploration: true
-    parallel_workers: null
-    # Parallelize full pipelines per exploration mode.
-    parallel_pipeline: true
-    parallel_pipeline_workers: 8
-    parallel_pipeline_disable_plot_show: true
 
+    # Dynamics / noise
+    # Tweak: observation noise and registry pruning window.
+    delta_max: 50
+    R_scalar: 1.0
+
+    # EM configuration
+    # Tweak: EM window and iterations/samples.
     em_enabled: true
-    # If true, offline EM uses full feedback even for partial routers.
-    em_offline_full_feedback: true
-    em_tk: 300 #1200
-    em_n: 10
-    em_samples: 8
+    em_tk: 999
+    em_n: 1
+    em_samples: 5
     em_burn_in: 5
-    # Offline EM runs without validation.
-    em_val_fraction: 0.0
-    em_val_len: null
-    em_theta_lr: 0.005
+    em_val_fraction: 0.2
+    em_theta_lr: 0.01
     em_theta_steps: 1
     em_print_val_loss: true
-    em_eps_n: 1.0e-3
 
-    # Online (sliding-window) EM adaptation.
-    em_online_enabled: false
-    em_online_window: 1000
-    em_online_period: 200
-    em_online_n: 5
-    em_online_samples: 8
-    em_online_burn_in: 3
-    em_online_theta_lr: 0.005
-    em_online_theta_steps: 1
-    em_online_eps_n: 1.0e-3
-    em_online_print_val_loss: true
-    # If null, defaults to em_tk + 1.
-    em_online_start_t: null
-
+    # Transition parameterization:
+    #   - "attention": dot-product attention (W_q/W_k) + softmax
+    #   - "linear": per-row linear logits + softmax
+    #   - "both": run both attention and linear variants for comparison
     transition_mode: "attention"
 
 baselines:
@@ -112,16 +85,16 @@ baselines:
   linucb:
     # Strong optimism so that the (stale) historical mean for Expert 1
     # dominates when it returns, triggering the trap.
-    alpha_ucb: 1.0
+    alpha_ucb: 100.0
     # Strong ridge prior so that a few bad pulls in Phase 3 do not
     # immediately erase the excellent Phase-1 history for Expert 1.
-    lambda_reg: 1.0
+    lambda_reg: 100.0
 
   neural_ucb:
     # NeuralUCB baseline: we mirror the stale-prior regime by using
     # strong optimism and a slow-moving embedding.
-    alpha_ucb: 1.0
-    lambda_reg: 1.0
+    alpha_ucb: 10.0
+    lambda_reg: 100.0
     hidden_dim: 16
     nn_learning_rate: 0.0001
 
