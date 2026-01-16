@@ -51,6 +51,7 @@ routers:
   beta: 0.0
   staleness_threshold: null
 
+
   factorized_slds:
     enabled: true
     num_regimes: 3
