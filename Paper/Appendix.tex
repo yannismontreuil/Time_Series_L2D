@@ -135,6 +135,61 @@
 \end{algorithmic}
 \end{algorithm}
 
+\section{Cross-Covariance in the Exact Update}
+\label{app:cross_covariance}
+
+The Kalman update in Algorithm~\ref{alg:correct_reweight} is performed on the joint state
+\(\mathbf{s}_t \coloneqq (\mathbf{g}_t,\mathbf{u}_{t,I_t})\). Even if the predictive covariance is
+block-diagonal (our factorized predictive belief), the \emph{exact} posterior covariance after
+conditioning on the queried residual \(e_t\) generally has non-zero off-diagonal blocks:
+\[
+\Sigma^{(m)}_{s,t\mid t}
+=
+\begin{bmatrix}
+\Sigma^{(m)}_{g,t\mid t} & \Sigma^{(m)}_{g u,t\mid t} \\
+(\Sigma^{(m)}_{g u,t\mid t})^\top & \Sigma^{(m)}_{u,t\mid t}
+\end{bmatrix},
+\qquad
+\Sigma^{(m)}_{g u,t\mid t}\neq \mathbf{0}\ \text{in general}.
+\]
+These cross terms arise because the observation matrix \(H_t=[\phi(\mathbf{x}_t)^\top\mathbf{B}_{I_t}\;\;\phi(\mathbf{x}_t)^\top]\)
+couples \(\mathbf{g}_t\) and \(\mathbf{u}_{t,I_t}\). Retaining \(\Sigma^{(m)}_{g u,t\mid t}\) would
+propagate correlation into subsequent steps and into cross-expert predictive covariances.
+
+\paragraph{Closed-form cross-covariance.}
+Write the Kalman gain in block form
+\(
+K_t^{(m)}=\big[(K^{(m)}_{g,t})^\top\ (K^{(m)}_{u,t})^\top\big]^\top
+\),
+so that the covariance update is
+\(
+\Sigma^{(m)}_{s,t\mid t}
+=
+\Sigma^{(m)}_{s,t\mid t-1}
+-K_t^{(m)} S^{(m)}_{t,I_t} (K_t^{(m)})^\top
+\).
+If the predictive covariance is block-diagonal, then the off-diagonal block is
+\[
+\Sigma^{(m)}_{g u,t\mid t}
+=
+-K^{(m)}_{g,t} S^{(m)}_{t,I_t} (K^{(m)}_{u,t})^\top
+=
+-\Sigma^{(m)}_{g,t\mid t-1} H_{g,t}^\top (S^{(m)}_{t,I_t})^{-1} H_{u,t}\Sigma^{(m)}_{u,t\mid t-1},
+\]
+where \(H_{g,t}=\phi(\mathbf{x}_t)^\top\mathbf{B}_{I_t}\) and \(H_{u,t}=\phi(\mathbf{x}_t)^\top\).
+Unless one of these terms is zero, the cross-covariance is non-zero.
+
+\paragraph{Why we discard it.}
+Keeping \(\Sigma^{(m)}_{g u,t\mid t}\) is exact but undermines the factorized SLDS approximation that
+enables scalable inference under a growing expert registry. Once \(\mathbf{g}_t\) becomes correlated
+with \(\mathbf{u}_{t,I_t}\), future prediction steps introduce non-zero cross-covariances between
+\(\mathbf{g}_t\) and every \(\mathbf{u}_{t,k}\) that shares dynamics with \(\mathbf{u}_{t,I_t}\), and,
+through the shared factor, induce dependence across many experts. This breaks the stored-marginal
+structure, increases both compute and memory (scaling with the full registry size), and complicates
+closed-form quantities used in Section~\ref{sec:exploration} (e.g., the Gaussian channel form and
+information gain). For these reasons, we project back to a factorized belief after each update and
+retain only the diagonal blocks as in Algorithm~\ref{alg:correct_reweight}.
+
 
 % =========================
 % Algorithm: OnlineUpdate
@@ -162,7 +217,7 @@
 \caption{Context-Aware Router (Factorized SLDS + IMM + IDS)}
 \label{alg:router_main}
 \begin{algorithmic}[1]
-\STATE {\bfseries Input:} horizon $T$; parameters $\Theta$ (or initial window $\mathcal{T}_0=\{1,\dots,t_0\}$ and EM settings for Algorithm~\ref{alg:trainmodel_em}); feature map $\phi$; contexts $(\mathbf{x}_t)_{t=1}^T$; expert sets $(\mathcal{E}_t)_{t=1}^T$; loss $\psi$; fees $(\beta_k)_k$; optional side information for entering experts; optional online EM settings $(W,K,N_{\mathrm{EM}}^{\mathrm{win}},N_{\mathrm{samp}},N_{\mathrm{burn}},\epsilon_N)$.
+\STATE {\bfseries Input:} horizon $T$; parameters $\Theta$ (or initial window $\mathcal{T}_0=\{1,\dots,t_0\}$ and EM settings for Algorithm~\ref{alg:trainmodel_em}); feature map $\phi$; contexts $(\mathbf{x}_t)_{t=1}^T$; expert sets $(\mathcal{E}_t)_{t=1}^T$; loss $\psi$; fees $(\beta_k)_k$; optional side information for entering experts; optional online EM settings $(W,K,N_{\mathrm{EM}}^{\mathrm{win}},N_{\mathrm{samp}},N_{\mathrm{burn}},\epsilon_N)$; Monte Carlo budget $S$ for information gain estimation (default $S=50$).
 \STATE {\bfseries Initialize:} $w_0^m=\mathbb{P}(z_0=m)$; $(\mu^{(m)}_{g,0|0},\Sigma^{(m)}_{g,0|0})$ for $m\in[M]$; $\mathcal{K}^{\text{work}}_0\leftarrow\emptyset$; for all $k$, $\tau_{\mathrm{last}}(k)\leftarrow 0$.
 \STATE {\bfseries Hyperparameters:} population priors $(\mu^{(m)}_{\mathrm{pop}},\Sigma^{(m)}_{\mathrm{pop}})_{m=1}^M$; staleness $\Delta_{\max}$; mixing floor $\epsilon_w$.
 \STATE {\bfseries Optional init:} if $\Theta$ is not provided, run Algorithm~\ref{alg:trainmodel_em} on $\mathcal{T}_0$ to obtain $\Theta$.
@@ -188,14 +243,28 @@
         \STATE $\Delta_t(k)\leftarrow \bar{C}_{t,k}^{\mathrm{pred}} - \bar{C}_{t,k_t^\star}^{\mathrm{pred}}$.
     \ENDFOR
 
+    \STATE \COMMENT{Compute full $(z_t,\mathbf{g}_t)$-information gain: $\mathrm{IG}^{(z,g)}_t(k)=\mathcal{I}(z_t;e\mid\mathcal{F}_t)+\mathcal{I}(\mathbf{g}_t;e\mid z_t,\mathcal{F}_t)$}
     \FOR{each $k\in\mathcal{E}_t$}
-        \STATE $\mathrm{IG}_t(k) \leftarrow 0$.
-    \ENDFOR
-    \FOR{$m=1$ to $M$}
-        \FOR{each $k\in\mathcal{E}_t$}
-            \STATE $s^{(m)}_{t,k} \leftarrow \phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\phi(\mathbf{x}_t) + R_{m,k}$.
-            \STATE $\mathrm{IG}_t(k) \leftarrow \mathrm{IG}_t(k) + \bar{w}_t^{(m)}\,\frac12\log\!\left(1+ \frac{\phi(\mathbf{x}_t)^\top \mathbf{B}_k \Sigma^{(m)}_{g,t\mid t-1} \mathbf{B}_k^\top \phi(\mathbf{x}_t)}{s^{(m)}_{t,k}}\right)$.
+        \STATE $h_{t,k}\leftarrow \mathbf{B}_k^\top\phi(\mathbf{x}_t)$. \COMMENT{Projection of context onto global factor loading}
+        \FOR{$m=1$ to $M$}
+            \STATE $s^{(m)}_{t,k} \leftarrow \phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\phi(\mathbf{x}_t) + R_{m,k}$. \COMMENT{Idiosyncratic + noise variance}
+            \STATE $\mu^{(m)}_{e,t,k}\leftarrow h_{t,k}^\top\mu^{(m)}_{g,t|t-1}+\phi(\mathbf{x}_t)^\top\mu^{(m)}_{u,k,t|t-1}$. \COMMENT{Per-mode predictive mean}
+            \STATE $v^{(m)}_{e,t,k}\leftarrow h_{t,k}^\top\Sigma^{(m)}_{g,t|t-1}h_{t,k}+s^{(m)}_{t,k}$. \COMMENT{Per-mode predictive variance}
         \ENDFOR
+        \STATE \COMMENT{Term 1: Mode-identification $\mathcal{I}(z_t;e_{t,k}^{\mathrm{pred}}\mid\mathcal{F}_t)$ via Monte Carlo}
+        \STATE $\widehat{\mathcal{I}}^{(z)}_t(k)\leftarrow 0$.
+        \FOR{$m=1$ to $M$}
+            \FOR{$s=1$ to $S$}
+                \STATE Sample $E_{m,s}\sim\mathcal{N}(\mu^{(m)}_{e,t,k},v^{(m)}_{e,t,k})$.
+                \STATE $\log p_m\leftarrow -\frac12\log(2\pi v^{(m)}_{e,t,k})-\frac{(E_{m,s}-\mu^{(m)}_{e,t,k})^2}{2v^{(m)}_{e,t,k}}$.
+                \STATE $\log p_{\mathrm{mix}}\leftarrow \mathrm{LogSumExp}_{j\in[M]}\!\left(\log\bar{w}_t^{(j)}-\frac12\log(2\pi v^{(j)}_{e,t,k})-\frac{(E_{m,s}-\mu^{(j)}_{e,t,k})^2}{2v^{(j)}_{e,t,k}}\right)$.
+                \STATE $\widehat{\mathcal{I}}^{(z)}_t(k)\leftarrow \widehat{\mathcal{I}}^{(z)}_t(k)+\frac{\bar{w}_t^{(m)}}{S}(\log p_m-\log p_{\mathrm{mix}})$.
+            \ENDFOR
+        \ENDFOR
+        \STATE \COMMENT{Term 2: Shared-factor refinement $\mathcal{I}(\mathbf{g}_t;e_{t,k}^{\mathrm{pred}}\mid z_t,\mathcal{F}_t)$ (closed form)}
+        \STATE $\mathrm{IG}^{(g)}_t(k)\leftarrow \sum_{m=1}^M \bar{w}_t^{(m)}\,\frac12\log\!\left(1+\frac{h_{t,k}^\top\Sigma^{(m)}_{g,t|t-1}h_{t,k}}{s^{(m)}_{t,k}}\right)$.
+        \STATE \COMMENT{Full $(z_t,\mathbf{g}_t)$-information: sum of both terms}
+        \STATE $\mathrm{IG}_t(k)\leftarrow \widehat{\mathcal{I}}^{(z)}_t(k)+\mathrm{IG}^{(g)}_t(k)$.
     \ENDFOR
     \STATE {\bfseries Convention:} if $\mathrm{IG}_t(k)=0$, interpret $\Delta_t(k)^2/\mathrm{IG}_t(k)=+\infty$ unless $\Delta_t(k)=0$.
     \STATE Choose $I_t \in \arg\min_{k\in\mathcal{E}_t}\Delta_t(k)^2 / \mathrm{IG}_t(k)$.
@@ -211,6 +280,36 @@
 \end{algorithmic}
 \end{algorithm}
 
+\begin{remark}[$(z_t,\mathbf{g}_t)$-Information Gain for Non-Stationary Routing]
+\label{rmk:zg_information}
+Algorithm~\ref{alg:router_main} uses the \emph{full} $(z_t,\mathbf{g}_t)$-information gain rather than
+conditioning only on $\mathbf{g}_t$. By the chain rule for mutual information:
+\begin{equation}
+\label{eq:ig_chain_rule_rmk}
+\mathcal{I}\!\left((z_t,\mathbf{g}_t);e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right)
+=
+\underbrace{\mathcal{I}\!\left(z_t;e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right)}_{\text{mode-identification}}
++
+\underbrace{\mathcal{I}\!\left(\mathbf{g}_t;e_{t,k}^{\mathrm{pred}}\,\middle|\,z_t,\mathcal{F}_t\right)}_{\text{shared-factor refinement}}.
+\end{equation}
+The first term measures how much observing the residual $e_{t,k}^{\mathrm{pred}}$ helps identify the current
+regime $z_t$. This is crucial for non-stationarity: when modes have distinct predictive distributions, querying
+an expert whose residual discriminates between regimes accelerates adaptation to regime changes.
+
+\textbf{Why both terms matter:}
+\begin{itemize}
+\item \emph{Shared-factor refinement} (closed-form): Reduces posterior uncertainty about $\mathbf{g}_t$,
+improving predictions for \emph{all} experts via Proposition~\ref{prop:cross_update}.
+\item \emph{Mode-identification} (Monte Carlo): Reduces uncertainty about $z_t$, ensuring the router uses
+the correct dynamics parameters $(A_m^{(g)},Q_m^{(g)},A_m^{(u)},Q_m^{(u)},R_{m,k})$.
+\end{itemize}
+
+\textbf{Computational note:} The mode-identification term requires Monte Carlo estimation because the
+predictive distribution $p(e_{t,k}\mid\mathcal{F}_t)$ is a Gaussian mixture, for which KL divergence has no
+closed form. The LogSumExp trick ensures numerical stability. With $S=50$ samples per expert, the overhead
+is negligible compared to the SLDS update cost.
+\end{remark}
+
 % =========================
 % Algorithm: IMM
 % =========================
@@ -224,8 +323,11 @@
 \STATE Apply floor and renormalize: $\bar w_t^j \leftarrow \max(\tilde w_t^j,\epsilon_w)$, then $\bar w_t \leftarrow \bar w_t / \sum_{j=1}^M \bar w_t^j$.
 \FOR{$j=1$ to $M$}
     \IF{$\tilde w_t^j = 0$}
+        \STATE \COMMENT{\textbf{Numerical safety:} Mode $j$ has (near-)zero probability before flooring.}
+        \STATE \COMMENT{After flooring, $\bar{w}_t^j\approx\epsilon_w$, so this mode's contribution is negligible.}
+        \STATE \COMMENT{The fallback $1/M$ provides well-defined mixing weights; actual values are irrelevant.}
         \FOR{$i=1$ to $M$}
-            \STATE $\mu_{t-1}^{i|j} \leftarrow 1/M$ \COMMENT{fallback if underflow/degeneracy}
+            \STATE $\mu_{t-1}^{i|j} \leftarrow 1/M$
         \ENDFOR
     \ELSE
         \FOR{$i=1$ to $M$}
@@ -291,7 +393,9 @@
     \STATE $K_t^{(m)} \leftarrow \Sigma^{(m)}_{s,t|t-1}H_t^\top(S_{t,I_t}^{\mathrm{pred},(m)})^{-1}$.
     \STATE $\mu^{(m)}_{s,t|t} \leftarrow \mu^{(m)}_{s,t|t-1} + K_t^{(m)}(e_t-\bar e_{t,I_t}^{\mathrm{pred},(m)})$.
     \STATE $\Sigma^{(m)}_{s,t|t} \leftarrow \Sigma^{(m)}_{s,t|t-1} - K_t^{(m)}S_{t,I_t}^{\mathrm{pred},(m)}(K_t^{(m)})^\top$.
-    \STATE Extract $(\mu^{(m)}_{g,t|t},\Sigma^{(m)}_{g,t|t})$ and $(\mu^{(m)}_{u,I_t,t|t},\Sigma^{(m)}_{u,I_t,t|t})$ from $(\mu^{(m)}_{s,t|t},\Sigma^{(m)}_{s,t|t})$.
+    \STATE \COMMENT{\textbf{Factorized projection:} $\Sigma^{(m)}_{s,t|t}$ has non-zero off-diagonal blocks (induced $\mathbf{g}_t$--$\mathbf{u}_{t,I_t}$ correlation).}
+    \STATE \COMMENT{We extract only the diagonal blocks, discarding cross-covariance to maintain factorization; see Appendix~\ref{app:cross_covariance}.}
+    \STATE Extract $(\mu^{(m)}_{g,t|t},\Sigma^{(m)}_{g,t|t})$ and $(\mu^{(m)}_{u,I_t,t|t},\Sigma^{(m)}_{u,I_t,t|t})$ from diagonal blocks of $(\mu^{(m)}_{s,t|t},\Sigma^{(m)}_{s,t|t})$.
     \FOR{each $k\in\mathcal{K}^{\text{work}}_t\setminus\{I_t\}$}
         \STATE $(\mu^{(m)}_{u,k,t|t},\Sigma^{(m)}_{u,k,t|t}) \leftarrow (\mu^{(m)}_{u,k,t|t-1},\Sigma^{(m)}_{u,k,t|t-1})$.
     \ENDFOR

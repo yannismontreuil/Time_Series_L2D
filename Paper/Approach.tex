@@ -249,7 +249,8 @@ In the exact Bayesian filter, incorporating the observation \(e_t\) induces depe
 shared factor \(\mathbf{g}_t\) and the idiosyncratic states \((\mathbf{u}_{t,k})_k\), and hence across
 experts. For scalability, our inference maintains a \emph{factorized} approximation: after each
 update, we project the filtering belief back to a family in which (conditional on \(z_t\)) the
-idiosyncratic states are independent across experts and independent of \(\mathbf{g}_t\).
+idiosyncratic states are independent across experts and independent of \(\mathbf{g}_t\); see
+Appendix~\ref{app:cross_covariance} for the full (non-factorized) update and why we avoid it.
 
 \begin{restatable}[Information transfer under a shared factor]{proposition}{propinfo}
 \label{prop:cross_update}
@@ -322,26 +323,37 @@ The (predictive) value gap of choosing \(k\) is
 \end{equation}
 where nonnegativity follows from the definition of \(k_t^\star\).
 
-\paragraph{Epistemic value: information gain about the shared factor.}
-In the factorized SLDS, cross-expert information transfer is mediated by the shared factor
-\(\mathbf{g}_t\) (Proposition~\ref{prop:cross_update}). We score expert \(k\) by the mutual
-information between \(\mathbf{g}_t\) and the \emph{hypothetical} residual that would be observed if
-\(k\) were queried:
+\paragraph{Epistemic value: information gain about the joint latent state \((z_t,\mathbf{g}_t)\).}
+In the factorized SLDS, non-stationarity is governed by the regime \(z_t\) and cross-expert
+information transfer is mediated by the shared factor \(\mathbf{g}_t\)
+(Proposition~\ref{prop:cross_update}). To accelerate adaptation under regime uncertainty, we score
+expert \(k\) by the mutual information between the \emph{joint} latent state \((z_t,\mathbf{g}_t)\)
+and the hypothetical residual:
 \begin{equation}
 \label{eq:ig_operational}
 \mathrm{IG}_t(k)
 \coloneqq
-\mathcal{I}\!\left(\mathbf{g}_t;\, e_{t,k}^{\mathrm{pred}} \,\middle|\, \mathcal{F}_t\right).
+\mathcal{I}\!\left((z_t,\mathbf{g}_t);\, e_{t,k}^{\mathrm{pred}} \,\middle|\, \mathcal{F}_t\right).
 \end{equation}
-Equivalently, conditioning on the event \(I_t=k\), the realized observation \(e_t\) is a draw from
-the same predictive law as \(e_{t,k}^{\mathrm{pred}}\), so
-\(\mathrm{IG}_t(k)=\mathcal{I}(\mathbf{g}_t;\, e_t \mid \mathcal{F}_t, I_t=k)\).
+By the chain rule for mutual information, this decomposes as
+\begin{equation}
+\label{eq:ig_chain_rule}
+\mathrm{IG}_t(k)
+=
+\underbrace{\mathcal{I}\!\left(z_t;\, e_{t,k}^{\mathrm{pred}} \,\middle|\, \mathcal{F}_t\right)}_{\text{mode-identification}}
++
+\underbrace{\mathcal{I}\!\left(\mathbf{g}_t;\, e_{t,k}^{\mathrm{pred}} \,\middle|\, z_t, \mathcal{F}_t\right)}_{\text{shared-factor refinement}}.
+\end{equation}
+The first term measures how much observing the residual helps identify the current regime---crucial
+for adapting to regime changes. The second term measures the reduction in uncertainty about the
+shared factor, enabling information transfer across experts.
 
+\paragraph{Closed-form shared-factor refinement.}
 Fix a regime \(z_t=m\). Under the factorized one-step-ahead predictive belief, the conditional
 predictive law is Gaussian:
 \begin{equation}
 \label{eq:channel_form}
-e_{t,k}^{\mathrm{pred}} \mid \mathbf{g}_t
+e_{t,k}^{\mathrm{pred}} \mid (\mathbf{g}_t, z_t=m)
 \sim
 \mathcal{N}\!\big(h_{t,k}^\top \mathbf{g}_t + b^{(m)}_{t,k},\, s^{(m)}_{t,k}\big),
 \end{equation}
@@ -353,28 +365,30 @@ s^{(m)}_{t,k}
 \coloneqq
 \phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\phi(\mathbf{x}_t) + R_{m,k}.
 \end{equation}
-The mutual information depends only on the covariance, so the mean offset \(b^{(m)}_{t,k}\) does not
-affect \eqref{eq:ig_mode}.
 Let \(\Sigma^{(m)}_{g,t\mid t-1}\) denote the one-step predictive covariance of \(\mathbf{g}_t\) under
-regime \(m\). Then the mode-conditioned information gain is
+regime \(m\). The mode-conditioned shared-factor information gain admits the closed form
 \begin{equation}
 \label{eq:ig_mode}
 \mathcal{I}\!\left(\mathbf{g}_t;e_{t,k}^{\mathrm{pred}}\mid \mathcal{F}_t,z_t=m\right)
 =
 \frac12\log\!\left(1+\frac{ h_{t,k}^\top \Sigma^{(m)}_{g,t\mid t-1} h_{t,k} }{s^{(m)}_{t,k}}\right).
 \end{equation}
-
-To obtain a tractable score under regime uncertainty, we marginalize using the predictive regime
-weights \(\bar{w}_t^{(m)} \coloneqq \mathbb{P}(z_t=m\mid\mathcal{F}_t)\) and define the computable proxy
+Averaging over the predictive regime weights \(\bar{w}_t^{(m)} \coloneqq \mathbb{P}(z_t=m\mid\mathcal{F}_t)\):
 \begin{equation}
-\label{eq:ig_mix}
-\mathrm{IG}_t(k)
-\coloneqq
+\label{eq:ig_g_mix}
+\mathcal{I}\!\left(\mathbf{g}_t;e_{t,k}^{\mathrm{pred}}\mid z_t, \mathcal{F}_t\right)
+=
 \sum_{m=1}^M \bar{w}_t^{(m)}\,
 \mathcal{I}\!\left(\mathbf{g}_t;e_{t,k}^{\mathrm{pred}}\mid \mathcal{F}_t,z_t=m\right).
 \end{equation}
-(We reuse the notation \(\mathrm{IG}_t(k)\) for this mixture proxy to \eqref{eq:ig_operational}; it is
-exact when \(z_t\) is known.)
+
+\paragraph{Mode-identification via Monte Carlo.}
+The mode-identification term \(\mathcal{I}(z_t; e_{t,k}^{\mathrm{pred}} \mid \mathcal{F}_t)\) measures
+how distinguishable the per-mode predictive distributions are. Since
+\(p(e_{t,k}\mid\mathcal{F}_t)=\sum_m \bar{w}_t^{(m)}\mathcal{N}(\mu^{(m)}_{e,t,k}, v^{(m)}_{e,t,k})\)
+is a Gaussian mixture (where \(\mu^{(m)}_{e,t,k}, v^{(m)}_{e,t,k}\) are the per-mode predictive mean
+and variance), this term does not admit a closed form but can be estimated efficiently via Monte
+Carlo; see Appendix for algorithmic details.
 
 \paragraph{Minimizing the information ratio.}
 IDS selects the routing action by minimizing the squared information ratio
@@ -385,8 +399,8 @@ I_t \in \arg\min_{k\in\mathcal{E}_t}\ \frac{\Delta_t(k)^2}{\mathrm{IG}_t(k)}.
 If \(\mathrm{IG}_t(k)=0\), we interpret the ratio as \(+\infty\) unless \(\Delta_t(k)=0\); if all
 \(\mathrm{IG}_t(k)=0\), IDS reduces to the myopic choice in \eqref{eq:myopic_baseline_ids}.
 This criterion prioritizes experts that are either near-optimal (small \(\Delta_t(k)\)) or highly
-informative about the shared dynamics (large \(\mathrm{IG}_t(k)\)), accelerating adaptation under
-censoring without auxiliary queries.
+informative about the latent state \((z_t,\mathbf{g}_t)\) (large \(\mathrm{IG}_t(k)\)), accelerating
+adaptation to both regime changes and shared-factor drift without auxiliary queries.
 
 \subsubsection{The IMM filtering recursion}
 The IMM maintains $M$ mode-conditioned Gaussian filters over the shared factor \(\mathbf{g}_t\) and

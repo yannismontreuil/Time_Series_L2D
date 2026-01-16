@@ -254,6 +254,20 @@ class FactorizedSLDS(SLDSIMMRouter):
         self.transition_log_cfg: Optional[dict] = None
         self.transition_log_label: Optional[str] = None
 
+        # Debug diagnostics for tracking underperformance
+        self._debug_diag_cfg: Dict[str, Any] = {
+            "enabled": False,
+            "print_stride": 100,  # Print every N steps
+            "log_weights": True,  # Log regime weights
+            "log_variances": True,  # Log predictive variances
+            "log_info_gain": True,  # Log information gain values
+            "log_em_params": True,  # Log EM parameter changes
+            "weight_collapse_threshold": 0.99,  # Warn if max weight > this
+            "variance_collapse_threshold": 1e-6,  # Warn if variance < this
+        }
+        self._debug_diag_history: List[Dict[str, Any]] = []
+        self._em_params_before: Optional[Dict[str, Any]] = None
+
         self.registry: List[int] = []
         self.mu_u: Dict[int, np.ndarray] = {}
         self.Sigma_u: Dict[int, np.ndarray] = {}
@@ -596,6 +610,218 @@ class FactorizedSLDS(SLDSIMMRouter):
     def _clear_em_history(self) -> None:
         self._em_records = []
         self._em_records_start = None
+
+    # -------------------------------------------------------------------------
+    # Debug Diagnostics for Tracking Underperformance
+    # -------------------------------------------------------------------------
+
+    def configure_debug_diagnostics(
+        self,
+        enabled: bool = True,
+        print_stride: int = 100,
+        log_weights: bool = True,
+        log_variances: bool = True,
+        log_info_gain: bool = True,
+        log_em_params: bool = True,
+        weight_collapse_threshold: float = 0.99,
+        variance_collapse_threshold: float = 1e-6,
+    ) -> None:
+        """Enable debug diagnostics to track regime weights, variances, and EM params."""
+        self._debug_diag_cfg = {
+            "enabled": bool(enabled),
+            "print_stride": max(int(print_stride), 1),
+            "log_weights": bool(log_weights),
+            "log_variances": bool(log_variances),
+            "log_info_gain": bool(log_info_gain),
+            "log_em_params": bool(log_em_params),
+            "weight_collapse_threshold": float(weight_collapse_threshold),
+            "variance_collapse_threshold": float(variance_collapse_threshold),
+        }
+        self._debug_diag_history = []
+
+    def _log_debug_diagnostics(
+        self,
+        t_now: int,
+        w_post: np.ndarray,
+        costs: Optional[Dict[int, float]] = None,
+        info_gains: Optional[Dict[int, float]] = None,
+        stats: Optional[Dict[int, dict]] = None,
+    ) -> None:
+        """Log diagnostic information about regime weights, variances, and info gains."""
+        cfg = self._debug_diag_cfg
+        if not cfg.get("enabled", False):
+            return
+
+        stride = cfg.get("print_stride", 100)
+        should_print = (t_now % stride == 0)
+
+        record: Dict[str, Any] = {"t": t_now}
+
+        # Log regime weights
+        if cfg.get("log_weights", True):
+            w_arr = np.asarray(w_post, dtype=float)
+            max_w = float(np.max(w_arr))
+            entropy = -float(np.sum(w_arr * np.log(np.maximum(w_arr, self.eps))))
+            record["w_max"] = max_w
+            record["w_entropy"] = entropy
+            record["w_argmax"] = int(np.argmax(w_arr))
+
+            if should_print:
+                w_str = np.array2string(w_arr, precision=4, separator=", ")
+                print(f"[FactorizedSLDS DEBUG] t={t_now} w={w_str} entropy={entropy:.4f}")
+
+            # Warn if weights are collapsing
+            thresh = cfg.get("weight_collapse_threshold", 0.99)
+            if max_w > thresh:
+                print(
+                    f"[FactorizedSLDS WARNING] t={t_now} regime weights collapsing: "
+                    f"max_w={max_w:.6f} > {thresh}"
+                )
+
+        # Log predictive variances
+        if cfg.get("log_variances", True) and stats is not None:
+            var_thresh = cfg.get("variance_collapse_threshold", 1e-6)
+            for k, stat in stats.items():
+                var_modes = stat.get("var", None)
+                if var_modes is not None:
+                    min_var = float(np.min(var_modes))
+                    record[f"var_min_k{k}"] = min_var
+                    if should_print:
+                        var_str = np.array2string(var_modes, precision=6, separator=", ")
+                        print(f"[FactorizedSLDS DEBUG] t={t_now} k={k} var_modes={var_str}")
+                    if min_var < var_thresh:
+                        print(
+                            f"[FactorizedSLDS WARNING] t={t_now} k={k} variance collapse: "
+                            f"min_var={min_var:.2e} < {var_thresh:.2e}"
+                        )
+
+        # Log information gain
+        if cfg.get("log_info_gain", True) and info_gains is not None:
+            ig_vals = np.array(list(info_gains.values()), dtype=float)
+            record["ig_mean"] = float(np.mean(ig_vals)) if ig_vals.size else 0.0
+            record["ig_max"] = float(np.max(ig_vals)) if ig_vals.size else 0.0
+            if should_print:
+                ig_str = ", ".join(f"k{k}={v:.6f}" for k, v in info_gains.items())
+                print(f"[FactorizedSLDS DEBUG] t={t_now} info_gains: {ig_str}")
+
+        # Log costs
+        if costs is not None:
+            cost_vals = np.array(list(costs.values()), dtype=float)
+            record["cost_min"] = float(np.min(cost_vals)) if cost_vals.size else 0.0
+            if should_print:
+                cost_str = ", ".join(f"k{k}={v:.4f}" for k, v in costs.items())
+                print(f"[FactorizedSLDS DEBUG] t={t_now} costs: {cost_str}")
+
+        self._debug_diag_history.append(record)
+
+    def _check_dynamics_stability(self, warn: bool = True) -> Dict[str, Any]:
+        """Check if dynamics matrices A_g and A_u have stable eigenvalues (< 1).
+
+        Returns dict with stability info. If eigenvalues > 1, system is unstable
+        and variances will explode over time.
+        """
+        result = {"stable": True, "A_g_max_eig": [], "A_u_max_eig": []}
+
+        for m in range(self.M):
+            # Check A_g stability
+            if self.d_g > 0:
+                eig_g = np.abs(np.linalg.eigvals(self.A_g[m]))
+                max_eig_g = float(np.max(eig_g))
+                result["A_g_max_eig"].append(max_eig_g)
+                if max_eig_g > 1.0:
+                    result["stable"] = False
+                    if warn:
+                        print(
+                            f"[FactorizedSLDS WARNING] A_g[{m}] is UNSTABLE: "
+                            f"max eigenvalue = {max_eig_g:.4f} > 1.0"
+                        )
+
+            # Check A_u stability
+            if self.d_phi > 0:
+                eig_u = np.abs(np.linalg.eigvals(self.A_u[m]))
+                max_eig_u = float(np.max(eig_u))
+                result["A_u_max_eig"].append(max_eig_u)
+                if max_eig_u > 1.0:
+                    result["stable"] = False
+                    if warn:
+                        print(
+                            f"[FactorizedSLDS WARNING] A_u[{m}] is UNSTABLE: "
+                            f"max eigenvalue = {max_eig_u:.4f} > 1.0"
+                        )
+
+        return result
+
+    def _snapshot_em_params(self) -> Dict[str, Any]:
+        """Snapshot current EM parameters for comparison."""
+        return {
+            "A_g": self.A_g.copy(),
+            "Q_g": self.Q_g.copy(),
+            "A_u": self.A_u.copy(),
+            "Q_u": self.Q_u.copy(),
+            "R": float(self.R) if np.ndim(self.R) == 0 else self.R.copy(),
+            "B_dict": {k: v.copy() for k, v in self.B_dict.items()},
+        }
+
+    def _log_em_params_before(self) -> None:
+        """Call before EM to snapshot parameters."""
+        if not self._debug_diag_cfg.get("enabled", False):
+            return
+        if not self._debug_diag_cfg.get("log_em_params", True):
+            return
+        self._em_params_before = self._snapshot_em_params()
+
+    def _log_em_params_after(self, stage: str = "EM") -> None:
+        """Call after EM to compare and log parameter changes."""
+        cfg = self._debug_diag_cfg
+        if not cfg.get("enabled", False):
+            return
+        if not cfg.get("log_em_params", True):
+            return
+        if self._em_params_before is None:
+            return
+
+        before = self._em_params_before
+        after = self._snapshot_em_params()
+
+        def _param_change(name: str, before_val: np.ndarray, after_val: np.ndarray) -> str:
+            before_arr = np.asarray(before_val, dtype=float)
+            after_arr = np.asarray(after_val, dtype=float)
+            diff = np.abs(after_arr - before_arr)
+            max_diff = float(np.max(diff))
+            mean_diff = float(np.mean(diff))
+            return f"{name}: max_delta={max_diff:.6f}, mean_delta={mean_diff:.6f}"
+
+        print(f"[FactorizedSLDS DEBUG] {stage} parameter changes:")
+        print(f"  {_param_change('A_g', before['A_g'], after['A_g'])}")
+        print(f"  {_param_change('Q_g', before['Q_g'], after['Q_g'])}")
+        print(f"  {_param_change('A_u', before['A_u'], after['A_u'])}")
+        print(f"  {_param_change('Q_u', before['Q_u'], after['Q_u'])}")
+
+        # Log R changes
+        R_before = before['R']
+        R_after = after['R']
+        if np.ndim(R_before) == 0:
+            print(f"  R: before={float(R_before):.6f}, after={float(R_after):.6f}")
+        else:
+            print(f"  {_param_change('R', R_before, R_after)}")
+
+        # Log B_dict changes for shared experts
+        for k in before['B_dict']:
+            if k in after['B_dict']:
+                print(f"  {_param_change(f'B[{k}]', before['B_dict'][k], after['B_dict'][k])}")
+
+        # Check dynamics stability after EM
+        stability = self._check_dynamics_stability(warn=True)
+        if stability["stable"]:
+            print(f"  Dynamics stability: OK (all eigenvalues < 1)")
+        else:
+            print(f"  Dynamics stability: UNSTABLE - variance explosion likely!")
+
+        self._em_params_before = None
+
+    def get_debug_diagnostics_history(self) -> List[Dict[str, Any]]:
+        """Return the debug diagnostics history for analysis."""
+        return self._debug_diag_history.copy()
 
     def _snapshot_em_state(self) -> Dict[str, Any]:
         return {
@@ -1018,17 +1244,46 @@ class FactorizedSLDS(SLDSIMMRouter):
         costs: Dict[int, float],
         info_gains: Dict[int, float],
     ) -> int:
+        """Select expert using IDS rule: argmin_k Delta(k)^2 / IG(k).
+
+        Numerical stability improvements:
+        - If IG <= eps: score = 0 if Delta=0, else inf
+        - If IG is very small (< 1e-4), cap the ratio to prevent explosion
+        - The ratio is clipped to a maximum value to avoid numerical issues
+        """
         min_cost = min(costs.values())
         scores: Dict[int, float] = {}
+
+        # Maximum score threshold to prevent numerical instability
+        max_score = 1e12
+
         for k, cost in costs.items():
             delta = cost - min_cost
             ig = info_gains.get(k, 0.0)
+
             if ig <= self.eps:
+                # No information gain: prefer this expert only if it's already optimal
                 scores[k] = 0.0 if abs(delta) <= self.eps else np.inf
             else:
-                scores[k] = (delta ** 2) / ig
+                # Standard IDS ratio with numerical safeguards
+                ratio = (delta ** 2) / ig
+
+                # Cap extremely large ratios that could cause numerical issues
+                # This happens when IG is very small but positive
+                if ratio > max_score:
+                    if self._debug_diag_cfg.get("enabled", False):
+                        print(
+                            f"[FactorizedSLDS WARNING] IDS ratio capped for k={k}: "
+                            f"delta={delta:.6f}, ig={ig:.2e}, ratio={ratio:.2e} -> {max_score:.2e}"
+                        )
+                    ratio = max_score
+
+                scores[k] = ratio
+
         if all(np.isinf(score) for score in scores.values()):
+            # All experts have inf score - fall back to greedy selection
             return int(min(costs, key=costs.get))
+
         return int(min(scores, key=scores.get))
 
     def _select_expert_from_stats(
@@ -1113,9 +1368,12 @@ class FactorizedSLDS(SLDSIMMRouter):
             self.mu_u,
             self.Sigma_u,
         )
-        for k in entering:
-            mu_u_pred[int(k)] = self.u_mean0.copy()
-            Sigma_u_pred[int(k)] = self.u_cov0.copy()
+        # NOTE: Previously lines here overwrote new expert states with raw initial
+        # prior (mu_u_pred[k] = u_mean0, Sigma_u_pred[k] = u_cov0), discarding the
+        # process noise Q_u. This was incorrect - the time-evolved prior from
+        # _interaction_and_time_update already accounts for dynamics and should be
+        # used as-is. New experts are initialized in _birth_expert, then the time
+        # update correctly computes: mu_pred = A_u @ mu_0, Sigma_pred = A_u @ Sigma_0 @ A_u^T + Q_u.
 
         costs, info_gains, stats = self._compute_predictive_stats(
             phi,
@@ -1160,6 +1418,15 @@ class FactorizedSLDS(SLDSIMMRouter):
                     f"iz_avg={iz_avg:.6f} iz_max={iz_max:.6f} iz_sel={iz_sel:.6f}"
                 )
 
+        # Debug diagnostics: log predictive stats before selection
+        self._log_debug_diagnostics(
+            t_now=t_now,
+            w_post=w_pred,  # w_pred at selection time (before observation)
+            costs=costs,
+            info_gains=info_gains,
+            stats=stats,
+        )
+
         cache = {
             "x_t": np.asarray(x_t, dtype=float),
             "phi": phi,
@@ -1170,6 +1437,9 @@ class FactorizedSLDS(SLDSIMMRouter):
             "Sigma_u_pred": Sigma_u_pred,
             "entering": entering,
             "t_now": t_now,
+            "costs": costs,
+            "info_gains": info_gains,
+            "stats": stats,
         }
         return int(r_t), cache
 
@@ -2405,6 +2675,9 @@ class FactorizedSLDS(SLDSIMMRouter):
             for k in expert_ids
         }
 
+        # Debug diagnostics: snapshot EM parameters before training
+        self._log_em_params_before()
+
         for em_idx in range(n_em):
 
             z_samples = []
@@ -2882,6 +3155,10 @@ class FactorizedSLDS(SLDSIMMRouter):
         self._restore_params(best_params)
         stage = transition_log_stage or "post_em"
         self._maybe_log_transition_params(stage)
+
+        # Debug diagnostics: log EM parameter changes
+        self._log_em_params_after(stage=stage)
+
         if print_val_loss:
             if do_validation:
                 if val_strategy == "rolling":

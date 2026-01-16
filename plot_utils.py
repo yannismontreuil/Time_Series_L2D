@@ -875,6 +875,53 @@ def evaluate_routers_and_baselines(
     avg_cost_random = float(np.nanmean(costs_random))
     avg_cost_oracle = float(np.nanmean(costs_oracle))
 
+    cost_len = max(T - 1, 1)
+    last_frac = 0.2
+    last_start_idx = int(np.floor((1.0 - last_frac) * cost_len))
+    last_start_idx = max(0, min(last_start_idx, cost_len - 1))
+    last_t_start = last_start_idx + 1
+    if em_tk_anchor is not None and em_tk_anchor > 0:
+        last_t_start = max(last_t_start, int(em_tk_anchor) + 1)
+
+    def _mean_last(costs: Optional[np.ndarray]) -> Optional[float]:
+        if costs is None:
+            return None
+        arr = np.asarray(costs, dtype=float)
+        if arr.size == 0:
+            return None
+        start = min(last_start_idx, arr.size - 1)
+        return float(np.nanmean(arr[start:]))
+
+    last_cost_partial = _mean_last(costs_partial)
+    last_cost_full = _mean_last(costs_full)
+    last_cost_partial_corr = _mean_last(costs_partial_corr)
+    last_cost_full_corr = _mean_last(costs_full_corr)
+    last_cost_factorized_partial = _mean_last(costs_factorial_partial)
+    last_cost_factorized_full = _mean_last(costs_factorial_full)
+    last_cost_factorized_linear_partial = _mean_last(costs_factorial_linear_partial)
+    last_cost_factorized_linear_full = _mean_last(costs_factorial_linear_full)
+    last_cost_partial_corr_em = _mean_last(costs_partial_corr_em)
+    last_cost_full_corr_em = _mean_last(costs_full_corr_em)
+    last_cost_neural_partial = _mean_last(costs_partial_neural)
+    last_cost_neural_full = _mean_last(costs_full_neural)
+    last_cost_l2d = _mean_last(costs_l2d)
+    last_cost_l2d_sw = _mean_last(costs_l2d_sw)
+    last_cost_linucb_partial = _mean_last(costs_linucb_partial)
+    last_cost_linucb_full = _mean_last(costs_linucb_full)
+    last_cost_neuralucb_partial = _mean_last(costs_neuralucb_partial)
+    last_cost_neuralucb_full = _mean_last(costs_neuralucb_full)
+    last_cost_random = _mean_last(costs_random)
+    last_cost_oracle = _mean_last(costs_oracle)
+
+    if last_t_start >= T:
+        avg_cost_experts_last = np.full(env.num_experts, np.nan, dtype=float)
+    else:
+        cum_costs_last = np.zeros(env.num_experts, dtype=float)
+        for t in range(last_t_start, T):
+            loss_all = env.losses(t)
+            cum_costs_last += loss_all + beta
+        avg_cost_experts_last = cum_costs_last / float(T - last_t_start)
+
     print("=== Average costs ===")
     print(f"Factorized SLDS w/o g_t (partial fb): {avg_cost_partial:.4f}")
     print(f"Factorized SLDS w/o g_t (full fb):    {avg_cost_full:.4f}")
@@ -928,6 +975,68 @@ def evaluate_routers_and_baselines(
     print(f"Oracle baseline:               {avg_cost_oracle:.4f}")
     for j in range(env.num_experts):
         print(f"Always using expert {j}:       {avg_cost_experts[j]:.4f}")
+
+    print(
+        f"\n=== Mean costs (last 20% of horizon, t >= {last_t_start}) ==="
+    )
+    if last_cost_partial is not None:
+        print(f"Factorized SLDS w/o g_t (partial fb): {last_cost_partial:.4f}")
+    if last_cost_full is not None:
+        print(f"Factorized SLDS w/o g_t (full fb):    {last_cost_full:.4f}")
+    if last_cost_partial_corr is not None:
+        print(
+            f"Router Corr (partial feedback): {last_cost_partial_corr:.4f}"
+        )
+    if last_cost_full_corr is not None:
+        print(f"Router Corr (full feedback):    {last_cost_full_corr:.4f}")
+    if last_cost_factorized_partial is not None:
+        print(f"{factorized_label} (partial fb):   {last_cost_factorized_partial:.4f}")
+    if last_cost_factorized_full is not None:
+        print(f"{factorized_label} (full fb):      {last_cost_factorized_full:.4f}")
+    if last_cost_factorized_linear_partial is not None:
+        print(
+            f"{factorized_linear_label} (partial fb): {last_cost_factorized_linear_partial:.4f}"
+        )
+    if last_cost_factorized_linear_full is not None:
+        print(
+            f"{factorized_linear_label} (full fb):    {last_cost_factorized_linear_full:.4f}"
+        )
+    if last_cost_partial_corr_em is not None:
+        print(
+            f"Router Corr EM (partial fb):   {last_cost_partial_corr_em:.4f}"
+        )
+    if last_cost_full_corr_em is not None:
+        print(
+            f"Router Corr EM (full fb):      {last_cost_full_corr_em:.4f}"
+        )
+    if last_cost_neural_partial is not None:
+        print(
+            f"Neural router (partial fb):     {last_cost_neural_partial:.4f}"
+        )
+    if last_cost_neural_full is not None:
+        print(
+            f"Neural router (full fb):        {last_cost_neural_full:.4f}"
+        )
+    if last_cost_l2d is not None:
+        print(f"L2D baseline:                  {last_cost_l2d:.4f}")
+    if last_cost_l2d_sw is not None:
+        print(f"L2D_SW baseline:               {last_cost_l2d_sw:.4f}")
+    if last_cost_linucb_partial is not None:
+        print(f"LinUCB (partial feedback):     {last_cost_linucb_partial:.4f}")
+    if last_cost_linucb_full is not None:
+        print(f"LinUCB (full feedback):        {last_cost_linucb_full:.4f}")
+    if last_cost_neuralucb_partial is not None:
+        print(f"NeuralUCB (partial feedback):  {last_cost_neuralucb_partial:.4f}")
+    if last_cost_neuralucb_full is not None:
+        print(f"NeuralUCB (full feedback):     {last_cost_neuralucb_full:.4f}")
+    if last_cost_random is not None:
+        print(f"Random baseline:               {last_cost_random:.4f}")
+    if last_cost_oracle is not None:
+        print(f"Oracle baseline:               {last_cost_oracle:.4f}")
+    for j in range(env.num_experts):
+        print(
+            f"Always using expert {j}:       {avg_cost_experts_last[j]:.4f}"
+        )
 
     # Selection distribution (how often each expert is chosen)
     entries = [
