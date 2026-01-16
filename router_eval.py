@@ -274,6 +274,7 @@ def _run_router_online_window(
     env: TimeSeriesEnv,
     t_start: int,
     t_end: int,
+    router_type: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run the router on a specified time window [t_start, t_end],
@@ -296,6 +297,7 @@ def _run_router_online_window(
     router_name = getattr(router, "__class__", type(router)).__name__
     print(
         f"[online-run] Router={router_name}, "
+        f"{ruter_type+' ' if router_type else ''}"
         f"eval_window=[{t_start},{t_end}] "
         f"(training_mode={'off' if has_training_mode else 'n/a'})"
     )
