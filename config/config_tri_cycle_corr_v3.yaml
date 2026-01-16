@@ -65,7 +65,7 @@ routers:
     #   - "g_z": IDS using joint (z, g) information
     #   - "ucb": Bayes-UCB (LCB) on predictive costs
     #   - "sampling": posterior sampling on predictive costs
-    exploration: ["g_z", 'g', 'ucb', 'sampling']
+    exploration: ["g_z"]
     # Diagnostic: log I(z; e) estimates to verify g vs g_z differences.
     exploration_diag_enabled: true
     exploration_diag_stride: 200
@@ -76,7 +76,7 @@ routers:
     # Offline EM uses full feedback even for partial routers.
     em_offline_full_feedback: true
     em_tk: 1500
-    em_n: 25
+    em_n: 15
     em_samples: 100
     em_burn_in: 20
     # Offline EM validation.
@@ -92,19 +92,19 @@ routers:
     # Optional stride between rolling windows; null -> evenly spaced.
     em_val_roll_stride: null
     em_val_len: null
-    em_theta_lr: 0.001
+    em_theta_lr: 0.005
     em_theta_steps: 5
     em_print_val_loss: true
     em_eps_n: 1.0e-3
 
     # Online (sliding-window) EM adaptation.
-    em_online_enabled: false
-    em_online_window: 1500
-    em_online_period: 400
-    em_online_n: 2
+    em_online_enabled: true
+    em_online_window: 400
+    em_online_period: 300
+    em_online_n: 1
     em_online_samples: 20
     em_online_burn_in: 3
-    em_online_theta_lr: 0.005
+    em_online_theta_lr: 0.001
     em_online_theta_steps: 1
     em_online_eps_n: 1.0e-3
     em_online_print_val_loss: true
