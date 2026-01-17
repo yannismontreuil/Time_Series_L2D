@@ -8,7 +8,7 @@ environment:
   num_experts: 5
   num_regimes: 2
   # State dimension d = dim φ(x). The current feature map returns 2D features.
-  state_dim: 2
+  state_dim: 1
   # Optional: set T to limit the number of time steps used for search.
   # If omitted or null, the full series is used.
   # T: 2000
@@ -70,7 +70,7 @@ routers:
     feature_activation: "tanh"
     # Shared factor dimension d_g and idiosyncratic dimension d_u.
     shared_dim: 1
-    idiosyncratic_dim: 2
+    idiosyncratic_dim: 1
 
     # Shared-factor dynamics A_gk default to identity; Q_gk built from
     # scales. Hyperparam search will provide q_g_scale values; these
@@ -135,7 +135,7 @@ hyperparam_search:
   feature_learning_rate_grid: [0.001]
   feature_arch_grid: ["mlp"]
   shared_dim_grid: [1]
-  idiosyncratic_dim_grid: [1,2]
+  idiosyncratic_dim_grid: [1]
 
   # Seeds for averaging across environment randomness.
   seeds: [42]

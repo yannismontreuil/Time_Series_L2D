@@ -1,0 +1,208 @@
+\section{Synthetic Data Generation Process}
+\label{sec:synthetic_generation}
+
+We construct a two-regime synthetic environment designed to match the factorized
+SLDS observation model used in our router. The environment is parameterized by
+the configuration in \texttt{config/exp\_synthetic\_1.yaml} and yields a fully
+specified probabilistic data-generating process.
+
+\paragraph{Regime process.}
+Let $z_t \in \{0,1\}$ denote the regime at time $t$. We use a deterministic
+periodic schedule with block length $L$:
+\begin{equation}
+z_t = \left\lfloor \frac{t}{L} \right\rfloor \bmod 2,
+\qquad t=0,1,\dots,T-1.
+\label{eq:synthetic_regime}
+\end{equation}
+This produces a repeating $0 \to 1 \to 0 \to 1$ pattern with fixed dwell times.
+
+\paragraph{Context and target process.}
+The latent target follows a regime-dependent AR(1):
+\begin{equation}
+y_t = 0.8\, y_{t-1} + d_{z_t} + \eta_t,
+\qquad \eta_t \sim \mathcal{N}(0,\sigma_y^2),
+\label{eq:synthetic_y}
+\end{equation}
+with $y_0 = 0$ and drift levels $d_0,d_1$ specified by \texttt{drift\_levels}.
+The context is the one-step lag,
+\begin{equation}
+x_t = y_{t-1}.
+\label{eq:synthetic_x}
+\end{equation}
+We use $\phi(x_t)=x_t$ (scalar features) throughout.
+
+\paragraph{Shared factor dynamics.}
+We introduce a shared latent factor $g_t \in \mathbb{R}^{d_g}$ with
+regime-conditioned linear dynamics:
+\begin{equation}
+g_t = A_g^{(z_t)} g_{t-1} + \xi_t,
+\qquad \xi_t \sim \mathcal{N}(0, Q_g^{(z_t)}).
+\label{eq:synthetic_g}
+\end{equation}
+In the experiment we set $d_g=2$ and choose $Q_g^{(0)}$ and $Q_g^{(1)}$
+so that the first component dominates in regime~0 and the second dominates
+in regime~1. This makes the shared factor regime-informative.
+
+\paragraph{Idiosyncratic dynamics.}
+Each expert has a regime-dependent latent idiosyncratic state $u_{t,k}$ that
+evolves around a regime-specific mean $b_{z_t,k}$:
+\begin{equation}
+u_{t,k} = b_{z_t,k} + A_u^{(z_t)}\!\left(u_{t-1,k} - b_{z_{t-1},k}\right) + \nu_{t,k},
+\qquad \nu_{t,k} \sim \mathcal{N}(0, Q_u^{(z_t)}).
+\label{eq:synthetic_u}
+\end{equation}
+This yields stable, slowly varying expert-specific biases whose means shift
+with the regime.
+
+\paragraph{Observation model and expert predictions.}
+We generate a signed residual for each expert $k$,
+\begin{equation}
+e_{t,k} = \phi(x_t)^\top \!\left(B_k g_t + u_{t,k}\right) + \varepsilon_{t,k},
+\qquad \varepsilon_{t,k} \sim \mathcal{N}(0, R),
+\label{eq:synthetic_residual}
+\end{equation}
+and define the expert prediction by
+\begin{equation}
+\hat{y}_{t,k} = y_t - e_{t,k}.
+\label{eq:synthetic_prediction}
+\end{equation}
+The expert performance is therefore controlled by the regime-specific means
+$b_{z_t,k}$ and the shared correlation structure $B_k g_t$.
+
+\paragraph{Parameter mapping.}
+The configuration parameters map directly to the model:
+\begin{align}
+&L = \texttt{tri\_cycle.regime\_block\_len}, \qquad
+d_m = \texttt{tri\_cycle.drift\_levels}[m], \\
+&A_g^{(m)} = \texttt{routers.factorized\_slds.A\_g}[m], \qquad
+Q_g^{(m)} = \texttt{tri\_cycle.g\_covs}[m], \\
+&A_u^{(m)} = \texttt{routers.factorized\_slds.A\_u}[m], \qquad
+Q_u^{(m)} = \texttt{tri\_cycle.u\_covs}[m], \\
+&B_k = \texttt{tri\_cycle.shared\_loadings}[k]^\top, \qquad
+b_{m,k} = \texttt{tri\_cycle.biases\_by\_regime}[m][k], \\
+&R = \texttt{tri\_cycle.eps\_noise\_scale}^2, \qquad
+\sigma_y^2 = \texttt{environment.noise\_scale}^2.
+\end{align}
+Regime~0 is constructed so that experts $\{0,1\}$ have small $|b_{0,k}|$ and
+are best; regime~1 is constructed so that experts $\{2,3\}$ have small $|b_{1,k}|$
+and are best.
+
+\section{Model--Environment Alignment}
+\label{sec:synthetic_alignment}
+
+The factorized SLDS model assumes residuals of the form
+\begin{equation}
+e_{t,k} = \phi(x_t)^\top(B_k g_t + u_{t,k}) + \varepsilon_{t,k},
+\label{eq:model_residual}
+\end{equation}
+with regime-conditioned linear dynamics for $g_t$ and $u_{t,k}$. The synthetic
+environment implements exactly \eqref{eq:synthetic_g}--\eqref{eq:synthetic_residual}
+with $\phi(x_t)=x_t$, $d_g=2$, and the same $(A_g^{(m)}, Q_g^{(m)})$ and
+$(A_u^{(m)}, Q_u^{(m)})$ used by the model. Thus the model family contains the
+true data-generating process.
+
+\paragraph{Regime-dependent correlations.}
+Let $B_k \in \mathbb{R}^{1 \times 2}$ be the shared loading for expert $k$.
+In regime~0 we set $Q_g^{(0)} = \mathrm{diag}(\sigma_{g1}^2, \sigma_{g2}^2)$
+with $\sigma_{g1}^2 \gg \sigma_{g2}^2$ and $B_0=B_1=[1,0]$, $B_2=B_3=[0,1]$.
+Then the conditional covariance of residuals is
+\begin{equation}
+\mathrm{Cov}(e_{t,0}, e_{t,1} \mid z_t=0, x_t)
+  = x_t^2\, B_0 Q_g^{(0)} B_1^\top
+  = x_t^2\, \sigma_{g1}^2 > 0,
+\label{eq:cov_reg0}
+\end{equation}
+while $\mathrm{Cov}(e_{t,2}, e_{t,3}\mid z_t=0,x_t) \approx 0$.
+In regime~1 we swap the active component via $Q_g^{(1)}$, yielding
+correlation in experts $\{2,3\}$ and near-zero correlation in $\{0,1\}$.
+This exactly matches the SLDS structure with regime-specific $Q_g^{(m)}$.
+
+\paragraph{Mapping to model terms.}
+\begin{align}
+\text{Environment shared term} &= x_t\, B_k g_t \quad \longleftrightarrow \quad
+\text{Model } B_k g_t, \\
+\text{Environment idiosyncratic term} &= x_t\, u_{t,k} \quad \longleftrightarrow \quad
+\text{Model } u_{t,k}, \\
+\text{Environment regime blocks} &= z_t \text{ in \eqref{eq:synthetic_regime}}
+  \quad \longleftrightarrow \quad \text{Model regime process}.
+\end{align}
+Because the environment is generated by the same linear-Gaussian structure,
+the SLDS with $d_g=2$ can represent it exactly.
+
+\paragraph{Why the no-$g_t$ baseline fails.}
+Setting $g_t \equiv 0$ forces residuals to be conditionally independent across
+experts:
+\begin{equation}
+\mathrm{Cov}(e_{t,i}, e_{t,j} \mid z_t, x_t) = 0, \quad i \neq j.
+\label{eq:nog_cov}
+\end{equation}
+The environment violates \eqref{eq:nog_cov} by construction
+\eqref{eq:cov_reg0}, so the no-$g_t$ model is misspecified.
+
+\section{Why This Favors SLDS Over Baselines}
+\label{sec:synthetic_baseline}
+
+\paragraph{UCB-Linear.}
+LinUCB treats each expert independently and does not model shared latent factors
+or regime dynamics. When regimes switch, it must relearn which expert is best
+purely from observed losses, and it cannot exploit the cross-expert covariance
+induced by $g_t$.
+
+\paragraph{UCB-Neural.}
+NeuralUCB can represent nonlinear mappings of $x_t$ to losses but still lacks
+an explicit latent regime state and shared-factor coupling across experts.
+It reacts to switches only after sufficient loss observations and therefore
+adapts more slowly than an IMM/Kalman filter.
+
+\paragraph{L2D / L2D-SW.}
+Learning-to-defer methods optimize a deferral policy from loss history but do
+not infer a latent regime or a shared factor. The sliding-window variant still
+lags regime changes and cannot exploit the correlated residual structure.
+
+\paragraph{SLDS without $g_t$.}
+The no-$g_t$ model cannot represent the regime-dependent cross-expert
+correlations and thus underestimates uncertainty in the bad experts after
+switches. This leads to slower reallocation of probability mass to the correct
+expert pair.
+
+\section{Expected Performance Characteristics}
+\label{sec:synthetic_expected}
+
+Let $c_{t,k} = \ell_{t,k} + \beta_k$ denote the cost of querying expert $k$.
+Using the residual model \eqref{eq:synthetic_residual}, the expected squared
+loss in regime $m$ is
+\begin{equation}
+\mathbb{E}[\ell_{t,k} \mid z_t=m, x_t]
+  = x_t^2\left(
+      b_{m,k}^2
+      + B_k Q_g^{(m)} B_k^\top
+      + Q_u^{(m)}
+    \right)
+  + R,
+\label{eq:expected_cost}
+\end{equation}
+so the best expert in regime $m$ is the one with the smallest $|b_{m,k}|$ and
+loading variance. By construction, experts $\{0,1\}$ minimize
+\eqref{eq:expected_cost} in regime~0, and experts $\{2,3\}$ do so in regime~1.
+
+\paragraph{Oracle.}
+The oracle chooses $k^*(m) = \arg\min_k \mathbb{E}[\ell_{t,k} \mid z_t=m]$ and
+achieves the minimum expected cost per regime.
+
+\paragraph{Random.}
+A uniform policy selects each expert with probability $1/4$, yielding
+\begin{equation}
+\mathbb{E}[c_t^{\text{rand}} \mid z_t=m] =
+\frac{1}{4}\sum_{k=0}^3 \mathbb{E}[\ell_{t,k} \mid z_t=m] + \bar{\beta}.
+\end{equation}
+
+\paragraph{SLDS.}
+With sufficient warmup, the SLDS posterior concentrates on the correct regime
+and estimates $g_t$ and $u_{t,k}$ by Kalman filtering, driving the selected
+expert toward the oracle within each block. Its regret is therefore dominated
+by switch transitions rather than steady-state error.
+
+\paragraph{Baselines.}
+Bandit baselines adapt only after observing losses and cannot exploit the
+shared-factor covariance. This yields higher transient regret after each
+switch and a higher steady-state loss than the SLDS model.

@@ -119,7 +119,7 @@ class NeuralUCB:
 
         available_experts = np.asarray(list(available_experts), dtype=int)
         if available_experts.size == 0:
-            available_experts = np.arange(self.N, dtype=int)
+            raise ValueError("NeuralUCB: no available experts in select_expert.")
 
         scores = np.zeros(available_experts.size, dtype=float)
         for idx, j in enumerate(available_experts):
@@ -142,7 +142,7 @@ class NeuralUCB:
         losses_all = np.asarray(losses_all, dtype=float).reshape(self.N)
         available_experts = np.asarray(list(available_experts), dtype=int)
         if available_experts.size == 0:
-            available_experts = np.arange(self.N, dtype=int)
+            raise ValueError("NeuralUCB: no available experts in update.")
 
         # Determine which experts to update (partial vs full feedback).
         if self.feedback_mode == "partial":
@@ -151,7 +151,9 @@ class NeuralUCB:
             else:
                 j_sel = int(selected_expert)
                 if j_sel not in available_experts:
-                    j_sel = self.select_expert(x, available_experts)
+                    raise ValueError(
+                        "NeuralUCB: selected_expert must be in available_experts."
+                    )
             update_indices = [int(j_sel)]
         else:
             update_indices = [int(j) for j in available_experts]

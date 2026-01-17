@@ -104,6 +104,8 @@ class FactorizedSLDS(SLDSIMMRouter):
         state_clip: float = 1e6,
         cov_clip: float = 1e12,
         observation_mode: str = "residual",
+        loss_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+        loss_quad_points: int = 20,
         transition_model: Optional[object] = None,
         transition_hidden_dims: Optional[Sequence[int]] = None,
         transition_activation: str = "tanh",
@@ -224,6 +226,8 @@ class FactorizedSLDS(SLDSIMMRouter):
         self.exploration_diag_records: List[Tuple[int, float, float, float]] = []
         self.state_clip = float(state_clip)
         self.cov_clip = float(cov_clip)
+        self.loss_fn = loss_fn
+        self.loss_quad_points = max(int(loss_quad_points), 0)
 
         if observation_mode != "residual":
             raise ValueError(
@@ -830,6 +834,9 @@ class FactorizedSLDS(SLDSIMMRouter):
             "Sigma_g": self.Sigma_g.copy(),
             "mu_u": {k: v.copy() for k, v in self.mu_u.items()},
             "Sigma_u": {k: v.copy() for k, v in self.Sigma_u.items()},
+            "registry": list(self.registry),
+            "last_selected_time": dict(self.last_selected_time),
+            "current_step": int(self.current_step),
         }
 
     def _record_em_observation(
@@ -854,6 +861,9 @@ class FactorizedSLDS(SLDSIMMRouter):
                 state_prior = self._snapshot_em_state()
             else:
                 state_prior = state_override
+        state_post = None
+        if cfg.get("use_state_priors", True):
+            state_post = self._snapshot_em_state()
         record = {
             "t": int(self.current_step),
             "context": np.asarray(x_t, dtype=float).reshape(-1).copy(),
@@ -864,6 +874,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             if residuals_full is None
             else np.asarray(residuals_full, dtype=float).copy(),
             "state_prior": state_prior,
+            "state_post": state_post,
         }
         self._em_records.append(record)
 
@@ -932,6 +943,106 @@ class FactorizedSLDS(SLDSIMMRouter):
             set_em_tk=False,
             transition_log_stage=f"post_online_em t={t_now}",
         )
+        t_start = max(int(window_records[0]["t"]) - 1, 0)
+        self._refresh_filter_state_from_window(
+            contexts=contexts,
+            available_sets=available_sets,
+            actions=actions,
+            residuals=residuals,
+            residuals_full=residuals_full,
+            init_state=init_state,
+            t_start=t_start,
+        )
+
+    def _apply_em_init_state(
+        self,
+        init_state: Optional[Dict[str, Any]],
+        t_start: int,
+    ) -> None:
+        if init_state is None:
+            self.w = np.ones(self.M, dtype=float) / float(self.M)
+            self.mu_g = self.g_mean0.copy()
+            self.Sigma_g = self.g_cov0.copy()
+            self.mu_u = {}
+            self.Sigma_u = {}
+            self.registry = []
+            self.last_selected_time = {}
+            self.current_step = int(t_start)
+            return
+
+        w_init = np.asarray(init_state.get("w", np.ones(self.M)), dtype=float).copy()
+        if w_init.shape != (self.M,):
+            raise ValueError("init_state['w'] must have shape (M,).")
+        w_init = np.maximum(w_init, self.eps)
+        w_init = w_init / np.sum(w_init)
+
+        mu_g_init = self._normalize_mean_modes(init_state.get("mu_g", None), self.d_g)
+        Sigma_g_init = self._normalize_cov_modes(
+            init_state.get("Sigma_g", None), self.d_g, default_scale=1.0
+        )
+
+        mu_u_in = init_state.get("mu_u", {}) or {}
+        Sigma_u_in = init_state.get("Sigma_u", {}) or {}
+        mu_u_init = {
+            int(k): self._normalize_mean_modes(v, self.d_phi) for k, v in mu_u_in.items()
+        }
+        Sigma_u_init = {
+            int(k): self._normalize_cov_modes(v, self.d_phi, default_scale=1.0)
+            for k, v in Sigma_u_in.items()
+        }
+
+        if init_state.get("registry", None) is None:
+            registry = sorted(mu_u_init.keys())
+        else:
+            registry = [int(k) for k in init_state.get("registry", [])]
+        for k in registry:
+            if k not in mu_u_init:
+                mu_u_init[k] = self.u_mean0.copy()
+            if k not in Sigma_u_init:
+                Sigma_u_init[k] = self.u_cov0.copy()
+
+        last_selected = init_state.get("last_selected_time", None)
+        if last_selected is None:
+            last_selected_time = {int(k): int(t_start) for k in registry}
+        else:
+            last_selected_time = {int(k): int(v) for k, v in last_selected.items()}
+            for k in registry:
+                last_selected_time.setdefault(int(k), int(t_start))
+
+        self.w = w_init
+        self.mu_g = mu_g_init.copy()
+        self.Sigma_g = Sigma_g_init.copy()
+        self.mu_u = {k: v.copy() for k, v in mu_u_init.items()}
+        self.Sigma_u = {k: v.copy() for k, v in Sigma_u_init.items()}
+        self.registry = list(registry)
+        self.last_selected_time = last_selected_time
+        self.current_step = int(init_state.get("current_step", t_start))
+
+    def _refresh_filter_state_from_window(
+        self,
+        contexts: Sequence[np.ndarray],
+        available_sets: Sequence[Sequence[int]],
+        actions: Sequence[int],
+        residuals: Sequence[float],
+        residuals_full: Optional[Sequence[np.ndarray]],
+        init_state: Optional[Dict[str, Any]],
+        t_start: int,
+    ) -> None:
+        # Align filtering beliefs with the updated parameters after online EM.
+        state_before = self._snapshot_state()
+        try:
+            self._apply_em_init_state(init_state, t_start)
+            self._filter_block_nll(
+                contexts,
+                available_sets,
+                actions,
+                residuals,
+                residuals_full=residuals_full,
+                accumulate=False,
+            )
+        except Exception:
+            self._restore_state(state_before)
+            raise
 
     def _interaction_and_time_update(
         self,
@@ -960,22 +1071,26 @@ class FactorizedSLDS(SLDSIMMRouter):
                 else:
                     mu_ij[:, j] /= s
 
-        mu_g_prev = np.clip(mu_g_prev, -self.state_clip, self.state_clip)
-        mixed_mu_g = np.zeros_like(mu_g_prev)
-        mixed_Sigma_g = np.zeros_like(Sigma_g_prev)
-        for j in range(self.M):
-            for i in range(self.M):
-                w_ij = mu_ij[i, j]
-                mixed_mu_g[j] += w_ij * mu_g_prev[i]
-            for i in range(self.M):
-                w_ij = mu_ij[i, j]
-                diff = mu_g_prev[i] - mixed_mu_g[j]
-                diff = np.clip(diff, -self.state_clip, self.state_clip)
-                mixed_Sigma_g[j] += w_ij * (
-                    Sigma_g_prev[i] + np.outer(diff, diff)
-                )
-            mixed_mu_g[j] = self._sanitize_vector(mixed_mu_g[j], self.g_mean0[j])
-            mixed_Sigma_g[j] = self._sanitize_cov(mixed_Sigma_g[j], self.g_cov0[j])
+        if self.d_g == 0:
+            mixed_mu_g = np.zeros((self.M, 0), dtype=float)
+            mixed_Sigma_g = np.zeros((self.M, 0, 0), dtype=float)
+        else:
+            mu_g_prev = np.clip(mu_g_prev, -self.state_clip, self.state_clip)
+            mixed_mu_g = np.zeros_like(mu_g_prev)
+            mixed_Sigma_g = np.zeros_like(Sigma_g_prev)
+            for j in range(self.M):
+                for i in range(self.M):
+                    w_ij = mu_ij[i, j]
+                    mixed_mu_g[j] += w_ij * mu_g_prev[i]
+                for i in range(self.M):
+                    w_ij = mu_ij[i, j]
+                    diff = mu_g_prev[i] - mixed_mu_g[j]
+                    diff = np.clip(diff, -self.state_clip, self.state_clip)
+                    mixed_Sigma_g[j] += w_ij * (
+                        Sigma_g_prev[i] + np.outer(diff, diff)
+                    )
+                mixed_mu_g[j] = self._sanitize_vector(mixed_mu_g[j], self.g_mean0[j])
+                mixed_Sigma_g[j] = self._sanitize_cov(mixed_Sigma_g[j], self.g_cov0[j])
 
         mixed_mu_u: Dict[int, np.ndarray] = {}
         mixed_Sigma_u: Dict[int, np.ndarray] = {}
@@ -1007,15 +1122,16 @@ class FactorizedSLDS(SLDSIMMRouter):
         mu_u_pred: Dict[int, np.ndarray] = {}
         Sigma_u_pred: Dict[int, np.ndarray] = {}
 
-        for m in range(self.M):
-            mu_g_pred[m] = self.A_g[m] @ mixed_mu_g[m]
-            Sigma_g_pred[m] = (
-                self.A_g[m] @ mixed_Sigma_g[m] @ self.A_g[m].T + self.Q_g[m]
-            )
-            Sigma_g_pred[m] = self._sanitize_cov(Sigma_g_pred[m], self.g_cov0[m])
-            Sigma_g_pred[m] = 0.5 * (Sigma_g_pred[m] + Sigma_g_pred[m].T) + self.eps * np.eye(
-                self.d_g, dtype=float
-            )
+        if self.d_g > 0:
+            for m in range(self.M):
+                mu_g_pred[m] = self.A_g[m] @ mixed_mu_g[m]
+                Sigma_g_pred[m] = (
+                    self.A_g[m] @ mixed_Sigma_g[m] @ self.A_g[m].T + self.Q_g[m]
+                )
+                Sigma_g_pred[m] = self._sanitize_cov(Sigma_g_pred[m], self.g_cov0[m])
+                Sigma_g_pred[m] = 0.5 * (
+                    Sigma_g_pred[m] + Sigma_g_pred[m].T
+                ) + self.eps * np.eye(self.d_g, dtype=float)
 
         for k in self.registry:
             mu_u_pred[k] = np.zeros_like(mixed_mu_u[k])
@@ -1052,10 +1168,14 @@ class FactorizedSLDS(SLDSIMMRouter):
             k = int(k)
             if k not in mu_u_pred or k not in Sigma_u_pred:
                 continue
-            Bk = self._ensure_B(k)
-            h = (Bk.T @ phi) if self.d_g > 0 else np.zeros(0, dtype=float)
+            if self.d_g > 0:
+                Bk = self._ensure_B(k)
+                h = Bk.T @ phi
+            else:
+                h = np.zeros(0, dtype=float)
             mean_modes = np.zeros(self.M, dtype=float)
             var_modes = np.zeros(self.M, dtype=float)
+            loss_modes = np.zeros(self.M, dtype=float)
             signal_modes = np.zeros(self.M, dtype=float)
             noise_modes = np.zeros(self.M, dtype=float)
             b_modes = np.zeros(self.M, dtype=float)
@@ -1078,13 +1198,14 @@ class FactorizedSLDS(SLDSIMMRouter):
                     signal = 0.0
                 mean_modes[m] = mean_m
                 var_modes[m] = signal + s_m
+                loss_modes[m] = self._expected_loss_gaussian(mean_modes[m], var_modes[m])
                 signal_modes[m] = signal
                 noise_modes[m] = s_m
                 b_modes[m] = b_m
                 s_modes[m] = s_m
                 ig_modes[m] = 0.5 * np.log1p(signal / s_m)
 
-            cost = float(w_pred @ (var_modes + mean_modes ** 2)) + self._get_beta(k)
+            cost = float(w_pred @ loss_modes) + self._get_beta(k)
             ig = float(w_pred @ ig_modes)
 
             costs[k] = cost
@@ -1130,6 +1251,27 @@ class FactorizedSLDS(SLDSIMMRouter):
     ) -> np.ndarray:
         var = np.maximum(var, self.eps)
         return -0.5 * (np.log(2.0 * np.pi * var) + ((x - mean) ** 2) / var)
+
+    def _apply_loss_fn(self, x: np.ndarray) -> np.ndarray:
+        if self.loss_fn is None:
+            return np.asarray(x, dtype=float) ** 2
+        try:
+            return np.asarray(self.loss_fn(x), dtype=float)
+        except Exception:
+            flat = np.asarray(x, dtype=float).reshape(-1)
+            vals = np.array([self.loss_fn(float(v)) for v in flat], dtype=float)
+            return vals.reshape(np.asarray(x, dtype=float).shape)
+
+    def _expected_loss_gaussian(self, mean: float, var: float) -> float:
+        var = max(float(var), self.eps)
+        if self.loss_fn is None:
+            return var + float(mean) ** 2
+        if self.loss_quad_points <= 0 or var <= self.eps:
+            return float(self._apply_loss_fn(np.array([mean], dtype=float))[0])
+        xs, ws = np.polynomial.hermite.hermgauss(self.loss_quad_points)
+        samples = float(mean) + np.sqrt(2.0 * var) * xs
+        vals = self._apply_loss_fn(samples)
+        return float(np.sum(ws * vals) / np.sqrt(np.pi))
 
     def _logsumexp_vec(self, values: np.ndarray, axis: int = 0) -> np.ndarray:
         vmax = np.max(values, axis=axis, keepdims=True)
@@ -1232,10 +1374,19 @@ class FactorizedSLDS(SLDSIMMRouter):
                 mean = b_modes[:, z]
             s = np.maximum(s_modes[:, z], self.eps)
             if deterministic:
-                cost = s + mean**2
+                if self.loss_fn is None:
+                    cost = s + mean**2
+                else:
+                    cost = np.array(
+                        [
+                            self._expected_loss_gaussian(float(mean[i]), float(s[i]))
+                            for i in range(len(mean))
+                        ],
+                        dtype=float,
+                    )
             else:
                 e = mean + self._rng.normal(scale=np.sqrt(s), size=mean.shape)
-                cost = e**2
+                cost = self._apply_loss_fn(e)
             costs[n] = cost + beta
         return costs, avail
 
@@ -1368,12 +1519,9 @@ class FactorizedSLDS(SLDSIMMRouter):
             self.mu_u,
             self.Sigma_u,
         )
-        # NOTE: Previously lines here overwrote new expert states with raw initial
-        # prior (mu_u_pred[k] = u_mean0, Sigma_u_pred[k] = u_cov0), discarding the
-        # process noise Q_u. This was incorrect - the time-evolved prior from
-        # _interaction_and_time_update already accounts for dynamics and should be
-        # used as-is. New experts are initialized in _birth_expert, then the time
-        # update correctly computes: mu_pred = A_u @ mu_0, Sigma_pred = A_u @ Sigma_0 @ A_u^T + Q_u.
+        for k in entering:
+            mu_u_pred[int(k)] = self.u_mean0.copy()
+            Sigma_u_pred[int(k)] = self.u_cov0.copy()
 
         costs, info_gains, stats = self._compute_predictive_stats(
             phi,
@@ -1391,6 +1539,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             iz_scores = self._compute_iz_scores(
                 stats, w_pred, self.exploration_diag_samples
             )
+
         r_t = self._select_expert_from_stats(
             w_pred,
             mu_g_pred,
@@ -1413,8 +1562,11 @@ class FactorizedSLDS(SLDSIMMRouter):
                 if len(self.exploration_diag_records) < self.exploration_diag_max_records:
                     self.exploration_diag_records.append((t_now, iz_avg, iz_max, iz_sel))
             if self.exploration_diag_print and ((t_now - 1) % self.exploration_diag_stride == 0):
+                label = getattr(self, "transition_log_label", None)
+                if not label:
+                    label = "FactorizedSLDS"
                 print(
-                    f"[Exploration diag] t={t_now} "
+                    f"[Exploration diag] {label} t={t_now} "
                     f"iz_avg={iz_avg:.6f} iz_max={iz_max:.6f} iz_sel={iz_sel:.6f}"
                 )
 
@@ -1470,7 +1622,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         if cov.shape != (d, d):
             raise ValueError("Covariance dimension mismatch in multivariate logpdf.")
         cov = 0.5 * (cov + cov.T)
-        for i in range(3):
+        for i in range(5):
             jitter = (10.0**i) * self.eps
             cov_j = cov + jitter * np.eye(d, dtype=float)
             try:
@@ -1482,13 +1634,7 @@ class FactorizedSLDS(SLDSIMMRouter):
                 return -0.5 * (d * np.log(2.0 * np.pi) + log_det + quad)
             except np.linalg.LinAlgError:
                 continue
-        cov_j = cov + self.eps * np.eye(d, dtype=float)
-        sign, logdet = np.linalg.slogdet(cov_j)
-        if sign <= 0:
-            return -np.inf
-        diff = x - mean
-        quad = float(diff.T @ np.linalg.inv(cov_j) @ diff)
-        return -0.5 * (d * np.log(2.0 * np.pi) + float(logdet) + quad)
+        return -np.inf
 
     def _update_from_predicted(
         self,
@@ -1539,7 +1685,12 @@ class FactorizedSLDS(SLDSIMMRouter):
             K = (joint_Sigma @ H.T) / pred_var
             innovation = observed_value - pred_mean
             joint_mu_post = joint_mu + (K.flatten() * innovation)
-            joint_Sigma_post = joint_Sigma - K @ H @ joint_Sigma
+            dim = joint_Sigma.shape[0]
+            I = np.eye(dim, dtype=float)
+            KH = K @ H
+            tmp = I - KH
+            R_val = self._get_R(m, k)
+            joint_Sigma_post = tmp @ joint_Sigma @ tmp.T + (K * R_val) @ K.T
 
             mu_g_post[m] = joint_mu_post[: self.d_g]
             Sigma_g_post[m] = joint_Sigma_post[: self.d_g, : self.d_g]
@@ -1576,74 +1727,127 @@ class FactorizedSLDS(SLDSIMMRouter):
         Sigma_g_pred: np.ndarray,
         mu_u_pred: Dict[int, np.ndarray],
         Sigma_u_pred: Dict[int, np.ndarray],
+        return_log_like: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[int, np.ndarray], Dict[int, np.ndarray]]:
-        available = [int(k) for k in available_experts]
+        available = sorted(int(k) for k in available_experts)
         if len(available) == 0:
+            log_like = np.zeros(self.M, dtype=float)
+            if return_log_like:
+                return (
+                    w_pred,
+                    mu_g_pred,
+                    Sigma_g_pred,
+                    mu_u_pred,
+                    Sigma_u_pred,
+                    log_like,
+                )
             return w_pred, mu_g_pred, Sigma_g_pred, mu_u_pred, Sigma_u_pred
 
         obs_arr = np.asarray(observed_residuals, dtype=float)
         if obs_arr.ndim != 1:
             raise ValueError("losses_full must be a 1D array for full feedback.")
 
+        mu_u_prior: Dict[int, np.ndarray] = {kk: vv.copy() for kk, vv in mu_u_pred.items()}
+        Sigma_u_prior: Dict[int, np.ndarray] = {
+            kk: vv.copy() for kk, vv in Sigma_u_pred.items()
+        }
+        for k in available:
+            if k not in mu_u_prior or k not in Sigma_u_prior:
+                self._birth_expert(k)
+                mu_u_prior[k] = self.u_mean0.copy()
+                Sigma_u_prior[k] = self.u_cov0.copy()
+
         mu_g_post = mu_g_pred.copy()
         Sigma_g_post = Sigma_g_pred.copy()
-        mu_u_post: Dict[int, np.ndarray] = {kk: vv.copy() for kk, vv in mu_u_pred.items()}
-        Sigma_u_post: Dict[int, np.ndarray] = {kk: vv.copy() for kk, vv in Sigma_u_pred.items()}
+        mu_u_post: Dict[int, np.ndarray] = {kk: vv.copy() for kk, vv in mu_u_prior.items()}
+        Sigma_u_post: Dict[int, np.ndarray] = {
+            kk: vv.copy() for kk, vv in Sigma_u_prior.items()
+        }
 
         for k in available:
-            if k not in mu_u_post or k not in Sigma_u_post:
-                self._birth_expert(k)
-                mu_u_post[k] = self.u_mean0.copy()
-                Sigma_u_post[k] = self.u_cov0.copy()
+            if k < 0 or k >= obs_arr.shape[0]:
+                raise ValueError("losses_full must include all expert residuals.")
+        y = np.array([float(obs_arr[k]) for k in available], dtype=float)
+        n_avail = len(available)
+        dim = int(self.d_g + n_avail * self.d_phi)
+
+        H = np.zeros((n_avail, dim), dtype=float)
+        for idx, k in enumerate(available):
+            if self.d_g > 0:
+                Bk = self._ensure_B(k)
+                H[idx, : self.d_g] = (Bk.T @ phi).reshape(-1)
+            if self.d_phi > 0:
+                start = self.d_g + idx * self.d_phi
+                H[idx, start : start + self.d_phi] = phi.reshape(-1)
 
         log_like = np.zeros(self.M, dtype=float)
 
         for m in range(self.M):
-            mu_g_m = mu_g_post[m]
-            Sigma_g_m = Sigma_g_post[m]
-            for k in available:
-                if k < 0 or k >= obs_arr.shape[0]:
-                    raise ValueError("losses_full must include all expert residuals.")
-                residual = float(obs_arr[k])
-                mu_u_m = mu_u_post[k][m]
-                Sigma_u_m = Sigma_u_post[k][m]
-                Bk = self._ensure_B(k)
+            if dim > 0:
+                parts = []
+                if self.d_g > 0:
+                    parts.append(mu_g_pred[m])
+                if self.d_phi > 0:
+                    parts.extend(mu_u_prior[k][m] for k in available)
+                joint_mu = np.concatenate(parts) if parts else np.zeros(0, dtype=float)
 
-                joint_mu = np.concatenate([mu_g_m, mu_u_m])
-                top = np.concatenate([Sigma_g_m, np.zeros((self.d_g, self.d_phi))], axis=1)
-                bottom = np.concatenate(
-                    [np.zeros((self.d_phi, self.d_g)), Sigma_u_m], axis=1
-                )
-                joint_Sigma = np.concatenate([top, bottom], axis=0)
+                joint_Sigma = np.zeros((dim, dim), dtype=float)
+                offset = 0
+                if self.d_g > 0:
+                    joint_Sigma[: self.d_g, : self.d_g] = Sigma_g_pred[m]
+                    offset = self.d_g
+                if self.d_phi > 0:
+                    for k in available:
+                        joint_Sigma[
+                            offset : offset + self.d_phi, offset : offset + self.d_phi
+                        ] = Sigma_u_prior[k][m]
+                        offset += self.d_phi
+            else:
+                joint_mu = np.zeros(0, dtype=float)
+                joint_Sigma = np.zeros((0, 0), dtype=float)
 
-                H_g = (Bk.T @ phi).reshape(1, self.d_g)
-                H_u = phi.reshape(1, self.d_phi)
-                H = np.concatenate([H_g, H_u], axis=1)
+            R_vec = np.array([self._get_R(m, k) for k in available], dtype=float)
+            pred_mean = H @ joint_mu
+            S = H @ joint_Sigma @ H.T + np.diag(R_vec)
+            S = 0.5 * (S + S.T)
+            log_like[m] = self._gaussian_logpdf_mvn(y, pred_mean, S)
 
-                pred_mean = float(H @ joint_mu)
-                pred_var = float(H @ joint_Sigma @ H.T) + self._get_R(m, k)
-                pred_var = max(pred_var, self.eps)
+            if dim == 0:
+                continue
 
-                log_like[m] += self._gaussian_logpdf(residual, pred_mean, pred_var)
+            PHt = joint_Sigma @ H.T
+            try:
+                L = np.linalg.cholesky(S + self.eps * np.eye(n_avail, dtype=float))
+                tmp = np.linalg.solve(L, PHt.T)
+                K = np.linalg.solve(L.T, tmp).T
+            except np.linalg.LinAlgError:
+                K = np.linalg.solve(S + self.eps * np.eye(n_avail, dtype=float), PHt.T).T
 
-                K = (joint_Sigma @ H.T) / pred_var
-                innovation = residual - pred_mean
-                joint_mu = joint_mu + (K.flatten() * innovation)
-                joint_Sigma = joint_Sigma - K @ H @ joint_Sigma
+            innovation = y - pred_mean
+            joint_mu_post = joint_mu + K @ innovation
+            I = np.eye(dim, dtype=float)
+            KH = K @ H
+            tmp = I - KH
+            joint_Sigma_post = tmp @ joint_Sigma @ tmp.T + (K * R_vec) @ K.T
 
-                mu_g_m = joint_mu[: self.d_g]
-                Sigma_g_m = joint_Sigma[: self.d_g, : self.d_g]
-                Sigma_g_m = 0.5 * (Sigma_g_m + Sigma_g_m.T) + self.eps * np.eye(
-                    self.d_g, dtype=float
-                )
-                mu_u_post[k][m] = joint_mu[self.d_g :]
-                Sigma_u_post[k][m] = joint_Sigma[self.d_g :, self.d_g :]
-                Sigma_u_post[k][m] = 0.5 * (
-                    Sigma_u_post[k][m] + Sigma_u_post[k][m].T
-                ) + self.eps * np.eye(self.d_phi, dtype=float)
-
-            mu_g_post[m] = mu_g_m
-            Sigma_g_post[m] = Sigma_g_m
+            offset = 0
+            if self.d_g > 0:
+                mu_g_post[m] = joint_mu_post[: self.d_g]
+                Sigma_g_post[m] = joint_Sigma_post[: self.d_g, : self.d_g]
+                Sigma_g_post[m] = 0.5 * (
+                    Sigma_g_post[m] + Sigma_g_post[m].T
+                ) + self.eps * np.eye(self.d_g, dtype=float)
+                offset = self.d_g
+            if self.d_phi > 0:
+                for k in available:
+                    mu_u_post[k][m] = joint_mu_post[offset : offset + self.d_phi]
+                    Sigma_u_post[k][m] = joint_Sigma_post[
+                        offset : offset + self.d_phi, offset : offset + self.d_phi
+                    ]
+                    Sigma_u_post[k][m] = 0.5 * (
+                        Sigma_u_post[k][m] + Sigma_u_post[k][m].T
+                    ) + self.eps * np.eye(self.d_phi, dtype=float)
+                    offset += self.d_phi
 
         log_post = log_like + np.log(np.maximum(w_pred, self.eps))
         log_post -= np.max(log_post)
@@ -1654,6 +1858,8 @@ class FactorizedSLDS(SLDSIMMRouter):
         else:
             w_post /= w_post_sum
 
+        if return_log_like:
+            return w_post, mu_g_post, Sigma_g_post, mu_u_post, Sigma_u_post, log_like
         return w_post, mu_g_post, Sigma_g_post, mu_u_post, Sigma_u_post
 
     def update_beliefs(
@@ -1681,6 +1887,9 @@ class FactorizedSLDS(SLDSIMMRouter):
                 "Sigma_g": Sigma_g_pred.copy(),
                 "mu_u": {k: v.copy() for k, v in mu_u_pred.items()},
                 "Sigma_u": {k: v.copy() for k, v in Sigma_u_pred.items()},
+                "registry": list(self.registry),
+                "last_selected_time": dict(self.last_selected_time),
+                "current_step": int(self.current_step),
             }
 
         if self.feedback_mode == "full":
@@ -1933,9 +2142,18 @@ class FactorizedSLDS(SLDSIMMRouter):
         Sigma_u_pred: Dict[int, np.ndarray],
         k: int,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        Bk = self._ensure_B(k)
         mean_modes = np.zeros(self.M, dtype=float)
         var_modes = np.zeros(self.M, dtype=float)
+        if self.d_g == 0:
+            for m in range(self.M):
+                mu_u_m = mu_u_pred[k][m]
+                Sigma_u_m = Sigma_u_pred[k][m]
+                mean_modes[m] = float(phi @ mu_u_m)
+                noise = float(phi @ (Sigma_u_m @ phi)) + self._get_R(m, k)
+                var_modes[m] = max(noise, self.eps)
+            return mean_modes, var_modes
+
+        Bk = self._ensure_B(k)
         for m in range(self.M):
             mu_g_m = mu_g_pred[m]
             Sigma_g_m = Sigma_g_pred[m]
@@ -1980,32 +2198,28 @@ class FactorizedSLDS(SLDSIMMRouter):
 
             if full_feedback:
                 residuals_t = np.asarray(residuals_full[t], dtype=float)
-                loglikes = np.log(np.maximum(w_pred, self.eps))
-                for k in available:
-                    k = int(k)
-                    mean_modes, var_modes = self._mode_residual_stats(
-                        phi, mu_g_pred, Sigma_g_pred, mu_u_pred, Sigma_u_pred, k
-                    )
-                    resid = float(residuals_t[k])
-                    for m in range(self.M):
-                        loglikes[m] += self._gaussian_logpdf(
-                            resid, mean_modes[m], var_modes[m]
-                        )
-                if accumulate:
-                    nll += -self._logsumexp(loglikes)
-
-                w_post, mu_g_post, Sigma_g_post, mu_u_post, Sigma_u_post = (
-                    self._update_from_predicted_full(
-                        residuals_t,
-                        available,
-                        phi,
-                        w_pred,
-                        mu_g_pred,
-                        Sigma_g_pred,
-                        mu_u_pred,
-                        Sigma_u_pred,
-                    )
+                (
+                    w_post,
+                    mu_g_post,
+                    Sigma_g_post,
+                    mu_u_post,
+                    Sigma_u_post,
+                    log_like,
+                ) = self._update_from_predicted_full(
+                    residuals_t,
+                    available,
+                    phi,
+                    w_pred,
+                    mu_g_pred,
+                    Sigma_g_pred,
+                    mu_u_pred,
+                    Sigma_u_pred,
+                    return_log_like=True,
                 )
+                if accumulate:
+                    nll += -self._logsumexp(
+                        log_like + np.log(np.maximum(w_pred, self.eps))
+                    )
             else:
                 action = int(actions[t])
                 residual = float(residuals[t])
@@ -2234,7 +2448,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         self.transition_model.train()
         x_tensor = torch.as_tensor(x_arr, dtype=torch.float32, device=device)
         xi_tensor = torch.as_tensor(xi, dtype=torch.float32, device=device)
-        optimizer = torch.optim.Adam(
+        optimizer = torch.optim.AdamW(
             self.transition_model.parameters(),
             lr=float(lr),
             weight_decay=float(weight_decay),
@@ -2250,6 +2464,128 @@ class FactorizedSLDS(SLDSIMMRouter):
             loss.backward()
             optimizer.step()
         self.transition_model.eval()
+
+    def _train_transition_linear_torch(
+        self,
+        contexts: Sequence[np.ndarray],
+        xi: np.ndarray,
+        lr: float,
+        steps: int,
+        weight_decay: float,
+        seed: Optional[int],
+    ) -> None:
+        if torch is None:
+            raise RuntimeError("Transition model requires PyTorch.")
+        if steps <= 0:
+            return
+        T_train = len(contexts)
+        if T_train <= 1:
+            return
+        x_arr = np.stack(
+            [np.asarray(contexts[t], dtype=float).reshape(-1) for t in range(1, T_train)]
+        )
+        if self.W_lin is None or self.b_lin is None:
+            self._init_transition_params(x_arr.shape[1])
+        if xi.shape[0] != x_arr.shape[0]:
+            raise ValueError("Transition count shape does not match contexts.")
+        device = self.transition_device or torch.device(self._transition_device_str or "cpu")
+        if seed is not None:
+            torch.manual_seed(int(seed))
+        x_tensor = torch.as_tensor(x_arr, dtype=torch.float32, device=device)
+        xi_tensor = torch.as_tensor(xi, dtype=torch.float32, device=device)
+        W_lin = torch.as_tensor(self.W_lin, dtype=torch.float32, device=device).requires_grad_(True)
+        b_lin = torch.as_tensor(self.b_lin, dtype=torch.float32, device=device).requires_grad_(True)
+        optimizer = torch.optim.AdamW(
+            [W_lin, b_lin],
+            lr=float(lr),
+            weight_decay=float(weight_decay),
+        )
+        losses: list[float] = []
+        step_dws: list[float] = []
+        grad_norms: list[float] = []
+        denom = max(float(xi_tensor.sum().detach().cpu()), float(self.eps))
+        for _ in range(max(1, int(steps))):
+            W_prev = W_lin.detach().clone()
+
+            optimizer.zero_grad(set_to_none=True)
+
+            scores = torch.einsum("mjd,td->tmj", W_lin, x_tensor) + b_lin
+            log_probs = scores - torch.logsumexp(scores, dim=-1, keepdim=True)
+
+            loss = -(xi_tensor * log_probs).sum() / denom
+            loss.backward()
+
+            # Diagnostics (optional but useful)
+            g = W_lin.grad
+            grad_norms.append(float(g.detach().norm().cpu()) if g is not None else 0.0)
+
+            optimizer.step()
+
+            step_dws.append(float((W_lin.detach() - W_prev).norm().cpu()))
+            losses.append(float(loss.detach().cpu()))
+
+        # Save trained params
+        self.W_lin = W_lin.detach().cpu().numpy()
+        self.b_lin = b_lin.detach().cpu().numpy()
+
+
+    def _train_transition_attention_torch(
+        self,
+        contexts: Sequence[np.ndarray],
+        xi: np.ndarray,
+        lr: float,
+        steps: int,
+        weight_decay: float,
+        seed: Optional[int],
+    ) -> None:
+        if torch is None:
+            raise RuntimeError("Transition model requires PyTorch.")
+        if steps <= 0:
+            return
+        T_train = len(contexts)
+        if T_train <= 1:
+            return
+        x_arr = np.stack(
+            [np.asarray(contexts[t], dtype=float).reshape(-1) for t in range(1, T_train)]
+        )
+        if self.W_q is None or self.W_k is None:
+            self._init_transition_params(x_arr.shape[1])
+        if xi.shape[0] != x_arr.shape[0]:
+            raise ValueError("Transition count shape does not match contexts.")
+        device = self.transition_device or torch.device(self._transition_device_str or "cpu")
+        if seed is not None:
+            torch.manual_seed(int(seed))
+        x_tensor = torch.as_tensor(x_arr, dtype=torch.float32, device=device)
+        xi_tensor = torch.as_tensor(xi, dtype=torch.float32, device=device)
+        W_q = torch.as_tensor(self.W_q, dtype=torch.float32, device=device).requires_grad_(True)
+        W_k = torch.as_tensor(self.W_k, dtype=torch.float32, device=device).requires_grad_(True)
+        b_attn = None
+        params = [W_q, W_k]
+        if self.b_attn is not None:
+            b_attn = torch.as_tensor(self.b_attn, dtype=torch.float32, device=device).requires_grad_(True)
+            params.append(b_attn)
+        optimizer = torch.optim.AdamW(
+            params,
+            lr=float(lr),
+            weight_decay=float(weight_decay),
+        )
+        scale = (W_q.shape[1] ** 0.5)
+        denom = max(float(xi_tensor.sum().detach().cpu()), self.eps)
+        for _ in range(max(1, int(steps))):
+            optimizer.zero_grad(set_to_none=True)
+            q = torch.einsum("mad,td->tma", W_q, x_tensor)
+            k = torch.einsum("mad,td->tma", W_k, x_tensor)
+            scores = torch.einsum("tma,tna->tmn", q, k) / scale
+            if b_attn is not None:
+                scores = scores + b_attn  # ensure b_attn is (M,M)
+            log_probs = scores - torch.logsumexp(scores, dim=-1, keepdim=True)
+            loss = -(xi_tensor * log_probs).sum() / denom
+            loss.backward()
+            optimizer.step()
+        self.W_q = W_q.detach().cpu().numpy()
+        self.W_k = W_k.detach().cpu().numpy()
+        if b_attn is not None:
+            self.b_attn = b_attn.detach().cpu().numpy()
 
     def _kalman_sample(
         self,
@@ -2297,10 +2633,14 @@ class FactorizedSLDS(SLDSIMMRouter):
         x = np.zeros((T, d), dtype=float)
         x[T - 1] = rng.multivariate_normal(m_filt[T - 1], P_filt[T - 1])
         for t in range(T - 2, -1, -1):
-            P_pred_next = P_pred[t + 1]
-            J = P_filt[t] @ A_seq[t + 1].T @ np.linalg.inv(
-                P_pred_next + self.eps * np.eye(d)
-            )
+            P_pred_next = P_pred[t + 1] + self.eps * np.eye(d, dtype=float)
+            PHt = P_filt[t] @ A_seq[t + 1].T
+            try:
+                L = np.linalg.cholesky(P_pred_next)
+                tmp = np.linalg.solve(L, PHt.T)
+                J = np.linalg.solve(L.T, tmp).T
+            except np.linalg.LinAlgError:
+                J = np.linalg.solve(P_pred_next, PHt.T).T
             mean = m_filt[t] + J @ (x[t + 1] - m_pred[t + 1])
             cov = P_filt[t] - J @ P_pred_next @ J.T
             cov = 0.5 * (cov + cov.T) + self.eps * np.eye(d)
@@ -2358,10 +2698,14 @@ class FactorizedSLDS(SLDSIMMRouter):
         x = np.zeros((T, d), dtype=float)
         x[T - 1] = rng.multivariate_normal(m_filt[T - 1], P_filt[T - 1])
         for t in range(T - 2, -1, -1):
-            P_pred_next = P_pred[t + 1]
-            J = P_filt[t] @ A_seq[t + 1].T @ np.linalg.inv(
-                P_pred_next + self.eps * np.eye(d)
-            )
+            P_pred_next = P_pred[t + 1] + self.eps * np.eye(d, dtype=float)
+            PHt = P_filt[t] @ A_seq[t + 1].T
+            try:
+                L = np.linalg.cholesky(P_pred_next)
+                tmp = np.linalg.solve(L, PHt.T)
+                J = np.linalg.solve(L.T, tmp).T
+            except np.linalg.LinAlgError:
+                J = np.linalg.solve(P_pred_next, PHt.T).T
             mean = m_filt[t] + J @ (x[t + 1] - m_pred[t + 1])
             cov = P_filt[t] - J @ P_pred_next @ J.T
             cov = 0.5 * (cov + cov.T) + self.eps * np.eye(d)
@@ -2436,11 +2780,7 @@ class FactorizedSLDS(SLDSIMMRouter):
                             g_prev[t], mean_g, self.Q_g[m]
                         )
                 if self.d_phi > 0 and expert_ids:
-                    if available_sets is None or t >= len(available_sets):
-                        experts_t = expert_ids
-                    else:
-                        experts_t = [int(k) for k in available_sets[t]]
-                    for k in experts_t:
+                    for k in expert_ids:
                         if k not in u_prev:
                             continue
                         if t == 0:
@@ -2623,7 +2963,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         lambda_B = float(priors.get("lambda_B", 1e-6))
         a_R = float(priors.get("a_R", 1e-6))
         b_R = float(priors.get("b_R", 1e-6))
-        lambda_theta = float(priors.get("lambda_theta", 1e-6))
+        lambda_theta = float(priors.get("lambda_theta", 0.0))
 
         w0 = None
         g_init_mean = self.g_mean0
@@ -2902,8 +3242,6 @@ class FactorizedSLDS(SLDSIMMRouter):
                         z_seq = z_samples[s]
                         u_seq = u_samp[s]
                         for t in range(1, T_train):
-                            if k not in train_avail[t]:
-                                continue
                             if z_seq[t] != m:
                                 continue
                             sum_uu += np.outer(u_seq[t], u_seq[t - 1])
@@ -2925,8 +3263,6 @@ class FactorizedSLDS(SLDSIMMRouter):
                         z_seq = z_samples[s]
                         u_seq = u_samp[s]
                         for t in range(1, T_train):
-                            if k not in train_avail[t]:
-                                continue
                             if z_seq[t] != m:
                                 continue
                             diff = u_seq[t] - self.A_u[m] @ u_seq[t - 1]
@@ -3027,68 +3363,23 @@ class FactorizedSLDS(SLDSIMMRouter):
                     seed=seed,
                 )
             elif self.transition_mode == "linear":
-                if self.W_lin is None or self.b_lin is None:
-                    self._init_transition_params(
-                        np.asarray(train_ctx[0]).reshape(-1).shape[0]
-                    )
-                for _ in range(max(theta_steps, 1)):
-                    grad_W = np.zeros_like(self.W_lin)
-                    grad_b = np.zeros_like(self.b_lin)
-                    for t in range(1, T_train):
-                        x_t = np.asarray(train_ctx[t], dtype=float).reshape(-1)
-                        scores = np.einsum("mjd,d->mj", self.W_lin, x_t) + self.b_lin
-                        Pi = self._softmax_rows(scores)
-                        for i in range(self.M):
-                            xi_row = xi[t - 1, i]
-                            xi_sum = float(np.sum(xi_row))
-                            delta = xi_row - xi_sum * Pi[i]
-                            grad_W[i] += np.outer(delta, x_t)
-                            grad_b[i] += delta
-                    grad_W -= lambda_theta * self.W_lin
-                    grad_b -= lambda_theta * self.b_lin
-                    self.W_lin += theta_lr * grad_W
-                    self.b_lin += theta_lr * grad_b
+                self._train_transition_linear_torch(
+                    train_ctx,
+                    xi,
+                    lr=theta_lr,
+                    steps=theta_steps,
+                    weight_decay=lambda_theta,
+                    seed=seed,
+                )
             else:
-                if self.W_q is None or self.W_k is None:
-                    self._init_transition_params(
-                        np.asarray(train_ctx[0]).reshape(-1).shape[0]
-                    )
-                for _ in range(max(theta_steps, 1)):
-                    grad_W_q = np.zeros_like(self.W_q)
-                    grad_W_k = np.zeros_like(self.W_k)
-                    grad_b_attn = (
-                        np.zeros_like(self.b_attn)
-                        if self.b_attn is not None
-                        else None
-                    )
-                    for t in range(1, T_train):
-                        x_t = np.asarray(train_ctx[t], dtype=float).reshape(-1)
-                        Pi = self._context_transition(x_t)
-                        q = np.einsum("mad,d->ma", self.W_q, x_t)
-                        k_vec = np.einsum("mad,d->ma", self.W_k, x_t)
-                        for i in range(self.M):
-                            xi_row = xi[t - 1, i]
-                            xi_sum = float(np.sum(xi_row))
-                            delta = xi_row - xi_sum * Pi[i]
-                            grad_q = np.zeros(self.attn_dim, dtype=float)
-                            for j in range(self.M):
-                                grad_q += delta[j] * k_vec[j]
-                                grad_W_k[j] += (
-                                    delta[j]
-                                    * np.outer(q[i], x_t)
-                                    / np.sqrt(float(self.attn_dim))
-                                )
-                                if grad_b_attn is not None:
-                                    grad_b_attn[i, j] += delta[j]
-                            grad_W_q[i] += (
-                                np.outer(grad_q, x_t) / np.sqrt(float(self.attn_dim))
-                            )
-                    grad_W_q -= lambda_theta * self.W_q
-                    grad_W_k -= lambda_theta * self.W_k
-                    self.W_q += theta_lr * grad_W_q
-                    self.W_k += theta_lr * grad_W_k
-                    if grad_b_attn is not None:
-                        self.b_attn += theta_lr * grad_b_attn
+                self._train_transition_attention_torch(
+                    train_ctx,
+                    xi,
+                    lr=theta_lr,
+                    steps=theta_steps,
+                    weight_decay=lambda_theta,
+                    seed=seed,
+                )
 
             score_std = None
             score_n = None

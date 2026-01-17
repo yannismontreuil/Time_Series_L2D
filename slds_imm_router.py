@@ -28,6 +28,7 @@ from router_eval import set_transition_log_config, register_transition_log_label
 from plot_utils import (
     evaluate_routers_and_baselines,
     analysis_late_arrival,
+    plot_time_series,
 )
 from horizon_planning import evaluate_horizon_planning
 
@@ -73,47 +74,84 @@ def _collect_factorized_em_data(
     router: FactorizedSLDS,
     env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,
     t_end: int,
+    force_full_feedback: bool = True,
 ):
     contexts = []
     available_sets = []
     actions = []
     residuals = []
-    residuals_full = []
+    residuals_full = [] if force_full_feedback else None
 
     prev_suspend = getattr(router, "_online_em_suspended", False)
+    prev_feedback_mode = router.feedback_mode
+    prev_exploration = router.exploration
+    prev_sampling_det = router.exploration_sampling_deterministic
+    prev_rng_state = copy.deepcopy(router._rng.bit_generator.state)
     if hasattr(router, "suspend_online_em"):
         router.suspend_online_em(True)
     router.reset_beliefs()
+    # Force deterministic policy during warmup so that partial/full
+    # routers collect identical datasets.
+    if force_full_feedback:
+        router.feedback_mode = "full"
+    router.exploration = "g"
+    router.exploration_sampling_deterministic = True
+    # Reset RNG state so diagnostics are consistent across routers.
+    router._rng.bit_generator.state = np.random.default_rng(0).bit_generator.state
     t_end = min(int(t_end), env.T - 1)
     try:
         for t in range(1, t_end + 1):
             x_t = env.get_context(t)
-            available = env.get_available_experts(t)
-            r_t, cache = router.select_expert(x_t, available)
+            available = np.asarray(env.get_available_experts(t), dtype=int)
+            if available.size == 0:
+                raise ValueError(f"EM warmup: no available experts at t={t}.")
+            r_t = int(np.min(available))
 
             preds = env.all_expert_predictions(x_t)
             residuals_all = preds - float(env.y[t])
             residual = float(residuals_all[int(r_t)])
+            if force_full_feedback:
+                residuals_masked = np.full(residuals_all.shape, np.nan, dtype=float)
+                residuals_masked[available] = residuals_all[available]
+            else:
+                residuals_masked = None
 
             contexts.append(x_t)
             available_sets.append(list(available))
             actions.append(int(r_t))
             residuals.append(residual)
-            residuals_full.append(residuals_all)
-
-            losses_full = residuals_all if router.feedback_mode == "full" else None
-            router.update_beliefs(
-                r_t=r_t,
-                loss_obs=residual,
-                losses_full=losses_full,
-                available_experts=available,
-                cache=cache,
-            )
+            if force_full_feedback:
+                residuals_full.append(residuals_masked)
     finally:
+        router.feedback_mode = prev_feedback_mode
+        router.exploration = prev_exploration
+        router.exploration_sampling_deterministic = prev_sampling_det
+        router._rng.bit_generator.state = prev_rng_state
         if hasattr(router, "suspend_online_em"):
             router.suspend_online_em(prev_suspend)
 
     return contexts, available_sets, actions, residuals, residuals_full
+
+
+def _clone_factorized_em_data(
+    data: tuple[
+        list[np.ndarray],
+        list[list[int]],
+        list[int],
+        list[float],
+        Optional[list[np.ndarray]],
+    ],
+):
+    ctx, avail, actions, residuals, residuals_full = data
+    ctx_out = [np.asarray(x, dtype=float).copy() for x in ctx]
+    avail_out = [list(a) for a in avail]
+    actions_out = [int(a) for a in actions]
+    residuals_out = [float(r) for r in residuals]
+    if residuals_full is None:
+        residuals_full_out = None
+    else:
+        residuals_full_out = [np.asarray(r, dtype=float).copy() for r in residuals_full]
+    return ctx_out, avail_out, actions_out, residuals_out, residuals_full_out
 
 
 def _evaluate_factorized_run_worker(payload: dict) -> None:
@@ -1091,6 +1129,7 @@ if __name__ == "__main__":
         d_g_fact = int(d_g_fact_cfg)
         d_phi_fact = int(factorized_slds_cfg.get("idiosyncratic_dim", d))
         delta_max_fact = int(factorized_slds_cfg.get("delta_max", 50))
+        B_dict_fact = factorized_slds_cfg.get("B_dict", None)
         r_scalar_fact_cfg = factorized_slds_cfg.get("R_scalar", None)
         if r_scalar_fact_cfg is None:
             r_scalar_fact = float(slds_cfg.get("R_scalar", 0.5))
@@ -1236,6 +1275,18 @@ if __name__ == "__main__":
                 Q_u_fact = np.zeros((M_fact, d_phi_fact, d_phi_fact), dtype=float)
                 for k in range(M_fact):
                     Q_u_fact[k] = q_u_arr[k] * np.eye(d_phi_fact, dtype=float)
+        if B_dict_fact is None:
+            tri_cycle_cfg = env_cfg.get("tri_cycle", None)
+            if isinstance(tri_cycle_cfg, dict):
+                if str(tri_cycle_cfg.get("shared_noise_mode", "")).lower() == "model_match":
+                    loadings = tri_cycle_cfg.get("shared_loadings", None)
+                    if loadings is not None:
+                        loadings_arr = np.asarray(loadings, dtype=float)
+                        if loadings_arr.shape == (N, d_g_fact):
+                            B_dict_fact = {
+                                int(k): loadings_arr[int(k)].reshape(d_phi_fact, d_g_fact)
+                                for k in range(N)
+                            }
 
         def _build_factorized_router(
             feedback_mode: str,
@@ -1247,6 +1298,7 @@ if __name__ == "__main__":
                 d_g=d_g_fact,
                 d_phi=d_phi_fact,
                 feature_fn=feature_phi,
+                B_dict=B_dict_fact,
                 beta=beta,
                 Delta_max=delta_max_fact,
                 R=r_scalar_fact,
@@ -1287,6 +1339,7 @@ if __name__ == "__main__":
             transition_mode_local: str,
             exploration_mode: str,
         ) -> FactorizedSLDS:
+            # d_g=0 disables all shared-factor g_t dynamics/emission terms.
             return FactorizedSLDS(
                 M=M_fact,
                 d_g=0,
@@ -1446,6 +1499,10 @@ if __name__ == "__main__":
     # Visualization-only settings for plots.
     env.plot_shift = int(cfg.get("plot_shift", 1))
     env.plot_target = str(cfg.get("plot_target", "y")).lower()
+    if bool(cfg.get("plot_synth_preview", False)):
+        plot_time_series(env)
+
+    em_data_cache = {}
 
     def _run_factorized_em(router: Optional[FactorizedSLDS], label: str) -> None:
         if router is None:
@@ -1497,9 +1554,35 @@ if __name__ == "__main__":
         em_eps_n = float(factorized_slds_cfg.get("em_eps_n", 0.0))
 
         print(f"\n--- FactorizedSLDS EM ({label}) (t=1..{em_tk}, n_em={n_em}) ---")
-        ctx_em, avail_em, actions_em, resid_em, resid_full_em = _collect_factorized_em_data(
-            router, env, em_tk
+        force_full = bool(em_force_full_feedback or router.feedback_mode == "full")
+        cache_key = (int(em_tk), force_full)
+        em_data = em_data_cache.get(cache_key)
+        if em_data is None:
+            em_data = _collect_factorized_em_data(
+                router,
+                env,
+                em_tk,
+                force_full_feedback=force_full,
+            )
+            em_data_cache[cache_key] = em_data
+        ctx_em, avail_em, actions_em, resid_em, resid_full_em = _clone_factorized_em_data(
+            em_data
         )
+        if ctx_em:
+            context_dim = int(np.asarray(ctx_em[0], dtype=float).reshape(-1).shape[0])
+            needs_init = False
+            if router.transition_model is None and router.transition_hidden_dims is None:
+                if router.transition_mode == "linear":
+                    needs_init = router.W_lin is None or router.b_lin is None
+                else:
+                    needs_init = router.W_q is None or router.W_k is None
+            if needs_init:
+                prev_rng_state = copy.deepcopy(router._rng.bit_generator.state)
+                router._rng.bit_generator.state = (
+                    np.random.default_rng(em_seed).bit_generator.state
+                )
+                router._init_transition_params(context_dim)
+                router._rng.bit_generator.state = prev_rng_state
         prev_feedback_mode = router.feedback_mode
         if em_force_full_feedback:
             router.feedback_mode = "full"
@@ -1677,9 +1760,9 @@ if __name__ == "__main__":
                     fact_full_linear, f"{linear_label} full"
                 )
         if l2d_baseline is not None:
-            _register_transition_logger(l2d_baseline, "L2D")
+            _register_transition_logger(l2d_baseline, "L2D (full feedback)")
         if l2d_sw_baseline is not None:
-            _register_transition_logger(l2d_sw_baseline, "L2D SW")
+            _register_transition_logger(l2d_sw_baseline, "L2D_SW (full feedback)")
         if linucb_partial is not None:
             _register_transition_logger(linucb_partial, "LinUCB partial")
         if linucb_full is not None:

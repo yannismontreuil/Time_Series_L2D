@@ -15,7 +15,7 @@ environment:
   # Tweak: number of experts and regimes.
   num_experts: 3
   num_regimes: 2
-  state_dim: 2
+  state_dim: 1
 
   # Special setting implemented in synthetic_env.py that constructs:
   #   - Regime 0 (good times): experts 0 and 1 ~ 0, expert 2 ~ 1
@@ -37,7 +37,7 @@ routers:
     # Tweak: number of regimes and latent dims.
     num_regimes: 2
     shared_dim: 1
-    idiosyncratic_dim: 2
+    idiosyncratic_dim: 1
 
     # Dynamics / noise
     # Tweak: observation noise and registry pruning window.

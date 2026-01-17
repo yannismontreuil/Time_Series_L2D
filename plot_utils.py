@@ -751,6 +751,20 @@ def evaluate_routers_and_baselines(
             costs[:cut] = np.nan
         return costs
 
+    def _mask_em_choices(
+        choices: Optional[np.ndarray], em_tk: Optional[int]
+    ) -> Optional[np.ndarray]:
+        if choices is None or em_tk is None:
+            return choices
+        em_tk = int(em_tk)
+        if em_tk <= 0:
+            return choices
+        arr = np.asarray(choices, dtype=float).copy()
+        cut = min(em_tk, arr.shape[0])
+        if cut > 0:
+            arr[:cut] = np.nan
+        return arr
+
     costs_partial = _mask_em_costs(
         costs_partial, getattr(router_partial, "em_tk", None)
     )
@@ -790,6 +804,84 @@ def evaluate_routers_and_baselines(
         costs_neuralucb_full = _mask_em_costs(costs_neuralucb_full, em_tk_anchor)
         costs_random = _mask_em_costs(costs_random, em_tk_anchor)
         costs_oracle = _mask_em_costs(costs_oracle, em_tk_anchor)
+
+    choices_partial_plot = _mask_em_choices(
+        choices_partial, getattr(router_partial, "em_tk", None)
+    )
+    choices_full_plot = _mask_em_choices(
+        choices_full, getattr(router_full, "em_tk", None)
+    )
+    choices_partial_corr_em_plot = _mask_em_choices(
+        choices_partial_corr_em,
+        getattr(router_partial_corr_em, "em_tk", None)
+        if router_partial_corr_em is not None
+        else None,
+    )
+    choices_full_corr_em_plot = _mask_em_choices(
+        choices_full_corr_em,
+        getattr(router_full_corr_em, "em_tk", None)
+        if router_full_corr_em is not None
+        else None,
+    )
+    choices_factorial_partial_plot = _mask_em_choices(
+        choices_factorial_partial,
+        getattr(router_factorial_partial, "em_tk", None)
+        if router_factorial_partial is not None
+        else None,
+    )
+    choices_factorial_full_plot = _mask_em_choices(
+        choices_factorial_full,
+        getattr(router_factorial_full, "em_tk", None)
+        if router_factorial_full is not None
+        else None,
+    )
+    choices_factorial_linear_partial_plot = _mask_em_choices(
+        choices_factorial_linear_partial,
+        getattr(router_factorial_partial_linear, "em_tk", None)
+        if router_factorial_partial_linear is not None
+        else None,
+    )
+    choices_factorial_linear_full_plot = _mask_em_choices(
+        choices_factorial_linear_full,
+        getattr(router_factorial_full_linear, "em_tk", None)
+        if router_factorial_full_linear is not None
+        else None,
+    )
+    choices_partial_corr_plot = choices_partial_corr
+    choices_full_corr_plot = choices_full_corr
+    choices_partial_neural_plot = choices_partial_neural
+    choices_full_neural_plot = choices_full_neural
+    choices_l2d_plot = choices_l2d
+    choices_l2d_sw_plot = choices_l2d_sw
+    choices_linucb_partial_plot = choices_linucb_partial
+    choices_linucb_full_plot = choices_linucb_full
+    choices_neuralucb_partial_plot = choices_neuralucb_partial
+    choices_neuralucb_full_plot = choices_neuralucb_full
+    choices_random_plot = choices_random
+    choices_oracle_plot = choices_oracle
+    if em_tk_anchor is not None:
+        choices_partial_corr_plot = _mask_em_choices(choices_partial_corr, em_tk_anchor)
+        choices_full_corr_plot = _mask_em_choices(choices_full_corr, em_tk_anchor)
+        choices_partial_neural_plot = _mask_em_choices(
+            choices_partial_neural, em_tk_anchor
+        )
+        choices_full_neural_plot = _mask_em_choices(choices_full_neural, em_tk_anchor)
+        choices_l2d_plot = _mask_em_choices(choices_l2d, em_tk_anchor)
+        choices_l2d_sw_plot = _mask_em_choices(choices_l2d_sw, em_tk_anchor)
+        choices_linucb_partial_plot = _mask_em_choices(
+            choices_linucb_partial, em_tk_anchor
+        )
+        choices_linucb_full_plot = _mask_em_choices(
+            choices_linucb_full, em_tk_anchor
+        )
+        choices_neuralucb_partial_plot = _mask_em_choices(
+            choices_neuralucb_partial, em_tk_anchor
+        )
+        choices_neuralucb_full_plot = _mask_em_choices(
+            choices_neuralucb_full, em_tk_anchor
+        )
+        choices_random_plot = _mask_em_choices(choices_random, em_tk_anchor)
+        choices_oracle_plot = _mask_em_choices(choices_oracle, em_tk_anchor)
 
     T = env.T
     t_grid = np.arange(1, T)
@@ -960,9 +1052,9 @@ def evaluate_routers_and_baselines(
             f"Neural router (full fb):        {avg_cost_neural_full:.4f}"
         )
     if avg_cost_l2d is not None:
-        print(f"L2D baseline:                  {avg_cost_l2d:.4f}")
+        print(f"L2D (full feedback):           {avg_cost_l2d:.4f}")
     if avg_cost_l2d_sw is not None:
-        print(f"L2D_SW baseline:               {avg_cost_l2d_sw:.4f}")
+        print(f"L2D_SW (full feedback):        {avg_cost_l2d_sw:.4f}")
     if avg_cost_linucb_partial is not None:
         print(f"LinUCB (partial feedback):     {avg_cost_linucb_partial:.4f}")
     if avg_cost_linucb_full is not None:
@@ -1018,9 +1110,9 @@ def evaluate_routers_and_baselines(
             f"Neural router (full fb):        {last_cost_neural_full:.4f}"
         )
     if last_cost_l2d is not None:
-        print(f"L2D baseline:                  {last_cost_l2d:.4f}")
+        print(f"L2D (full feedback):           {last_cost_l2d:.4f}")
     if last_cost_l2d_sw is not None:
-        print(f"L2D_SW baseline:               {last_cost_l2d_sw:.4f}")
+        print(f"L2D_SW (full feedback):        {last_cost_l2d_sw:.4f}")
     if last_cost_linucb_partial is not None:
         print(f"LinUCB (partial feedback):     {last_cost_linucb_partial:.4f}")
     if last_cost_linucb_full is not None:
@@ -1040,49 +1132,49 @@ def evaluate_routers_and_baselines(
 
     # Selection distribution (how often each expert is chosen)
     entries = [
-        ("partial", choices_partial),
-        ("full", choices_full),
+        ("partial", choices_partial_plot),
+        ("full", choices_full_plot),
     ]
-    if choices_partial_corr is not None:
-        entries.append(("partial_corr", choices_partial_corr))
-    if choices_full_corr is not None:
-        entries.append(("full_corr", choices_full_corr))
-    if choices_partial_corr_em is not None:
-        entries.append(("partial_corr_em", choices_partial_corr_em))
-    if choices_full_corr_em is not None:
-        entries.append(("full_corr_em", choices_full_corr_em))
-    if choices_factorial_partial is not None:
-        entries.append(("factorized_partial", choices_factorial_partial))
-    if choices_factorial_full is not None:
-        entries.append(("factorized_full", choices_factorial_full))
-    if choices_factorial_linear_partial is not None:
+    if choices_partial_corr_plot is not None:
+        entries.append(("partial_corr", choices_partial_corr_plot))
+    if choices_full_corr_plot is not None:
+        entries.append(("full_corr", choices_full_corr_plot))
+    if choices_partial_corr_em_plot is not None:
+        entries.append(("partial_corr_em", choices_partial_corr_em_plot))
+    if choices_full_corr_em_plot is not None:
+        entries.append(("full_corr_em", choices_full_corr_em_plot))
+    if choices_factorial_partial_plot is not None:
+        entries.append(("factorized_partial", choices_factorial_partial_plot))
+    if choices_factorial_full_plot is not None:
+        entries.append(("factorized_full", choices_factorial_full_plot))
+    if choices_factorial_linear_partial_plot is not None:
         entries.append(
-            ("factorized_linear_partial", choices_factorial_linear_partial)
+            ("factorized_linear_partial", choices_factorial_linear_partial_plot)
         )
-    if choices_factorial_linear_full is not None:
-        entries.append(("factorized_linear_full", choices_factorial_linear_full))
+    if choices_factorial_linear_full_plot is not None:
+        entries.append(("factorized_linear_full", choices_factorial_linear_full_plot))
     entries.extend(
         [
-            ("random", choices_random),
-            ("oracle", choices_oracle),
+            ("random", choices_random_plot),
+            ("oracle", choices_oracle_plot),
         ]
     )
-    if choices_partial_neural is not None:
-        entries.append(("neural_partial", choices_partial_neural))
-    if choices_full_neural is not None:
-        entries.append(("neural_full", choices_full_neural))
-    if choices_l2d is not None:
-        entries.append(("l2d", choices_l2d))
-    if choices_l2d_sw is not None:
-        entries.append(("l2d_sw", choices_l2d_sw))
-    if choices_linucb_partial is not None:
-        entries.append(("linucb_partial", choices_linucb_partial))
-    if choices_linucb_full is not None:
-        entries.append(("linucb_full", choices_linucb_full))
-    if choices_neuralucb_partial is not None:
-        entries.append(("neuralucb_partial", choices_neuralucb_partial))
-    if choices_neuralucb_full is not None:
-        entries.append(("neuralucb_full", choices_neuralucb_full))
+    if choices_partial_neural_plot is not None:
+        entries.append(("neural_partial", choices_partial_neural_plot))
+    if choices_full_neural_plot is not None:
+        entries.append(("neural_full", choices_full_neural_plot))
+    if choices_l2d_plot is not None:
+        entries.append(("l2d", choices_l2d_plot))
+    if choices_l2d_sw_plot is not None:
+        entries.append(("l2d_sw", choices_l2d_sw_plot))
+    if choices_linucb_partial_plot is not None:
+        entries.append(("linucb_partial", choices_linucb_partial_plot))
+    if choices_linucb_full_plot is not None:
+        entries.append(("linucb_full", choices_linucb_full_plot))
+    if choices_neuralucb_partial_plot is not None:
+        entries.append(("neuralucb_partial", choices_neuralucb_partial_plot))
+    if choices_neuralucb_full_plot is not None:
+        entries.append(("neuralucb_full", choices_neuralucb_full_plot))
 
     # ---------------------------------------------
     # Uncomment the following lines to print selection distributions
@@ -1233,7 +1325,7 @@ def evaluate_routers_and_baselines(
         ax_pred.plot(
             t_grid_plot,
             preds_l2d_plot,
-            label="L2D baseline",
+            label="L2D (full feedback)",
             color=get_model_color("l2d"),
             linestyle="-",
             alpha=0.8,
@@ -1242,7 +1334,7 @@ def evaluate_routers_and_baselines(
         ax_pred.plot(
             t_grid_plot,
             preds_l2d_sw_plot,
-            label="L2D_SW baseline",
+            label="L2D_SW (full feedback)",
             color=get_model_color("l2d_sw"),
             linestyle="-",
             alpha=0.8,
@@ -1515,7 +1607,7 @@ def evaluate_routers_and_baselines(
         ax_cost.plot(
             t_grid,
             avg_l2d_t,
-            label="L2D (avg cost)",
+            label="L2D (full feedback, avg cost)",
             color=get_model_color("l2d"),
             linestyle="-",
         )
@@ -1523,7 +1615,7 @@ def evaluate_routers_and_baselines(
         ax_cost.plot(
             t_grid,
             avg_l2d_sw_t,
-            label="L2D_SW (avg cost)",
+            label="L2D_SW (full feedback, avg cost)",
             color=get_model_color("l2d_sw"),
             linestyle="-",
         )
@@ -1678,9 +1770,9 @@ def evaluate_routers_and_baselines(
         if mean_full_corr is not None:
             print(f"Router Corr (full):            {mean_full_corr:.4f}")
         if mean_l2d is not None:
-            print(f"L2D baseline:                  {mean_l2d:.4f}")
+            print(f"L2D (full feedback):           {mean_l2d:.4f}")
         if mean_l2d_sw is not None:
-            print(f"L2D_SW baseline:               {mean_l2d_sw:.4f}")
+            print(f"L2D_SW (full feedback):        {mean_l2d_sw:.4f}")
         if mean_linucb_partial is not None:
             print(f"LinUCB (partial):              {mean_linucb_partial:.4f}")
         if mean_linucb_full is not None:
@@ -1722,14 +1814,14 @@ def evaluate_routers_and_baselines(
             ax_reg.plot(
                 t_reg,
                 reg_l2d,
-                label="L2D",
+                label="L2D (full feedback)",
                 color=get_model_color("l2d"),
             )
         if reg_l2d_sw is not None:
             ax_reg.plot(
                 t_reg,
                 reg_l2d_sw,
-                label="L2D_SW",
+                label="L2D_SW (full feedback)",
                 color=get_model_color("l2d_sw"),
             )
         if reg_linucb_partial is not None:
@@ -1795,7 +1887,7 @@ def evaluate_routers_and_baselines(
     ax_p = axes[idx]
     ax_p.step(
         t_grid,
-        choices_partial,
+        choices_partial_plot,
         where="post",
         color=get_model_color("partial"),
     )
@@ -1807,7 +1899,7 @@ def evaluate_routers_and_baselines(
     ax_f = axes[idx]
     ax_f.step(
         t_grid,
-        choices_full,
+        choices_full_plot,
         where="post",
         color=get_model_color("full"),
     )
@@ -1819,7 +1911,7 @@ def evaluate_routers_and_baselines(
         ax_pc = axes[idx]
         ax_pc.step(
             t_grid,
-            choices_partial_corr,
+            choices_partial_corr_plot,
             where="post",
             color=get_model_color("partial_corr"),
         )
@@ -1831,7 +1923,7 @@ def evaluate_routers_and_baselines(
         ax_fc = axes[idx]
         ax_fc.step(
             t_grid,
-            choices_full_corr,
+            choices_full_corr_plot,
             where="post",
             color=get_model_color("full_corr"),
         )
@@ -1843,7 +1935,7 @@ def evaluate_routers_and_baselines(
         ax_pc_em = axes[idx]
         ax_pc_em.step(
             t_grid,
-            choices_partial_corr_em,
+            choices_partial_corr_em_plot,
             where="post",
             color=get_model_color("partial_corr_em"),
         )
@@ -1855,7 +1947,7 @@ def evaluate_routers_and_baselines(
         ax_fc_em = axes[idx]
         ax_fc_em.step(
             t_grid,
-            choices_full_corr_em,
+            choices_full_corr_em_plot,
             where="post",
             color=get_model_color("full_corr_em"),
         )
@@ -1867,7 +1959,7 @@ def evaluate_routers_and_baselines(
         ax_np = axes[idx]
         ax_np.step(
             t_grid,
-            choices_partial_neural,
+            choices_partial_neural_plot,
             where="post",
             color=get_model_color("neural_partial"),
         )
@@ -1879,7 +1971,7 @@ def evaluate_routers_and_baselines(
         ax_nf = axes[idx]
         ax_nf.step(
             t_grid,
-            choices_full_neural,
+            choices_full_neural_plot,
             where="post",
             color=get_model_color("neural_full"),
         )
@@ -1891,29 +1983,29 @@ def evaluate_routers_and_baselines(
         ax_l2d = axes[idx]
         ax_l2d.step(
             t_grid,
-            choices_l2d,
+            choices_l2d_plot,
             where="post",
             color=get_model_color("l2d"),
         )
-        ax_l2d.set_ylabel("Expert\n(L2D)")
+        ax_l2d.set_ylabel("Expert\n(L2D full)")
         ax_l2d.set_yticks(np.arange(env.num_experts))
         idx += 1
     if has_l2d_sw:
         ax_l2d_sw = axes[idx]
         ax_l2d_sw.step(
             t_grid,
-            choices_l2d_sw,
+            choices_l2d_sw_plot,
             where="post",
             color=get_model_color("l2d_sw"),
         )
-        ax_l2d_sw.set_ylabel("Expert\n(L2D_SW)")
+        ax_l2d_sw.set_ylabel("Expert\n(L2D_SW full)")
         ax_l2d_sw.set_yticks(np.arange(env.num_experts))
         idx += 1
     if has_linucb_partial:
         ax_lin_p = axes[idx]
         ax_lin_p.step(
             t_grid,
-            choices_linucb_partial,
+            choices_linucb_partial_plot,
             where="post",
             color=get_model_color("linucb_partial"),
         )
@@ -1924,7 +2016,7 @@ def evaluate_routers_and_baselines(
         ax_lin_f = axes[idx]
         ax_lin_f.step(
             t_grid,
-            choices_linucb_full,
+            choices_linucb_full_plot,
             where="post",
             color=get_model_color("linucb_full"),
         )
@@ -1936,7 +2028,7 @@ def evaluate_routers_and_baselines(
         ax_nucb_p = axes[idx]
         ax_nucb_p.step(
             t_grid,
-            choices_neuralucb_partial,
+            choices_neuralucb_partial_plot,
             where="post",
             color=get_model_color("neuralucb"),
         )
@@ -1947,7 +2039,7 @@ def evaluate_routers_and_baselines(
         ax_nucb_f = axes[idx]
         ax_nucb_f.step(
             t_grid,
-            choices_neuralucb_full,
+            choices_neuralucb_full_plot,
             where="post",
             color=get_model_color("neuralucb"),
         )
@@ -1959,7 +2051,7 @@ def evaluate_routers_and_baselines(
         ax_fact_p = axes[idx]
         ax_fact_p.step(
             t_grid,
-            choices_factorial_partial,
+            choices_factorial_partial_plot,
             where="post",
             color=get_model_color("factorized_partial"),
         )
@@ -1970,7 +2062,7 @@ def evaluate_routers_and_baselines(
         ax_fact_f = axes[idx]
         ax_fact_f.step(
             t_grid,
-            choices_factorial_full,
+            choices_factorial_full_plot,
             where="post",
             color=get_model_color("factorized_full"),
         )
@@ -1982,7 +2074,7 @@ def evaluate_routers_and_baselines(
         ax_fact_lp = axes[idx]
         ax_fact_lp.step(
             t_grid,
-            choices_factorial_linear_partial,
+            choices_factorial_linear_partial_plot,
             where="post",
             color=get_model_color("factorized_linear_partial"),
         )
@@ -1993,7 +2085,7 @@ def evaluate_routers_and_baselines(
         ax_fact_lf = axes[idx]
         ax_fact_lf.step(
             t_grid,
-            choices_factorial_linear_full,
+            choices_factorial_linear_full_plot,
             where="post",
             color=get_model_color("factorized_linear_full"),
         )
@@ -2004,7 +2096,7 @@ def evaluate_routers_and_baselines(
     ax_oracle = axes[idx]
     ax_oracle.step(
         t_grid,
-        choices_oracle,
+        choices_oracle_plot,
         where="post",
         color=get_model_color("oracle"),
     )

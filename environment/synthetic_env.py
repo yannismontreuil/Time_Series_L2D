@@ -190,6 +190,12 @@ class SyntheticTimeSeriesEnv:
         self._last_t: int | None = None
         # Deterministic per-(t,j) noise for theoretical_trap expert predictions.
         self._expert_noise: np.ndarray | None = None
+        # Optional SLDS-aligned tri_cycle_corr generation.
+        self._tri_cycle_model_match = False
+        self._tri_cycle_g: np.ndarray | None = None
+        self._tri_cycle_u: np.ndarray | None = None
+        self._tri_cycle_shared_loadings: np.ndarray | None = None
+        self._tri_cycle_residuals: np.ndarray | None = None
         if setting == "theoretical_trap":
             rng_noise = np.random.default_rng(int(seed) + 12345)
             base_noise = rng_noise.normal(size=(T, num_experts))
@@ -199,26 +205,30 @@ class SyntheticTimeSeriesEnv:
                     noise_scale_expert[t_idx, : min(2, num_experts)] = 0.1
             self._expert_noise = base_noise * noise_scale_expert
         elif setting == "tri_cycle_corr":
-            rng_noise = np.random.default_rng(int(seed) + 23456)
-            shared_scale = float(tri_cycle_cfg.get("shared_noise_scale", 0.2))
-            indiv_scale = float(tri_cycle_cfg.get("indiv_noise_scale", 0.05))
-            base_noise = rng_noise.normal(scale=indiv_scale, size=(T, num_experts))
-            pair_map = {
-                0: (0, 1),  # Regime 1: experts 1 & 2 correlated
-                1: (2, 3),  # Regime 2: experts 3 & 4 correlated
-                2: (0, 4),  # Regime 3: experts 1 & 5 correlated
-            }
-            for t_idx in range(T):
-                reg = int(z[t_idx])
-                pair = pair_map.get(reg)
-                if pair is None:
-                    continue
-                shared = rng_noise.normal(scale=shared_scale)
-                for j_idx in pair:
-                    if 0 <= j_idx < num_experts:
-                        base_noise[t_idx, j_idx] += shared
-            self._expert_noise = base_noise
-            self._tri_cycle_pair_map = pair_map
+            shared_mode = str(tri_cycle_cfg.get("shared_noise_mode", "legacy")).lower()
+            if shared_mode == "model_match":
+                self._tri_cycle_model_match = True
+            else:
+                rng_noise = np.random.default_rng(int(seed) + 23456)
+                shared_scale = float(tri_cycle_cfg.get("shared_noise_scale", 0.2))
+                indiv_scale = float(tri_cycle_cfg.get("indiv_noise_scale", 0.05))
+                base_noise = rng_noise.normal(scale=indiv_scale, size=(T, num_experts))
+                pair_map = {
+                    0: (0, 1),  # Regime 1: experts 1 & 2 correlated
+                    1: (2, 3),  # Regime 2: experts 3 & 4 correlated
+                    2: (0, 4),  # Regime 3: experts 1 & 5 correlated
+                }
+                for t_idx in range(T):
+                    reg = int(z[t_idx])
+                    pair = pair_map.get(reg)
+                    if pair is None:
+                        continue
+                    shared = rng_noise.normal(scale=shared_scale)
+                    for j_idx in pair:
+                        if 0 <= j_idx < num_experts:
+                            base_noise[t_idx, j_idx] += shared
+                self._expert_noise = base_noise
+                self._tri_cycle_pair_map = pair_map
 
         # Time series / shared factor dynamics.
         # - For "sidekick_trap", we construct an explicit "Day/Night"
@@ -457,6 +467,105 @@ class SyntheticTimeSeriesEnv:
                         slopes[reg_idx, j_idx] = float(reg_slopes[j_idx])
             self._tri_cycle_slopes = slopes
             self._tri_cycle_biases = biases
+            if self._tri_cycle_model_match:
+                d_g = int(tri_cycle_cfg.get("shared_dim", 1))
+                if d_g <= 0:
+                    raise ValueError("tri_cycle_corr model_match requires shared_dim >= 1.")
+                shared_scale = float(tri_cycle_cfg.get("shared_noise_scale", 0.2))
+                indiv_scale = float(tri_cycle_cfg.get("indiv_noise_scale", 0.05))
+                eps_scale = float(tri_cycle_cfg.get("eps_noise_scale", indiv_scale))
+
+                g_ar_cfg = tri_cycle_cfg.get("g_ar", 0.9)
+                if isinstance(g_ar_cfg, (list, tuple, np.ndarray)):
+                    g_ar = np.asarray(g_ar_cfg, dtype=float)
+                    if g_ar.shape != (M,):
+                        raise ValueError("g_ar must have length num_regimes.")
+                else:
+                    g_ar = np.full(M, float(g_ar_cfg), dtype=float)
+
+                u_ar_cfg = tri_cycle_cfg.get("u_ar", 0.95)
+                if isinstance(u_ar_cfg, (list, tuple, np.ndarray)):
+                    u_ar = np.asarray(u_ar_cfg, dtype=float)
+                    if u_ar.shape != (M,):
+                        raise ValueError("u_ar must have length num_regimes.")
+                else:
+                    u_ar = np.full(M, float(u_ar_cfg), dtype=float)
+
+                g_covs_cfg = tri_cycle_cfg.get("g_covs", None)
+                if g_covs_cfg is None:
+                    g_covs = [
+                        np.eye(d_g, dtype=float) * (shared_scale ** 2)
+                        for _ in range(M)
+                    ]
+                else:
+                    g_covs = [np.asarray(cov, dtype=float) for cov in g_covs_cfg]
+                    if len(g_covs) != M:
+                        raise ValueError("g_covs must provide one matrix per regime.")
+                    for cov in g_covs:
+                        if cov.shape != (d_g, d_g):
+                            raise ValueError("Each g_covs entry must be (d_g, d_g).")
+
+                u_covs_cfg = tri_cycle_cfg.get("u_covs", None)
+                if u_covs_cfg is None:
+                    u_covs = np.full(M, indiv_scale ** 2, dtype=float)
+                else:
+                    u_covs = np.asarray(u_covs_cfg, dtype=float)
+                    if u_covs.shape != (M,):
+                        raise ValueError("u_covs must be a length-num_regimes vector.")
+
+                loadings_cfg = tri_cycle_cfg.get("shared_loadings", None)
+                if loadings_cfg is None:
+                    loadings = np.zeros((num_experts, d_g), dtype=float)
+                    if d_g >= 2 and num_experts >= 4:
+                        loadings[0, 0] = 1.0
+                        loadings[1, 0] = 1.0
+                        loadings[2, 1] = 1.0
+                        loadings[3, 1] = 1.0
+                        if num_experts > 4:
+                            loadings[4:, 0] = 1.0
+                    else:
+                        loadings[:, 0] = 1.0
+                else:
+                    loadings = np.asarray(loadings_cfg, dtype=float)
+                    if loadings.shape != (num_experts, d_g):
+                        raise ValueError("shared_loadings must be (num_experts, d_g).")
+
+                g = np.zeros((T, d_g), dtype=float)
+                reg0 = int(z[0])
+                g[0] = rng.multivariate_normal(
+                    np.zeros(d_g, dtype=float), g_covs[reg0]
+                )
+                for t_idx in range(1, T):
+                    reg = int(z[t_idx])
+                    g[t_idx] = g_ar[reg] * g[t_idx - 1] + rng.multivariate_normal(
+                        np.zeros(d_g, dtype=float), g_covs[reg]
+                    )
+
+                u = np.zeros((T, num_experts), dtype=float)
+                u[0] = biases[reg0, :num_experts] + rng.normal(
+                    scale=np.sqrt(u_covs[reg0]), size=num_experts
+                )
+                for t_idx in range(1, T):
+                    reg = int(z[t_idx])
+                    reg_prev = int(z[t_idx - 1])
+                    mean = biases[reg, :num_experts]
+                    prev_mean = biases[reg_prev, :num_experts]
+                    u[t_idx] = mean + u_ar[reg] * (u[t_idx - 1] - prev_mean) + rng.normal(
+                        scale=np.sqrt(u_covs[reg]), size=num_experts
+                    )
+
+                residuals = np.zeros((T, num_experts), dtype=float)
+                for t_idx in range(T):
+                    x_val = float(self.x[t_idx])
+                    shared_term = loadings @ g[t_idx]
+                    residuals[t_idx] = x_val * (shared_term + u[t_idx]) + rng.normal(
+                        scale=eps_scale, size=num_experts
+                    )
+
+                self._tri_cycle_g = g
+                self._tri_cycle_u = u
+                self._tri_cycle_shared_loadings = loadings
+                self._tri_cycle_residuals = residuals
 
         # Expert availability over time.
         # By default:
@@ -643,6 +752,8 @@ class SyntheticTimeSeriesEnv:
             t = int(self._last_t)
             if not (0 <= t < self.T):
                 t = max(0, min(t, self.T - 1))
+            if self._tri_cycle_model_match and self._tri_cycle_residuals is not None:
+                return float(self.y[t] - self._tri_cycle_residuals[t, int(j)])
             reg = int(self.z[t])
             x_val = float(x_t[0])
             slopes = getattr(self, "_tri_cycle_slopes", None)

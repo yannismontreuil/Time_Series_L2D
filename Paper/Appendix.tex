@@ -7,21 +7,25 @@
 % =========================
 \begin{algorithm}[H]
 \caption{\textsc{LearnParameter\_EM}: Monte Carlo EM for the Factorized SLDS (windowed batch; includes $\theta$ for context-dependent transitions)}
-\label{alg:trainmodel_em_corrected}
+\label{alg:trainmodel_em}
 \begin{algorithmic}[1]
-\STATE {\bfseries Input:} index set $\mathcal{T}=\{t_a,\dots,t_b\}$; contexts $(\mathbf{x}_t)_{t\in\mathcal{T}}$; available sets $(\mathcal{E}_t)_{t\in\mathcal{T}}$; actions $(I_t)_{t\in\mathcal{T}}$; observed residuals $(e_t)_{t\in\mathcal{T}}$ with $e_t=\widehat{y}_{t,I_t}-y_t$; feature map $\phi$; EM iterations $N_{\mathrm{EM}}$; posterior samples $N_{\mathrm{samp}}$; burn-in $N_{\mathrm{burn}}$; occupancy floor $\epsilon_N>0$; MAP priors $(M^{(g)}_A,\lambda^{(g)}_A,\Psi^{(g)},\nu^{(g)})$, $(M^{(u)}_A,\lambda^{(u)}_A,\Psi^{(u)},\nu^{(u)})$, $(M_B,\lambda_B)$, $(a_R,b_R)$, and $\lambda_\theta$ for $\theta$ in $\Pi_\theta(\mathbf{x}_t)$.
+\STATE {\bfseries Input:} index set $\mathcal{T}=\{t_a,\dots,t_b\}$; contexts $(\mathbf{x}_t)_{t\in\mathcal{T}}$; available sets $(\mathcal{E}_t)_{t\in\mathcal{T}}$; actions $(I_t)_{t\in\mathcal{T}}$; observed residuals $(e_t)_{t\in\mathcal{T}}$ with $e_t=y_t-\widehat{y}_{t,I_t}$; feature map $\phi$; EM iterations $N_{\mathrm{EM}}$; posterior samples $N_{\mathrm{samp}}$; burn-in $N_{\mathrm{burn}}$; occupancy floor $\epsilon_N>0$; MAP priors $(M^{(g)}_A,\lambda^{(g)}_A,\Psi^{(g)},\nu^{(g)})$, $(M^{(u)}_A,\lambda^{(u)}_A,\Psi^{(u)},\nu^{(u)})$, $(M_B,\lambda_B)$, $(a_R,b_R)$, and $\lambda_\theta$ for $\theta$ in $\Pi_\theta(\mathbf{x}_t)$.
 \STATE $\mathcal{K}\leftarrow \bigcup_{t\in\mathcal{T}} \mathcal{E}_t$
 \STATE {\bfseries Initialize:} parameters $\Theta^{(0)}$; initial state priors for $z_{t_a},\mathbf{g}_{t_a},\{\mathbf{u}_{t_a,k}\}_{k\in\mathcal{K}}$.
 \FOR{iteration $i = 1$ to $N_{\mathrm{EM}}$}
     \STATE \textbf{// E-STEP: Monte Carlo posterior (blocked Gibbs)}
-    \STATE Initialize $(z_{t_a:t_b},\mathbf{g}_{t_a:t_b},\{\mathbf{u}_{t_a:t_b,k}\}_{k\in\mathcal{K}})$ from previous samples.
+    \IF{$i=1$}
+        \STATE Initialize $(z_{t_a:t_b},\mathbf{g}_{t_a:t_b},\{\mathbf{u}_{t_a:t_b,k}\}_{k\in\mathcal{K}})$ by sampling from the priors (or via a single smoothing pass under $\Theta^{(0)}$).
+    \ELSE
+        \STATE Initialize $(z_{t_a:t_b},\mathbf{g}_{t_a:t_b},\{\mathbf{u}_{t_a:t_b,k}\}_{k\in\mathcal{K}})$ from previous samples.
+    \ENDIF
     \FOR{sample $s=1$ to $N_{\mathrm{burn}}+N_{\mathrm{samp}}$}
         \STATE \textbf{Sample $z_{t_a:t_b}^{(s)}$ via FFBS:} use transition $\Pi_\theta(\mathbf{x}_t)$ and ``local evidence''
         \[
         \ell_t^{(m)} \propto 
         p\!\left(e_t \mid z_t=m,\mathbf{g}_t^{(s-1)},\mathbf{u}_{t,I_t}^{(s-1)}\right)\,
         p\!\left(\mathbf{g}_t^{(s-1)}\mid \mathbf{g}_{t-1}^{(s-1)}, z_t=m\right)\,
-        \prod_{k\in \mathcal{E}_t} p\!\left(\mathbf{u}_{t,k}^{(s-1)}\mid \mathbf{u}_{t-1,k}^{(s-1)}, z_t=m\right).
+        \prod_{k\in \mathcal{K}} p\!\left(\mathbf{u}_{t,k}^{(s-1)}\mid \mathbf{u}_{t-1,k}^{(s-1)}, z_t=m\right).
         \]
         \STATE \textbf{Sample $\mathbf{g}_{t_a:t_b}^{(s)}$ via Kalman smoothing} given $z_{t_a:t_b}^{(s)}$, $\{\mathbf{u}_{t_a:t_b,k}^{(s-1)}\}_{k\in\mathcal{K}}$, and bandit observations $\{e_t\}$ (missing for $k\neq I_t$).
         \FOR{each expert $k\in\mathcal{K}$}
@@ -59,15 +63,15 @@
         \STATE $Q_m^{(g)}\leftarrow\frac{\Psi^{(g)}+S^{(m)}_{g\mid g^-}}{\nu^{(g)}+N_m+d_g+1}$.
     \ENDIF
 
-    \STATE For each mode $m$, define (availability-masked)
+    \STATE For each mode $m$, define
     \[
-    S^{(m)}_{u u^-}\coloneqq \sum_{t\in\mathcal{T}\setminus\{t_a\}}\sum_{k\in\mathcal{E}_t}\frac{1}{N_{\mathrm{samp}}}\sum_{s=1}^{N_{\mathrm{samp}}}\mathbf{1}\{z_t^{(s)}=m\}\,\mathbf{u}_{t,k}^{(s)}\mathbf{u}_{t-1,k}^{(s)\top},
+    S^{(m)}_{u u^-}\coloneqq \sum_{t\in\mathcal{T}\setminus\{t_a\}}\sum_{k\in\mathcal{K}}\frac{1}{N_{\mathrm{samp}}}\sum_{s=1}^{N_{\mathrm{samp}}}\mathbf{1}\{z_t^{(s)}=m\}\,\mathbf{u}_{t,k}^{(s)}\mathbf{u}_{t-1,k}^{(s)\top},
     \]
     \[
-    S^{(m)}_{u^- u^-}\coloneqq \sum_{t\in\mathcal{T}\setminus\{t_a\}}\sum_{k\in\mathcal{E}_t}\frac{1}{N_{\mathrm{samp}}}\sum_{s=1}^{N_{\mathrm{samp}}}\mathbf{1}\{z_t^{(s)}=m\}\,\mathbf{u}_{t-1,k}^{(s)}\mathbf{u}_{t-1,k}^{(s)\top},
+    S^{(m)}_{u^- u^-}\coloneqq \sum_{t\in\mathcal{T}\setminus\{t_a\}}\sum_{k\in\mathcal{K}}\frac{1}{N_{\mathrm{samp}}}\sum_{s=1}^{N_{\mathrm{samp}}}\mathbf{1}\{z_t^{(s)}=m\}\,\mathbf{u}_{t-1,k}^{(s)}\mathbf{u}_{t-1,k}^{(s)\top},
     \]
     \[
-    N_m^{(u)}\coloneqq \sum_{t\in\mathcal{T}\setminus\{t_a\}}\sum_{k\in\mathcal{E}_t}\gamma_t^{(m)}.
+    N_m^{(u)}\coloneqq \sum_{t\in\mathcal{T}\setminus\{t_a\}}\sum_{k\in\mathcal{K}}\gamma_t^{(m)}.
     \]
     \IF{$N_m^{(u)} \le \epsilon_N$}
         \STATE Keep $A_m^{(u)}$ and $Q_m^{(u)}$ unchanged.
@@ -76,10 +80,10 @@
         \STATE Define
         \[
         S^{(m)}_{u\mid u^-}\coloneqq
-        \sum_{t\in\mathcal{T}\setminus\{t_a\}}\sum_{k\in\mathcal{E}_t}\frac{1}{N_{\mathrm{samp}}}\sum_{s=1}^{N_{\mathrm{samp}}}\mathbf{1}\{z_t^{(s)}=m\}\,
+        \sum_{t\in\mathcal{T}\setminus\{t_a\}}\sum_{k\in\mathcal{K}}\frac{1}{N_{\mathrm{samp}}}\sum_{s=1}^{N_{\mathrm{samp}}}\mathbf{1}\{z_t^{(s)}=m\}\,
         \left(\mathbf{u}_{t,k}^{(s)}-A_m^{(u)}\mathbf{u}_{t-1,k}^{(s)}\right)\left(\mathbf{u}_{t,k}^{(s)}-A_m^{(u)}\mathbf{u}_{t-1,k}^{(s)}\right)^\top.
         \]
-        \STATE $Q_m^{(u)}\leftarrow\frac{\Psi^{(u)}+S^{(m)}_{u\mid u^-}}{\nu^{(u)}+N_m^{(u)}+d_u+1}$.
+        \STATE $Q_m^{(u)}\leftarrow\frac{\Psi^{(u)}+S^{(m)}_{u\mid u^-}}{\nu^{(u)}+N_m^{(u)}+d_\alpha+1}$.
     \ENDIF
 
     \STATE For each expert $k$, compute $W_k\coloneqq \sum_{t\in\mathcal{T}:I_t=k}\sum_{m=1}^M \gamma_t^{(m)}$.
@@ -206,6 +210,7 @@ retain only the diagonal blocks as in Algorithm~\ref{alg:correct_reweight}.
 \STATE Define window $\mathcal{T}_t \leftarrow \{\tau_0,\dots,t\}$ and $\mathcal{K}_t \leftarrow \bigcup_{\tau\in\mathcal{T}_t}\mathcal{E}_\tau$.
 \STATE Initialize $(p(z_{\tau_0}),p(g_{\tau_0}\mid z_{\tau_0}),\{p(u_{\tau_0,k}\mid z_{\tau_0})\}_{k\in\mathcal{K}_t})$ from stored filtering beliefs at time $\tau_0-1$ and one time-update; if unavailable, use population priors for $g_{\tau_0}$ and $u_{\tau_0,k}$.
 \STATE Run Algorithm~\ref{alg:trainmodel_em} on $\mathcal{T}_t$ with initialization $\Theta^{(t-1)}$, occupancy floor $\epsilon_N$, and $N_{\mathrm{EM}}^{\mathrm{win}}$ iterations.
+\STATE Re-run a forward filtering pass over $\mathcal{T}_t$ under $\Theta^{(t)}$ to refresh the belief at time $t$ (starting from the window-initial prior).
 \STATE {\bfseries Return:} updated parameters $\Theta^{(t)}$.
 \end{algorithmic}
 \end{algorithm}
@@ -219,7 +224,7 @@ retain only the diagonal blocks as in Algorithm~\ref{alg:correct_reweight}.
 \begin{algorithmic}[1]
 \STATE {\bfseries Input:} horizon $T$; parameters $\Theta$ (or initial window $\mathcal{T}_0=\{1,\dots,t_0\}$ and EM settings for Algorithm~\ref{alg:trainmodel_em}); feature map $\phi$; contexts $(\mathbf{x}_t)_{t=1}^T$; expert sets $(\mathcal{E}_t)_{t=1}^T$; loss $\psi$; fees $(\beta_k)_k$; optional side information for entering experts; optional online EM settings $(W,K,N_{\mathrm{EM}}^{\mathrm{win}},N_{\mathrm{samp}},N_{\mathrm{burn}},\epsilon_N)$; Monte Carlo budget $S$ for information gain estimation (default $S=50$).
 \STATE {\bfseries Initialize:} $w_0^m=\mathbb{P}(z_0=m)$; $(\mu^{(m)}_{g,0|0},\Sigma^{(m)}_{g,0|0})$ for $m\in[M]$; $\mathcal{K}^{\text{work}}_0\leftarrow\emptyset$; for all $k$, $\tau_{\mathrm{last}}(k)\leftarrow 0$.
-\STATE {\bfseries Hyperparameters:} population priors $(\mu^{(m)}_{\mathrm{pop}},\Sigma^{(m)}_{\mathrm{pop}})_{m=1}^M$; staleness $\Delta_{\max}$; mixing floor $\epsilon_w$.
+\STATE {\bfseries Hyperparameters:} population priors $(\mu^{(m)}_{\mathrm{pop}},\Sigma^{(m)}_{\mathrm{pop}})_{m=1}^M$; staleness $\Delta_{\max}$; mixing floor $\epsilon_w$; information gain floor $\epsilon_{\mathrm{IG}}$.
 \STATE {\bfseries Optional init:} if $\Theta$ is not provided, run Algorithm~\ref{alg:trainmodel_em} on $\mathcal{T}_0$ to obtain $\Theta$.
 \STATE {\bfseries Optional init:} if $\mathcal{T}_0$ is used, run a forward filtering pass over $\mathcal{T}_0$ with $\Theta$ to set $(w_{t_0},\{\mu^{(m)}_{g,t_0|t_0},\Sigma^{(m)}_{g,t_0|t_0}\},\{\mu^{(m)}_{u,k,t_0|t_0},\Sigma^{(m)}_{u,k,t_0|t_0}\},\mathcal{K}^{\text{work}}_{t_0},\tau_{\mathrm{last}})$ and set $t_{\mathrm{start}}\leftarrow t_0+1$; else set $t_{\mathrm{start}}\leftarrow 1$.
 
@@ -238,9 +243,9 @@ retain only the diagonal blocks as in Algorithm~\ref{alg:correct_reweight}.
     \FOR{each $k\in\mathcal{E}_t$}
         \STATE $\bar{C}_{t,k}^{\mathrm{pred}} \leftarrow \sum_{m=1}^M \bar w_t^{(m)}\,\bar{C}_{t,k}^{\mathrm{pred},(m)}$.
     \ENDFOR
-    \STATE $k_t^\star \in \arg\min_{k\in\mathcal{E}_t}\bar{C}_{t,k}^{\mathrm{pred}}$.
+    \STATE $k_t^{\mathrm{pred}} \in \arg\min_{k\in\mathcal{E}_t}\bar{C}_{t,k}^{\mathrm{pred}}$.
     \FOR{each $k\in\mathcal{E}_t$}
-        \STATE $\Delta_t(k)\leftarrow \bar{C}_{t,k}^{\mathrm{pred}} - \bar{C}_{t,k_t^\star}^{\mathrm{pred}}$.
+        \STATE $\Delta_t(k)\leftarrow \bar{C}_{t,k}^{\mathrm{pred}} - \bar{C}_{t,k_t^{\mathrm{pred}}}^{\mathrm{pred}}$.
     \ENDFOR
 
     \STATE \COMMENT{Compute full $(z_t,\mathbf{g}_t)$-information gain: $\mathrm{IG}^{(z,g)}_t(k)=\mathcal{I}(z_t;e\mid\mathcal{F}_t)+\mathcal{I}(\mathbf{g}_t;e\mid z_t,\mathcal{F}_t)$}
@@ -265,10 +270,11 @@ retain only the diagonal blocks as in Algorithm~\ref{alg:correct_reweight}.
         \STATE $\mathrm{IG}^{(g)}_t(k)\leftarrow \sum_{m=1}^M \bar{w}_t^{(m)}\,\frac12\log\!\left(1+\frac{h_{t,k}^\top\Sigma^{(m)}_{g,t|t-1}h_{t,k}}{s^{(m)}_{t,k}}\right)$.
         \STATE \COMMENT{Full $(z_t,\mathbf{g}_t)$-information: sum of both terms}
         \STATE $\mathrm{IG}_t(k)\leftarrow \widehat{\mathcal{I}}^{(z)}_t(k)+\mathrm{IG}^{(g)}_t(k)$.
+        \STATE $\mathrm{IG}_t(k)\leftarrow \max\!\left(\mathrm{IG}_t(k),\epsilon_{\mathrm{IG}}\right)$. \COMMENT{Clamp negative estimates}
     \ENDFOR
-    \STATE {\bfseries Convention:} if $\mathrm{IG}_t(k)=0$, interpret $\Delta_t(k)^2/\mathrm{IG}_t(k)=+\infty$ unless $\Delta_t(k)=0$.
+    \STATE {\bfseries Convention:} use the clamped $\mathrm{IG}_t(k)$ in $\Delta_t(k)^2/\mathrm{IG}_t(k)$.
     \STATE Choose $I_t \in \arg\min_{k\in\mathcal{E}_t}\Delta_t(k)^2 / \mathrm{IG}_t(k)$.
-    \STATE Observe $(\widehat y_{t,I_t},y_t)$ and set $e_t\leftarrow \widehat y_{t,I_t}-y_t$; $\tau_{\mathrm{last}}(I_t)\leftarrow t$.
+    \STATE Observe $(\widehat y_{t,I_t},y_t)$ and set $e_t\leftarrow y_t-\widehat y_{t,I_t}$; $\tau_{\mathrm{last}}(I_t)\leftarrow t$.
 
     \STATE $(w_t,\{\mu^{(m)}_{g,t|t},\Sigma^{(m)}_{g,t|t}\}_{m=1}^M,\{\mu^{(m)}_{u,k,t|t},\Sigma^{(m)}_{u,k,t|t}\}_{m\in[M],\,k\in\mathcal{K}^{\text{work}}_t})$
     \STATE \hspace{1.9em}$\leftarrow \textsc{Correct}(\mathbf{x}_t,e_t,I_t,\bar w_t,\{\mu^{(m)}_{g,t|t-1},\Sigma^{(m)}_{g,t|t-1}\},\{\mu^{(m)}_{u,k,t|t-1},\Sigma^{(m)}_{u,k,t|t-1}\},\Theta,\mathcal{K}^{\text{work}}_t)$.
@@ -425,7 +431,7 @@ is negligible compared to the SLDS update cost.
 
 % \section{Time Complexity Analysis}
 
-% Our router operates in real time with per-round cost linear in the number of active experts. Let $M$ denote the number of latent regimes, $d_g$ and $d_u$ the dimensions of the global and idiosyncratic latent states, and $|{\mathcal{K}}_t|$ the size of the working expert registry at time $t$. Assuming $d_g, d_u = O(1)$, the computational cost of each step in Algorithm~\ref{alg:router_main} is:
+% Our router operates in real time with per-round cost linear in the number of active experts. Let $M$ denote the number of latent regimes, $d_g$ and $d_\alpha$ the dimensions of the global and idiosyncratic latent states, and $|{\mathcal{K}}_t|$ the size of the working expert registry at time $t$. Assuming $d_g, d_\alpha = O(1)$, the computational cost of each step in Algorithm~\ref{alg:router_main} is:
 
 % \begin{itemize}
 %     \item \textbf{Registry management (Alg.~\ref{alg:registry})}: $O(|{\mathcal{K}}_t|)$ for pruning and birth.
@@ -632,7 +638,7 @@ $\mathcal I(\boldsymbol\alpha_{t,j};\boldsymbol\alpha_{t,k}\mid \mathcal F_t,z_t
 % Intended to be included via \input{exploration}.
 
 \subsubsection{Exploration via \((z_t,\mathbf{g}_t)\)-information}
-\label{sec:exploration}
+\label{sec:exploration_zg}
 
 Bandit feedback reveals only the queried expert's residual, so the router must trade off
 \emph{exploitation} (low immediate cost) against \emph{learning} (reducing posterior uncertainty to
@@ -716,10 +722,10 @@ with conditional mean
 =
 \mathbb{E}\!\left[\psi(e_{t,k}^{\mathrm{pred}})\,\middle|\,\mathcal{F}_t\right]+\beta_k.
 \end{equation}
-Let \(k_t^\star\in\arg\min_{k\in\mathcal{E}_t}\widehat{c}_t(k)\) and define the predictive gap
+Let \(k_t^{\mathrm{pred}}\in\arg\min_{k\in\mathcal{E}_t}\widehat{c}_t(k)\) and define the predictive gap
 \begin{equation}
 \label{eq:exp_gap}
-\Delta_t(k)\coloneqq \widehat{c}_t(k)-\widehat{c}_t(k_t^\star)\ge 0.
+\Delta_t(k)\coloneqq \widehat{c}_t(k)-\widehat{c}_t(k_t^{\mathrm{pred}})\ge 0.
 \end{equation}
 
 \paragraph{Computing \(\widehat{c}_t(k)\) from per-mode moments.}
@@ -890,6 +896,12 @@ bandits and do not require an explicit information-gain computation.
 In our setting, they plug directly into the predictive cost random variable \(C^{\mathrm{pred}}_{t,k}\)
 from \eqref{eq:exp_virtual_cost}.
 
+\paragraph{Learning-to-Defer baselines (oracle/full feedback).}
+Our L2D and L2D-SW baselines use full-feedback losses from all \emph{available} experts at each time
+step, i.e., \(\{\ell_{t,k}: k\in\mathcal{E}_t\}\). This information is not observed under bandit
+feedback, so these methods are reported only as oracle baselines (labeled as full-feedback in
+figures/tables) and are excluded from bandit comparisons.
+
 \subparagraph{Bayes-UCB (for costs: a Bayesian LCB rule).}
 For losses/costs, the natural analogue of UCB is a \emph{lower} credible bound on the cost.
 Let \(F_{t,k}(c)\coloneqq \mathbb{P}(C^{\mathrm{pred}}_{t,k}\le c\mid \mathcal{F}_t)\) be the conditional
@@ -998,8 +1010,72 @@ which avoids sampling \(\tilde\varepsilon_{t,k}\) and reduces Monte Carlo varian
     \STATE Estimate \(\widehat{\mathcal{I}}^{(z)}_t(k)\) via \eqref{eq:exp_iz_estimator} using \(\log p_{\mathrm{mix}}\) from \eqref{eq:exp_logmix_lse}.
     \STATE Set \(\widehat{\mathrm{IG}}^{(z,g)}_t(k)\) via \eqref{eq:exp_ig_zg_final}.
 \ENDFOR
-\STATE Compute \(k_t^\star\in\arg\min_{k\in\mathcal{E}_t}\widehat{c}_t(k)\) and \(\Delta_t(k)\) via \eqref{eq:exp_gap}.
+\STATE Compute \(k_t^{\mathrm{pred}}\in\arg\min_{k\in\mathcal{E}_t}\widehat{c}_t(k)\) and \(\Delta_t(k)\) via \eqref{eq:exp_gap}.
 \STATE Select \(I_t\) using either \eqref{eq:exp_det_ids_zg} or \eqref{eq:exp_additive_zg}.
 \RETURN \(I_t\).
 \end{algorithmic}
 \end{algorithm}
+
+\subsubsection{Information Gain for Idiosyncratic States}
+\label{sec:ig_idiosyncratic}
+
+For expert-specific exploration, it can be useful to score the information gained about the
+idiosyncratic state \(\mathbf{u}_{t,k}\) in addition to \((z_t,\mathbf{g}_t)\). Define
+\begin{equation}
+\label{eq:exp_ig_zgu_def}
+\mathrm{IG}^{(z,g,u)}_t(k)
+\coloneqq
+\mathcal{I}\!\left((z_t,\mathbf{g}_t,\mathbf{u}_{t,k});\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right).
+\end{equation}
+By the chain rule,
+\begin{equation}
+\label{eq:exp_ig_zgu_chain}
+\mathrm{IG}^{(z,g,u)}_t(k)
+=
+\mathcal{I}\!\left(z_t;\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right)
++
+\mathcal{I}\!\left((\mathbf{g}_t,\mathbf{u}_{t,k});\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t,z_t\right).
+\end{equation}
+For a fixed mode \(z_t=m\), the factorized predictive belief gives independent Gaussians
+\(\mathbf{g}_t\sim\mathcal{N}(\mu^{(m)}_{g,t\mid t-1},\Sigma^{(m)}_{g,t\mid t-1})\) and
+\(\mathbf{u}_{t,k}\sim\mathcal{N}(\mu^{(m)}_{u,k,t\mid t-1},\Sigma^{(m)}_{u,k,t\mid t-1})\).
+The observation channel can be written as
+\[
+e_{t,k}^{\mathrm{pred}}
+=
+h_{t,k}^\top \mathbf{g}_t + \phi(\mathbf{x}_t)^\top \mathbf{u}_{t,k} + \varepsilon,
+\qquad
+\varepsilon\sim\mathcal{N}(0,R_{m,k}),
+\]
+so for a scalar Gaussian channel,
+\begin{equation}
+\label{eq:exp_ig_gu_mode}
+\mathcal{I}\!\left((\mathbf{g}_t,\mathbf{u}_{t,k});\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t,z_t=m\right)
+=
+\frac12\log\!\left(1+\frac{h_{t,k}^\top \Sigma^{(m)}_{g,t\mid t-1} h_{t,k}+\phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\phi(\mathbf{x}_t)}{R_{m,k}}\right).
+\end{equation}
+Thus,
+\begin{equation}
+\label{eq:exp_ig_zgu_final}
+\mathrm{IG}^{(z,g,u)}_t(k)
+=
+\mathcal{I}\!\left(z_t;\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right)
++
+\sum_{m=1}^M \bar{w}_t^{(m)}\,
+\frac12\log\!\left(1+\frac{h_{t,k}^\top \Sigma^{(m)}_{g,t\mid t-1} h_{t,k}+\phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\phi(\mathbf{x}_t)}{R_{m,k}}\right).
+\end{equation}
+
+\paragraph{Relation to \((z_t,\mathbf{g}_t)\)-information.}
+Using \(s^{(m)}_{t,k}=\phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\phi(\mathbf{x}_t)+R_{m,k}\),
+the mode-conditioned term in \eqref{eq:exp_ig_gu_mode} decomposes as
+\[
+\frac12\log\!\left(1+\frac{h_{t,k}^\top \Sigma^{(m)}_{g,t\mid t-1} h_{t,k}}{s^{(m)}_{t,k}}\right)
+\;+\;
+\frac12\log\!\left(1+\frac{\phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\phi(\mathbf{x}_t)}{R_{m,k}}\right).
+\]
+The first term is exactly the shared-factor refinement from \eqref{eq:exp_ig_g_mode}; the second
+captures how much a query teaches the expert-specific drift \(\mathbf{u}_{t,k}\). This additional term
+improves future predictions for expert \(k\) but, under the factorized model, does not transfer to
+other experts.
+When expert-specific learning is important, one can replace \(\widehat{\mathrm{IG}}^{(z,g)}_t(k)\)
+by \(\widehat{\mathrm{IG}}^{(z,g,u)}_t(k)\) in \eqref{eq:exp_det_ids_zg} or \eqref{eq:exp_additive_zg}.

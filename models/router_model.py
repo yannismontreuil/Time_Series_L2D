@@ -4,12 +4,9 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 def feature_phi(x: np.ndarray) -> np.ndarray:
     """
-    Simple example feature map φ(x) ∈ R^2:
-        φ(x) = [1, x_0]^T
-    Assumes x is 1D (shape (1,)). Note x is the reliability modeled as a scalar.
+    Feature map φ(x) = x (identity).
     """
-    x = np.asarray(x, dtype=float).reshape(-1)
-    return np.array([1.0, x[0]], dtype=float)
+    return np.asarray(x, dtype=float).reshape(-1)
 
 
 class SLDSIMMRouter:

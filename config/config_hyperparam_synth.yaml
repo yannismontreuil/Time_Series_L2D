@@ -6,7 +6,7 @@ environment:
   num_regimes: 4
   setting: theoretical_trap
   # State dimension d = dim φ(x). The current feature map returns 2D features.
-  state_dim: 2
+  state_dim: 1
   T: 3000
   seed: 42
 
@@ -53,7 +53,7 @@ routers:
     feature_activation: "tanh"
     # Shared factor dimension d_g and idiosyncratic dimension d_u.
     shared_dim: 1
-    idiosyncratic_dim: 2
+    idiosyncratic_dim: 1
     # Shared-factor dynamics A_gk default to identity; Q_gk built from scales.
     Q_g_scales: [0.005, 0.025]
     # Idiosyncratic dynamics A_uk default to identity; Q_uk built from scales.
@@ -115,7 +115,7 @@ hyperparam_search:
   feature_learning_rate_grid: [0.001]
   feature_arch_grid: ["linear"]
   shared_dim_grid: [1]
-  idiosyncratic_dim_grid: [1,2]
+  idiosyncratic_dim_grid: [1]
 
   # Seeds for averaging across environment randomness.
   seeds: [42]

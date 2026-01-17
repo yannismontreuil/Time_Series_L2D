@@ -100,8 +100,7 @@ class LinUCB:
         phi = self._get_phi(x)
         available_experts = np.asarray(list(available_experts), dtype=int)
         if available_experts.size == 0:
-            # Fallback: if availability is empty, allow all experts.
-            available_experts = np.arange(self.N, dtype=int)
+            raise ValueError("LinUCB: no available experts in select_expert.")
 
         scores = np.zeros(available_experts.size, dtype=float)
         for idx, j in enumerate(available_experts):
@@ -129,7 +128,7 @@ class LinUCB:
         losses_all = np.asarray(losses_all, dtype=float).reshape(self.N)
         available_experts = np.asarray(list(available_experts), dtype=int)
         if available_experts.size == 0:
-            available_experts = np.arange(self.N, dtype=int)
+            raise ValueError("LinUCB: no available experts in update.")
 
         if self.feedback_mode == "partial":
             # Use the provided selection when available to avoid updating
@@ -139,7 +138,9 @@ class LinUCB:
             else:
                 j_sel = int(selected_expert)
                 if j_sel not in available_experts:
-                    j_sel = self.select_expert(x, available_experts)
+                    raise ValueError(
+                        "LinUCB: selected_expert must be in available_experts."
+                    )
             ell = float(losses_all[j_sel])
             j_idx = int(j_sel)
             self.A[j_idx] += np.outer(phi, phi)

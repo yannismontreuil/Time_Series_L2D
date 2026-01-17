@@ -18,6 +18,34 @@ def _router_observes_residual(router) -> bool:
     return getattr(router, "observation_mode", "loss") == "residual"
 
 
+def _require_available(
+    available: Sequence[int],
+    t: int,
+    actor: str,
+) -> np.ndarray:
+    avail_arr = np.asarray(list(available), dtype=int)
+    if avail_arr.size == 0:
+        raise ValueError(f"{actor}: no available experts at t={t}.")
+    return avail_arr
+
+
+def _mask_feedback_vector(
+    values: np.ndarray,
+    available: np.ndarray,
+    selected: int | None,
+    full_feedback: bool,
+) -> np.ndarray:
+    values = np.asarray(values, dtype=float)
+    masked = np.full(values.shape, np.nan, dtype=float)
+    if full_feedback:
+        masked[available] = values[available]
+    else:
+        if selected is None:
+            raise ValueError("selected must be provided for partial feedback masking.")
+        masked[int(selected)] = values[int(selected)]
+    return masked
+
+
 def _get_router_observation(
     router,
     env: SyntheticTimeSeriesEnv,
@@ -34,12 +62,18 @@ def _get_router_observation(
         loss_r = residual_r ** 2
         residuals_full = None
         if getattr(router, "feedback_mode", "partial") == "full":
-            residuals_full = residuals
+            residuals_full = _mask_feedback_vector(
+                residuals, available, r_t, full_feedback=True
+            )
         return residual_r, loss_r, residuals_full
 
     loss_all = env.losses(t)
     loss_r = float(loss_all[r_t])
-    losses_full = loss_all if getattr(router, "feedback_mode", "partial") == "full" else None
+    losses_full = None
+    if getattr(router, "feedback_mode", "partial") == "full":
+        losses_full = _mask_feedback_vector(
+            loss_all, available, r_t, full_feedback=True
+        )
     return loss_r, loss_r, losses_full
 
 
@@ -121,8 +155,12 @@ def warm_start_router_to_time(
         router._time = max(0, t_start_int - 1)
     for t in range(t_start_int, t_max + 1):
         x_t = env.get_context(t)
-        available_t = env.get_available_experts(t)
+        available_t = _require_available(env.get_available_experts(t), t, "router warm-start")
         r_t, cache = router.select_expert(x_t, available_t)
+        if not np.any(available_t == int(r_t)):
+            raise ValueError(
+                f"router warm-start: selected expert {r_t} not in E_t at t={t}."
+            )
         loss_obs, loss_r, losses_full = _get_router_observation(
             router, env, t, x_t, available_t, r_t
         )
@@ -303,7 +341,12 @@ def compute_oracle_and_baseline_schedules(
 
     # Availability sets for each future step t0+1,...,t0+H_eff
     avail_per_h: List[np.ndarray] = [
-        env.get_available_experts(int(t)).copy() for t in times
+        _require_available(
+            env.get_available_experts(int(t)),
+            int(t),
+            "oracle schedule",
+        ).copy()
+        for t in times
     ]
 
     # Oracle "truth" schedule: per-step best expert on the true
@@ -367,10 +410,13 @@ def warm_start_l2d_to_time(
     t_max = min(max(int(t0), 0), T - 1)
     for t in range(1, t_max + 1):
         x_t = env.get_context(t)
-        available_t = env.get_available_experts(t)
+        available_t = _require_available(env.get_available_experts(t), t, "L2D warm-start")
         r_t = baseline.select_expert(x_t, available_t)
         loss_all = env.losses(t)
-        baseline.update(x_t, loss_all, available_t)
+        loss_masked = _mask_feedback_vector(
+            loss_all, available_t, r_t, full_feedback=True
+        )
+        baseline.update(x_t, loss_masked, available_t, selected_expert=r_t)
 
 
 def warm_start_linucb_to_time(
@@ -386,9 +432,18 @@ def warm_start_linucb_to_time(
     t_max = min(max(int(t0), 0), T - 1)
     for t in range(1, t_max + 1):
         x_t = env.get_context(t)
-        available_t = env.get_available_experts(t)
+        available_t = _require_available(
+            env.get_available_experts(t), t, "LinUCB warm-start"
+        )
         loss_all = env.losses(t)
-        baseline.update(x_t, loss_all, available_t)
+        r_t = baseline.select_expert(x_t, available_t)
+        loss_masked = _mask_feedback_vector(
+            loss_all,
+            available_t,
+            r_t,
+            full_feedback=baseline.feedback_mode == "full",
+        )
+        baseline.update(x_t, loss_masked, available_t, selected_expert=r_t)
 
 
 def warm_start_neuralucb_to_time(
@@ -404,9 +459,18 @@ def warm_start_neuralucb_to_time(
     t_max = min(max(int(t0), 0), T - 1)
     for t in range(1, t_max + 1):
         x_t = env.get_context(t)
-        available_t = env.get_available_experts(t)
+        available_t = _require_available(
+            env.get_available_experts(t), t, "NeuralUCB warm-start"
+        )
         loss_all = env.losses(t)
-        baseline.update(x_t, loss_all, available_t)
+        r_t = baseline.select_expert(x_t, available_t)
+        loss_masked = _mask_feedback_vector(
+            loss_all,
+            available_t,
+            r_t,
+            full_feedback=baseline.feedback_mode == "full",
+        )
+        baseline.update(x_t, loss_masked, available_t, selected_expert=r_t)
 
 
 def _policy_predicted_costs(
@@ -484,7 +548,9 @@ def _plan_horizon_schedule_policy_monte_carlo(
             x_future = scenarios[n, h]
             avail = avail_sets[h]
             if avail.size == 0:
-                continue
+                raise ValueError(
+                    f"policy planning: no available experts at horizon step {h}."
+                )
             costs = _policy_predicted_costs(policy_n, x_future, N_experts)
             scores_scen[n, h, :] = costs
             best_k = min(
@@ -506,9 +572,9 @@ def _plan_horizon_schedule_policy_monte_carlo(
     for h in range(H_eff):
         avail = avail_sets[h]
         if avail.size == 0:
-            active_sets.append([])
-            schedule.append(-1)
-            continue
+            raise ValueError(
+                f"policy planning: no available experts at horizon step {h}."
+            )
         sorted_k = sorted(avail.tolist(), key=lambda k: (-rho_hat[h, k], int(k)))
         cum = 0.0
         set_h: List[int] = []
@@ -945,20 +1011,56 @@ def evaluate_horizon_planning(
 
     if mode == "regressive":
         # Original regressive / router-influenced-context planning.
-        sched_partial, _, _ = router_partial.plan_horizon_schedule(
-            x_t=x_now,
-            H=H_eff,
-            experts_predict=experts_predict,
-            context_update=context_update,
-            available_experts_per_h=avail_lists,
-        )
-        sched_full, _, _ = router_full.plan_horizon_schedule(
-            x_t=x_now,
-            H=H_eff,
-            experts_predict=experts_predict,
-            context_update=context_update,
-            available_experts_per_h=avail_lists,
-        )
+        if isinstance(router_partial, FactorizedSLDS):
+            (
+                sched_partial,
+                _,
+                _,
+                _,
+                _,
+            ) = _plan_horizon_schedule_monte_carlo(
+                router_partial,
+                env,
+                beta,
+                times,
+                avail_per_h,
+                1,
+                delta,
+                {"type": "deterministic"},
+            )
+        else:
+            sched_partial, _, _ = router_partial.plan_horizon_schedule(
+                x_t=x_now,
+                H=H_eff,
+                experts_predict=experts_predict,
+                context_update=context_update,
+                available_experts_per_h=avail_lists,
+            )
+        if isinstance(router_full, FactorizedSLDS):
+            (
+                sched_full,
+                _,
+                _,
+                _,
+                _,
+            ) = _plan_horizon_schedule_monte_carlo(
+                router_full,
+                env,
+                beta,
+                times,
+                avail_per_h,
+                1,
+                delta,
+                {"type": "deterministic"},
+            )
+        else:
+            sched_full, _, _ = router_full.plan_horizon_schedule(
+                x_t=x_now,
+                H=H_eff,
+                experts_predict=experts_predict,
+                context_update=context_update,
+                available_experts_per_h=avail_lists,
+            )
 
         if router_partial_corr is not None:
             sched_partial_corr, _, _ = router_partial_corr.plan_horizon_schedule(
@@ -1473,7 +1575,9 @@ def evaluate_horizon_planning(
     for h in range(H_eff):
         avail = avail_per_h[h]
         if avail.size == 0:
-            sched_random.append(-1)
+            raise ValueError(
+                f"random schedule: no available experts at horizon step {h}."
+            )
         else:
             sched_random.append(int(rng_sched.choice(avail)))
 
@@ -1718,8 +1822,8 @@ def evaluate_horizon_planning(
     corr_em_full_label = "Router Corr EM (full fb)"
     neural_partial_label = "Neural router (partial fb)"
     neural_full_label = "Neural router (full fb)"
-    l2d_label = "L2D baseline"
-    l2d_sw_label = "L2D_SW baseline"
+    l2d_label = "L2D (full feedback)"
+    l2d_sw_label = "L2D_SW (full feedback)"
     linucb_partial_label = "LinUCB (partial feedback)"
     linucb_full_label = "LinUCB (full feedback)"
     neuralucb_partial_label = "NeuralUCB (partial feedback)"
