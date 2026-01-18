@@ -61,6 +61,11 @@ environment:
       - [0.2, 0.3, 1.6, 1.7]
       - [1.6, 1.7, 0.8, 0.9]
 
+  # Force expert 1 (index 1) to be unavailable for a window.
+  unavailable_expert_idx: 1
+  unavailable_intervals:
+    - [2000, 2500]
+
 routers:
   beta: 0.0
   staleness_threshold: null
@@ -88,17 +93,17 @@ routers:
     exploration_diag_samples: 50
     exploration_diag_print: true
 
-    em_enabled: true
+    em_enabled: false
     em_offline_full_feedback: true
-    em_tk: 0
-    em_n: 5
+    em_tk: 400
+    em_n: 10
     em_samples: 10
     em_burn_in: 100
     em_use_validation: true
     em_val_strategy: "rolling"
     em_val_fraction: 0.4
-    em_val_roll_len: 200
-    em_val_roll_splits: 3
+    em_val_roll_len: 100
+    em_val_roll_splits: 2
     em_val_roll_stride: null
     em_val_len: null
     em_theta_lr: 0.01
@@ -118,13 +123,13 @@ routers:
     em_online_print_val_loss: true
     em_online_start_t: null
 
-    transition_mode: "linear"
+    transition_mode: "attention"
 
 baselines:
   l2d:
     arch: "mlp"
     learning_rate: 0.001
-    hidden_dim: 16
+    hidden_dim: 4
     window_size: 1
     alpha: 1.0
     beta: null
@@ -132,7 +137,7 @@ baselines:
   l2d_sw:
     arch: "rnn"
     learning_rate: 0.001
-    hidden_dim: 16
+    hidden_dim: 4
     window_size: 200
     alpha: 1.0
     beta: null
@@ -145,6 +150,44 @@ baselines:
   neural_ucb:
     alpha_ucb: 0.5
     lambda_reg: 1.0
-    hidden_dim: 32
+    hidden_dim: 16
     nn_learning_rate: 0.001
     feedback_mode: "partial"
+
+analysis:
+  tri_cycle_corr:
+    enabled: true
+    router: "factorized_full"
+    out_dir: "out/tri_cycle_corr"
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true
+    pairs: [[0, 1], [2, 3]]
+    corr_smooth_window: 25
+    transfer_probe:
+      enabled: true
+      target_expert: 1
+      source_expert: 0
+      compare_no_g: true
+      show_truth: true
+    expert_structure_baselines: true
+
+
+horizon_planning:
+  # Start horizon planning after EM warm-start.
+  t0: 1650
+
+  H: 50
+  method: "100_monte_carlo"
+
+  # Coverage tolerance for active-set scheduling.
+  delta: 0.5
+
+  scenario_generator:
+    type: "oracle_ar1"
+    ar_coef: 0.8
+    use_true_regime: true
+    sigma0: 1
+    q_scale: 1
+    noise_scale: 1

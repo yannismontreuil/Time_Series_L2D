@@ -1,8 +1,13 @@
+import copy
+import itertools
+import json
 import os
+from typing import Optional, Sequence
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
-from typing import Optional
+from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 
 from environment.etth1_env import ETTh1TimeSeriesEnv
 from models.router_model import SLDSIMMRouter
@@ -419,10 +424,10 @@ def evaluate_routers_and_baselines(
     router_full: SLDSIMMRouter,
     router_factorial_partial: Optional[FactorizedSLDS],
     router_factorial_full: Optional[FactorizedSLDS],
-    factorized_label: str = "Factorized SLDS",
+    factorized_label: str = "L2D SLDS w/ $g_t$",
     router_factorial_partial_linear: Optional[FactorizedSLDS] = None,
     router_factorial_full_linear: Optional[FactorizedSLDS] = None,
-    factorized_linear_label: str = "Factorized SLDS linear",
+    factorized_linear_label: str = "L2D SLDS",
     l2d_baseline: Optional[L2D] = None,
     router_partial_corr=None,
     router_full_corr=None,
@@ -436,6 +441,7 @@ def evaluate_routers_and_baselines(
     router_partial_neural=None,
     router_full_neural=None,
     seed: int = 0,
+    analysis_cfg: Optional[dict] = None,
 ) -> None:
     """
     Evaluate how the partial- and full-feedback routers behave on the
@@ -1015,8 +1021,8 @@ def evaluate_routers_and_baselines(
         avg_cost_experts_last = cum_costs_last / float(T - last_t_start)
 
     print("=== Average costs ===")
-    print(f"Factorized SLDS w/o g_t (partial fb): {avg_cost_partial:.4f}")
-    print(f"Factorized SLDS w/o g_t (full fb):    {avg_cost_full:.4f}")
+    print(f"L2D SLDS w/t $g_t$ (partial fb): {avg_cost_partial:.4f}")
+    print(f"L2D SLDS w/t $g_t$ (full fb):    {avg_cost_full:.4f}")
     if avg_cost_partial_corr is not None:
         print(
             f"Router Corr (partial feedback): {avg_cost_partial_corr:.4f}"
@@ -1072,9 +1078,9 @@ def evaluate_routers_and_baselines(
         f"\n=== Mean costs (last 20% of horizon, t >= {last_t_start}) ==="
     )
     if last_cost_partial is not None:
-        print(f"Factorized SLDS w/o g_t (partial fb): {last_cost_partial:.4f}")
+        print(f"L2D SLDS w/t $g_t$ (partial fb): {last_cost_partial:.4f}")
     if last_cost_full is not None:
-        print(f"Factorized SLDS w/o g_t (full fb):    {last_cost_full:.4f}")
+        print(f"L2D SLDS w/t $g_t$ (full fb):    {last_cost_full:.4f}")
     if last_cost_partial_corr is not None:
         print(
             f"Router Corr (partial feedback): {last_cost_partial_corr:.4f}"
@@ -1254,7 +1260,7 @@ def evaluate_routers_and_baselines(
     ax_pred.plot(
         t_grid_plot,
         preds_partial_plot,
-        label="Factorized SLDS w/o g_t (partial)",
+        label="L2D SLDS w/t $g_t$ (partial)",
         color=get_model_color("partial"),
         linestyle="-",
         alpha=0.8,
@@ -1262,7 +1268,7 @@ def evaluate_routers_and_baselines(
     ax_pred.plot(
         t_grid_plot,
         preds_full_plot,
-        label="Factorized SLDS w/o g_t (full)",
+        label="L2D SLDS w/t $g_t$ (full)",
         color=get_model_color("full"),
         linestyle="-",
         alpha=0.8,
@@ -1512,14 +1518,14 @@ def evaluate_routers_and_baselines(
     ax_cost.plot(
         t_grid,
         avg_partial_t,
-        label="Partial (avg cost)",
+        label="L2D SLDS w/t $g_t$ (partial, avg cost)",
         color=get_model_color("partial"),
         linestyle="-",
     )
     ax_cost.plot(
         t_grid,
         avg_full_t,
-        label="Full (avg cost)",
+        label="L2D SLDS w/t $g_t$ (full, avg cost)",
         color=get_model_color("full"),
         linestyle="-",
     )
@@ -1751,8 +1757,8 @@ def evaluate_routers_and_baselines(
 
         print(f"\n=== Sidekick Trap: mean costs from t={t0_regret} ===")
         print(f"Oracle (truth):                {mean_oracle:.4f}")
-        print(f"Factorized SLDS w/o g_t (partial): {mean_partial:.4f}")
-        print(f"Factorized SLDS w/o g_t (full):    {mean_full:.4f}")
+        print(f"L2D SLDS w/t $g_t$ (partial): {mean_partial:.4f}")
+        print(f"L2D SLDS w/t $g_t$ (full):    {mean_full:.4f}")
         if mean_factorized_partial is not None:
             print(f"{factorized_label} (partial):        {mean_factorized_partial:.4f}")
         if mean_factorized_full is not None:
@@ -1786,14 +1792,14 @@ def evaluate_routers_and_baselines(
             ax_reg.plot(
                 t_reg,
                 reg_partial,
-                label="Factorized SLDS w/o g_t (partial)",
+                label="L2D SLDS w/t $g_t$ (partial)",
                 color=get_model_color("partial"),
             )
         if reg_full is not None:
             ax_reg.plot(
                 t_reg,
                 reg_full,
-                label="Factorized SLDS w/o g_t (full)",
+                label="L2D SLDS w/t $g_t$ (full)",
                 color=get_model_color("full"),
             )
         if reg_partial_corr is not None:
@@ -1891,7 +1897,7 @@ def evaluate_routers_and_baselines(
         where="post",
         color=get_model_color("partial"),
     )
-    ax_p.set_ylabel("Expert\n(partial)")
+    ax_p.set_ylabel("Expert\n(L2D w/t $g_t$ P)")
     ax_p.set_yticks(np.arange(env.num_experts))
     ax_p.set_title("Selections and availability over time")
     idx += 1
@@ -1903,7 +1909,7 @@ def evaluate_routers_and_baselines(
         where="post",
         color=get_model_color("full"),
     )
-    ax_f.set_ylabel("Expert\n(full)")
+    ax_f.set_ylabel("Expert\n(L2D w/t $g_t$ F)")
     ax_f.set_yticks(np.arange(env.num_experts))
     idx += 1
 
@@ -2078,7 +2084,7 @@ def evaluate_routers_and_baselines(
             where="post",
             color=get_model_color("factorized_linear_partial"),
         )
-        ax_fact_lp.set_ylabel("Expert\n(Fact Lin P)")
+        ax_fact_lp.set_ylabel("Expert\n(L2D P)")
         ax_fact_lp.set_yticks(np.arange(env.num_experts))
         idx += 1
     if has_factorized_linear_full:
@@ -2089,7 +2095,7 @@ def evaluate_routers_and_baselines(
             where="post",
             color=get_model_color("factorized_linear_full"),
         )
-        ax_fact_lf.set_ylabel("Expert\n(Fact Lin F)")
+        ax_fact_lf.set_ylabel("Expert\n(L2D F)")
         ax_fact_lf.set_yticks(np.arange(env.num_experts))
         idx += 1
 
@@ -2125,6 +2131,62 @@ def evaluate_routers_and_baselines(
 
     plt.tight_layout()
     plt.show()
+
+    tri_cfg = analysis_cfg.get("tri_cycle_corr", {}) if analysis_cfg else {}
+    if (
+        tri_cfg.get("expert_structure_baselines", False)
+        and getattr(env, "setting", None) == "tri_cycle_corr"
+    ):
+        out_dir = str(tri_cfg.get("out_dir", "out/tri_cycle_corr"))
+        os.makedirs(out_dir, exist_ok=True)
+        choices_map = {
+            "L2D SLDS w/t $g_t$ (partial)": (choices_partial, costs_partial),
+            "L2D SLDS w/t $g_t$ (full)": (choices_full, costs_full),
+            "Corr partial": (choices_partial_corr, costs_partial_corr),
+            "Corr full": (choices_full_corr, costs_full_corr),
+            "Corr EM partial": (choices_partial_corr_em, costs_partial_corr_em),
+            "Corr EM full": (choices_full_corr_em, costs_full_corr_em),
+            "L2D SLDS (partial)": (choices_factorial_partial, costs_factorial_partial),
+            "L2D SLDS (full)": (choices_factorial_full, costs_factorial_full),
+            "L2D": (choices_l2d, costs_l2d),
+            "L2D_SW": (choices_l2d_sw, costs_l2d_sw),
+            "LinUCB partial": (choices_linucb_partial, costs_linucb_partial),
+            "LinUCB full": (choices_linucb_full, costs_linucb_full),
+            "NeuralUCB partial": (choices_neuralucb_partial, costs_neuralucb_partial),
+            "NeuralUCB full": (choices_neuralucb_full, costs_neuralucb_full),
+            "Oracle": (choices_oracle, costs_oracle),
+        }
+        rows = [
+            [("Oracle", (choices_oracle, costs_oracle))],
+            [
+                ("L2D SLDS (partial)", (choices_factorial_partial, costs_factorial_partial)),
+                ("L2D SLDS w/t $g_t$ (partial)", (choices_partial, costs_partial)),
+                ("Corr partial", (choices_partial_corr, costs_partial_corr)),
+                ("Corr EM partial", (choices_partial_corr_em, costs_partial_corr_em)),
+                ("LinUCB partial", (choices_linucb_partial, costs_linucb_partial)),
+                ("NeuralUCB partial", (choices_neuralucb_partial, costs_neuralucb_partial)),
+            ],
+            [
+                ("L2D SLDS (full)", (choices_factorial_full, costs_factorial_full)),
+                ("L2D SLDS w/t $g_t$ (full)", (choices_full, costs_full)),
+                ("Corr full", (choices_full_corr, costs_full_corr)),
+                ("Corr EM full", (choices_full_corr_em, costs_full_corr_em)),
+                ("L2D", (choices_l2d, costs_l2d)),
+                ("L2D_SW", (choices_l2d_sw, costs_l2d_sw)),
+                ("LinUCB full", (choices_linucb_full, costs_linucb_full)),
+                ("NeuralUCB full", (choices_neuralucb_full, costs_neuralucb_full)),
+            ],
+        ]
+        plot_selection_freq_by_regime(
+            env=env,
+            choices_map=choices_map,
+            out_dir=out_dir,
+            show_plots=bool(tri_cfg.get("show_plots", False)),
+            save_plots=bool(tri_cfg.get("save_plots", True)),
+            save_png=bool(tri_cfg.get("save_png", True)),
+            save_pdf=bool(tri_cfg.get("save_pdf", True)),
+            rows=rows,
+        )
 
 
 def analysis_late_arrival(
@@ -2505,3 +2567,961 @@ def analysis_late_arrival(
 
         plt.tight_layout()
         plt.show()
+
+
+def _mask_feedback_vector_local(
+    values: np.ndarray,
+    available: np.ndarray,
+    selected: int,
+    full_feedback: bool,
+) -> np.ndarray:
+    values = np.asarray(values, dtype=float)
+    masked = np.full(values.shape, np.nan, dtype=float)
+    if full_feedback:
+        masked[available] = values[available]
+    else:
+        masked[int(selected)] = values[int(selected)]
+    return masked
+
+
+def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
+    a = np.asarray(a, dtype=float).reshape(-1)
+    b = np.asarray(b, dtype=float).reshape(-1)
+    if a.size == 0 or b.size == 0:
+        return float("nan")
+    a = a - float(np.mean(a))
+    b = b - float(np.mean(b))
+    denom = float(np.sqrt(np.sum(a * a) * np.sum(b * b)))
+    if denom <= 0.0:
+        return float("nan")
+    return float(np.sum(a * b) / denom)
+
+
+def _corr_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+    if a.ndim != 2 or b.ndim != 2:
+        raise ValueError("corr_matrix expects 2D arrays.")
+    d1 = int(a.shape[1])
+    d2 = int(b.shape[1])
+    out = np.zeros((d1, d2), dtype=float)
+    for i in range(d1):
+        for j in range(d2):
+            out[i, j] = _safe_corr(a[:, i], b[:, j])
+    return out
+
+
+def _align_latent_dims(
+    true_g: np.ndarray, est_g: np.ndarray
+) -> tuple[np.ndarray, list[int], np.ndarray, np.ndarray]:
+    true_g = np.asarray(true_g, dtype=float)
+    est_g = np.asarray(est_g, dtype=float)
+    if true_g.ndim != 2 or est_g.ndim != 2:
+        raise ValueError("align_latent_dims expects 2D arrays.")
+    d = min(true_g.shape[1], est_g.shape[1])
+    if d == 0:
+        return est_g, [], np.zeros(0, dtype=float), np.zeros((0, 0), dtype=float)
+    true_g = true_g[:, :d]
+    est_g = est_g[:, :d]
+    corr = _corr_matrix(true_g, est_g)
+    best_perm = list(range(d))
+    best_score = -np.inf
+    if d <= 6:
+        for perm in itertools.permutations(range(d)):
+            score = sum(abs(corr[i, perm[i]]) for i in range(d))
+            if score > best_score:
+                best_score = score
+                best_perm = list(perm)
+    else:
+        remaining = set(range(d))
+        best_perm = []
+        for i in range(d):
+            if not remaining:
+                best_perm.append(i)
+                continue
+            best_j = max(remaining, key=lambda j: abs(corr[i, j]))
+            remaining.remove(best_j)
+            best_perm.append(best_j)
+    aligned = est_g[:, best_perm]
+    signs = np.array([np.sign(corr[i, best_perm[i]]) for i in range(d)], dtype=float)
+    signs[signs == 0.0] = 1.0
+    aligned = aligned * signs
+    return aligned, best_perm, signs, corr
+
+
+def _cov_to_corr(cov: np.ndarray) -> np.ndarray:
+    cov = np.asarray(cov, dtype=float)
+    if cov.ndim != 2 or cov.shape[0] != cov.shape[1]:
+        raise ValueError("cov_to_corr expects a square matrix.")
+    var = np.diag(cov)
+    denom = np.sqrt(np.outer(var, var))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        corr = cov / denom
+    corr = np.clip(corr, -1.0, 1.0)
+    for i in range(corr.shape[0]):
+        if var[i] > 0.0:
+            corr[i, i] = 1.0
+    return corr
+
+
+def _compute_residual_matrix(
+    env: SyntheticTimeSeriesEnv, t_start: int, t_end: int
+) -> np.ndarray:
+    t_start = max(int(t_start), 1)
+    t_end = min(int(t_end), env.T - 1)
+    if t_start > t_end:
+        return np.zeros((0, env.num_experts), dtype=float)
+    residuals = np.zeros((t_end - t_start + 1, env.num_experts), dtype=float)
+    for idx, t in enumerate(range(t_start, t_end + 1)):
+        x_t = env.get_context(t)
+        preds = env.all_expert_predictions(x_t)
+        residuals[idx] = preds - float(env.y[t])
+    return residuals
+
+
+def _corr_by_regime(
+    residuals: np.ndarray, z: np.ndarray, num_regimes: int
+) -> list[np.ndarray]:
+    residuals = np.asarray(residuals, dtype=float)
+    z = np.asarray(z, dtype=int)
+    n_experts = int(residuals.shape[1]) if residuals.ndim == 2 else 0
+    corr_list: list[np.ndarray] = []
+    for m in range(num_regimes):
+        mask = z == m
+        if residuals.ndim != 2 or mask.sum() < 2:
+            corr = np.full((n_experts, n_experts), np.nan, dtype=float)
+        else:
+            corr = np.corrcoef(residuals[mask].T)
+        corr_list.append(corr)
+    return corr_list
+
+
+def _avg_corr_by_regime(
+    corr_series: np.ndarray, z: np.ndarray, num_regimes: int
+) -> list[np.ndarray]:
+    corr_series = np.asarray(corr_series, dtype=float)
+    z = np.asarray(z, dtype=int)
+    if corr_series.ndim != 3:
+        return [np.zeros((0, 0), dtype=float) for _ in range(num_regimes)]
+    n_experts = int(corr_series.shape[1])
+    avg_list: list[np.ndarray] = []
+    for m in range(num_regimes):
+        mask = z == m
+        if mask.sum() < 1:
+            avg = np.full((n_experts, n_experts), np.nan, dtype=float)
+        else:
+            avg = np.nanmean(corr_series[mask], axis=0)
+        avg_list.append(avg)
+    return avg_list
+
+
+def _predictive_corr_from_cache(
+    cache: dict,
+    available: Sequence[int],
+    n_experts: int,
+) -> np.ndarray:
+    stats = cache.get("stats", {}) or {}
+    w_pred = np.asarray(cache.get("w_pred", []), dtype=float).reshape(-1)
+    Sigma_g_pred = np.asarray(cache.get("Sigma_g_pred", []), dtype=float)
+    avail = [int(k) for k in available if int(k) in stats]
+    full = np.full((n_experts, n_experts), np.nan, dtype=float)
+    if not avail or w_pred.size == 0:
+        return full
+    M = int(w_pred.shape[0])
+    means_m = np.zeros((M, len(avail)), dtype=float)
+    s_m = np.zeros((M, len(avail)), dtype=float)
+    H = None
+    if Sigma_g_pred.ndim == 3 and Sigma_g_pred.shape[0] == M:
+        d_g = int(Sigma_g_pred.shape[1])
+    else:
+        d_g = 0
+    if d_g > 0:
+        H = np.vstack([stats[k]["h"] for k in avail]).astype(float)
+    for m in range(M):
+        for idx, k in enumerate(avail):
+            means_m[m, idx] = float(stats[k]["mean"][m])
+            s_m[m, idx] = float(stats[k]["s"][m])
+    mu = w_pred @ means_m
+    cov = np.zeros((len(avail), len(avail)), dtype=float)
+    for m in range(M):
+        if d_g > 0:
+            cov_shared = H @ Sigma_g_pred[m] @ H.T
+        else:
+            cov_shared = np.zeros((len(avail), len(avail)), dtype=float)
+        cov_m = cov_shared + np.diag(s_m[m])
+        diff = means_m[m] - mu
+        cov += w_pred[m] * (cov_m + np.outer(diff, diff))
+    cov = 0.5 * (cov + cov.T)
+    corr_small = _cov_to_corr(cov)
+    for i, ki in enumerate(avail):
+        for j, kj in enumerate(avail):
+            full[ki, kj] = corr_small[i, j]
+    return full
+
+
+def _collect_factorized_diagnostics(
+    router: FactorizedSLDS,
+    env: SyntheticTimeSeriesEnv,
+    t_start: int = 1,
+    t_end: Optional[int] = None,
+) -> dict:
+    if t_end is None:
+        t_end = env.T - 1
+    t_start = max(int(t_start), 1)
+    t_end = min(int(t_end), env.T - 1)
+    router_local = copy.deepcopy(router)
+    router_local.reset_beliefs()
+
+    times = []
+    choices = []
+    costs = []
+    w_pred_list = []
+    w_post_list = []
+    g_post_list = []
+    corr_list = []
+
+    for t in range(t_start, t_end + 1):
+        x_t = env.get_context(t)
+        available = env.get_available_experts(t)
+        r_t, cache = router_local.select_expert(x_t, available)
+        pred_corr = _predictive_corr_from_cache(cache, available, env.num_experts)
+
+        preds = env.all_expert_predictions(x_t)
+        residuals = preds - float(env.y[t])
+        residual_r = float(residuals[int(r_t)])
+        loss_r = residual_r * residual_r
+        cost_t = loss_r + router_local._get_beta(int(r_t))
+        if router_local.feedback_mode == "full":
+            residuals_full = _mask_feedback_vector_local(
+                residuals, np.asarray(available, dtype=int), int(r_t), True
+            )
+        else:
+            residuals_full = None
+
+        router_local.update_beliefs(
+            r_t=int(r_t),
+            loss_obs=residual_r,
+            losses_full=residuals_full,
+            available_experts=available,
+            cache=cache,
+        )
+
+        times.append(int(t))
+        choices.append(int(r_t))
+        costs.append(float(cost_t))
+        w_pred_list.append(np.asarray(cache.get("w_pred"), dtype=float))
+        w_post_list.append(np.asarray(router_local.w, dtype=float))
+        corr_list.append(pred_corr)
+        if router_local.d_g > 0:
+            g_post_list.append(router_local.w @ router_local.mu_g)
+
+    return {
+        "times": np.asarray(times, dtype=int),
+        "choices": np.asarray(choices, dtype=int),
+        "costs": np.asarray(costs, dtype=float),
+        "w_pred": np.asarray(w_pred_list, dtype=float),
+        "w_post": np.asarray(w_post_list, dtype=float),
+        "g_post": np.asarray(g_post_list, dtype=float) if g_post_list else None,
+        "pred_corr": np.asarray(corr_list, dtype=float),
+    }
+
+
+def _compute_probe_stats(
+    router: FactorizedSLDS,
+    phi: np.ndarray,
+    w: np.ndarray,
+    mu_g: np.ndarray,
+    Sigma_g: np.ndarray,
+    mu_u: dict,
+    Sigma_u: dict,
+    expert: int,
+) -> tuple[float, float, float]:
+    costs, _, stats = router._compute_predictive_stats(
+        phi,
+        w,
+        mu_g,
+        Sigma_g,
+        mu_u,
+        Sigma_u,
+        [int(expert)],
+    )
+    if int(expert) not in stats:
+        return float("nan"), float("nan"), float("nan")
+    mean_modes = np.asarray(stats[int(expert)]["mean"], dtype=float)
+    var_modes = np.asarray(stats[int(expert)]["var"], dtype=float)
+    w = np.asarray(w, dtype=float)
+    mean = float(w @ mean_modes)
+    second = float(w @ (var_modes + mean_modes * mean_modes))
+    var = max(second - mean * mean, 0.0)
+    loss = float(costs[int(expert)] - router._get_beta(int(expert)))
+    return mean, var, loss
+
+
+def _collect_transfer_probe(
+    router: FactorizedSLDS,
+    env: SyntheticTimeSeriesEnv,
+    target_expert: int,
+    t_start: int,
+    t_end: int,
+) -> dict:
+    router_local = copy.deepcopy(router)
+    router_local.reset_beliefs()
+
+    times = []
+    selected = []
+    avail_target = []
+    pre_mean = []
+    pre_var = []
+    pre_loss = []
+    post_mean = []
+    post_var = []
+    post_loss = []
+    true_loss = []
+
+    for t in range(t_start, t_end + 1):
+        x_t = env.get_context(t)
+        available = env.get_available_experts(t)
+        r_t, cache = router_local.select_expert(x_t, available)
+        phi = cache["phi"]
+
+        mean, var, loss = _compute_probe_stats(
+            router_local,
+            phi,
+            cache["w_pred"],
+            cache["mu_g_pred"],
+            cache["Sigma_g_pred"],
+            cache["mu_u_pred"],
+            cache["Sigma_u_pred"],
+            target_expert,
+        )
+
+        preds = env.all_expert_predictions(x_t)
+        residuals = preds - float(env.y[t])
+        residual_r = float(residuals[int(r_t)])
+        if router_local.feedback_mode == "full":
+            residuals_full = _mask_feedback_vector_local(
+                residuals, np.asarray(available, dtype=int), int(r_t), True
+            )
+        else:
+            residuals_full = None
+
+        router_local.update_beliefs(
+            r_t=int(r_t),
+            loss_obs=residual_r,
+            losses_full=residuals_full,
+            available_experts=available,
+            cache=cache,
+        )
+
+        mean_post, var_post, loss_post = _compute_probe_stats(
+            router_local,
+            phi,
+            router_local.w,
+            router_local.mu_g,
+            router_local.Sigma_g,
+            router_local.mu_u,
+            router_local.Sigma_u,
+            target_expert,
+        )
+
+        times.append(int(t))
+        selected.append(int(r_t))
+        avail_target.append(int(env.availability[t, int(target_expert)]))
+        pre_mean.append(mean)
+        pre_var.append(var)
+        pre_loss.append(loss)
+        post_mean.append(mean_post)
+        post_var.append(var_post)
+        post_loss.append(loss_post)
+        true_loss.append(float(residuals[int(target_expert)] ** 2))
+
+    return {
+        "times": np.asarray(times, dtype=int),
+        "selected": np.asarray(selected, dtype=int),
+        "avail_target": np.asarray(avail_target, dtype=int),
+        "pre_mean": np.asarray(pre_mean, dtype=float),
+        "pre_var": np.asarray(pre_var, dtype=float),
+        "pre_loss": np.asarray(pre_loss, dtype=float),
+        "post_mean": np.asarray(post_mean, dtype=float),
+        "post_var": np.asarray(post_var, dtype=float),
+        "post_loss": np.asarray(post_loss, dtype=float),
+        "true_loss": np.asarray(true_loss, dtype=float),
+    }
+
+
+def _save_fig(
+    fig: plt.Figure,
+    out_dir: str,
+    name: str,
+    save_png: bool,
+    save_pdf: bool,
+    show: bool,
+) -> None:
+    if save_png:
+        fig.savefig(
+            os.path.join(out_dir, f"{name}.png"),
+            dpi=300,
+            bbox_inches="tight",
+        )
+    if save_pdf:
+        fig.savefig(os.path.join(out_dir, f"{name}.pdf"), bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
+def _shade_unavailability(
+    ax: Axes,
+    times: np.ndarray,
+    avail_mask: np.ndarray,
+    color: str = "gray",
+    alpha: float = 0.15,
+) -> None:
+    if times.size == 0:
+        return
+    in_block = False
+    start_t = None
+    for t, avail in zip(times, avail_mask):
+        if not in_block and avail == 0:
+            in_block = True
+            start_t = int(t)
+        elif in_block and avail != 0:
+            in_block = False
+            end_t = int(t)
+            ax.axvspan(start_t, end_t, color=color, alpha=alpha, zorder=0)
+    if in_block and start_t is not None:
+        ax.axvspan(start_t, int(times[-1]), color=color, alpha=alpha, zorder=0)
+
+
+def plot_selection_freq_by_regime(
+    env: SyntheticTimeSeriesEnv,
+    choices_map: dict,
+    out_dir: str,
+    show_plots: bool,
+    save_plots: bool,
+    save_png: bool,
+    save_pdf: bool,
+    rows: Optional[list[list[tuple[str, Optional[np.ndarray]]]]] = None,
+) -> None:
+    if not choices_map and not rows:
+        return
+    z = np.asarray(env.z[1: env.T], dtype=int)
+    num_regimes = int(env.num_regimes)
+    n_experts = int(env.num_experts)
+    def _has_valid_choices(choice_entry: Optional[np.ndarray]) -> bool:
+        if choice_entry is None:
+            return False
+        if isinstance(choice_entry, tuple) and len(choice_entry) == 2:
+            choices_arr = np.asarray(choice_entry[0], dtype=float).reshape(-1)
+        else:
+            choices_arr = np.asarray(choice_entry, dtype=float).reshape(-1)
+        if choices_arr.size == 0:
+            return False
+        return bool(np.any(np.isfinite(choices_arr)))
+
+    use_rows = rows is not None
+    if not use_rows:
+        entries = [
+            (name, arr)
+            for name, arr in choices_map.items()
+            if _has_valid_choices(arr)
+        ]
+        if not entries:
+            return
+        ncols = 3
+        nrows = int(np.ceil(len(entries) / ncols))
+        rows = [entries[r * ncols : (r + 1) * ncols] for r in range(nrows)]
+    else:
+        rows = [
+            [(name, arr) for name, arr in row if _has_valid_choices(arr)]
+            for row in rows
+        ]
+        rows = [row for row in rows if row]
+        if not rows:
+            return
+        ncols = max(len(row) for row in rows)
+        nrows = len(rows)
+
+    vmax = 1.0
+    last_im = None
+
+    debug_lines = []
+    if use_rows:
+        fig = plt.figure(figsize=(3.3 * ncols, 2.8 * nrows))
+        outer = GridSpec(nrows, 1, figure=fig, hspace=0.45)
+        axes_rows = []
+        for r, row in enumerate(rows):
+            sub = GridSpecFromSubplotSpec(
+                1, len(row), subplot_spec=outer[r], wspace=0.3
+            )
+            axes_row = [fig.add_subplot(sub[0, c]) for c in range(len(row))]
+            axes_rows.append(axes_row)
+    else:
+        fig, axes = plt.subplots(
+            nrows,
+            ncols,
+            figsize=(3.3 * ncols, 2.6 * nrows),
+            sharex=True,
+            sharey=True,
+        )
+        axes = np.atleast_1d(axes).reshape(nrows, ncols)
+        axes_rows = [list(axes[r]) for r in range(nrows)]
+
+    for r, row in enumerate(rows):
+        for c, (name, choices) in enumerate(row):
+            ax = axes_rows[r][c]
+            if isinstance(choices, tuple) and len(choices) == 2:
+                choices_arr = np.asarray(choices[0], dtype=float).reshape(-1)
+            else:
+                choices_arr = np.asarray(choices, dtype=float).reshape(-1)
+            if choices_arr.size:
+                choices_arr = np.where(choices_arr < 0, np.nan, choices_arr)
+            if choices_arr.size != z.size:
+                if choices_arr.size == 0:
+                    ax.axis("off")
+                    continue
+                min_len = min(choices_arr.size, z.size)
+                choices_arr = choices_arr[:min_len]
+                if min_len < z.size:
+                    pad = np.full(z.size - min_len, np.nan, dtype=float)
+                    choices_arr = np.concatenate([choices_arr, pad], axis=0)
+            debug_lines.append(
+                f"{name}: choices_len={choices_arr.size}, valid={int(np.isfinite(choices_arr).sum())}"
+            )
+            freq = np.full((num_regimes, n_experts), np.nan, dtype=float)
+            for m in range(num_regimes):
+                mask = z == m
+                if not np.any(mask):
+                    continue
+                sub = choices_arr[mask]
+                sub = sub[np.isfinite(sub)]
+                for k in range(n_experts):
+                    freq[m, k] = float(np.mean(sub == k)) if sub.size else np.nan
+            freq = np.nan_to_num(freq, nan=0.0)
+            im = ax.imshow(freq, aspect="auto", cmap="magma", vmin=0.0, vmax=vmax)
+            last_im = im
+            ax.set_title(name, fontsize=8, pad=6)
+            ax.set_xticks(np.arange(n_experts))
+            ax.set_yticks(np.arange(num_regimes))
+            if r == nrows - 1:
+                ax.set_xlabel("Expert")
+            if c == 0:
+                ax.set_ylabel("Regime")
+
+    if last_im is None:
+        return
+    cax = fig.add_axes([0.92, 0.15, 0.015, 0.7])
+    fig.colorbar(last_im, cax=cax, label="Selection freq")
+    fig.suptitle("Selection frequency by regime (all baselines)", y=0.98)
+    fig.subplots_adjust(top=0.88, bottom=0.12, left=0.08, right=0.9)
+    if debug_lines:
+        with open(os.path.join(out_dir, "expert_structure_all_debug.txt"), "w") as f:
+            f.write("Selection freq debug\n")
+            f.write("\n".join(debug_lines))
+            f.write("\n")
+    _save_fig(fig, out_dir, "expert_structure_all", save_png, save_pdf, show_plots)
+
+
+def run_tri_cycle_corr_diagnostics(
+    env: SyntheticTimeSeriesEnv,
+    router: FactorizedSLDS,
+    router_no_g: Optional[FactorizedSLDS] = None,
+    label: str = "L2D SLDS w/ $g_t$",
+    out_dir: str = "out/tri_cycle_corr",
+    show_plots: bool = False,
+    save_plots: bool = True,
+    save_png: bool = True,
+    save_pdf: bool = True,
+    pairs: Optional[Sequence[Sequence[int]]] = None,
+    t_start: int = 1,
+    t_end: Optional[int] = None,
+    corr_smooth_window: int = 1,
+    transfer_probe: Optional[dict] = None,
+) -> None:
+    if getattr(env, "setting", None) != "tri_cycle_corr":
+        print("[tri-cycle] Diagnostics skipped: env.setting != tri_cycle_corr.")
+        return
+    corr_smooth_window = max(int(corr_smooth_window), 1)
+    if not save_plots:
+        save_png = False
+        save_pdf = False
+    os.makedirs(out_dir, exist_ok=True)
+    if pairs is None:
+        pairs = [(0, 1), (2, 3)]
+    t_end = env.T - 1 if t_end is None else min(int(t_end), env.T - 1)
+    t_start = max(int(t_start), 1)
+    if t_start > t_end:
+        print("[tri-cycle] Diagnostics skipped: empty time window.")
+        return
+
+    residuals = _compute_residual_matrix(env, t_start, t_end)
+    z = np.asarray(env.z[t_start : t_end + 1], dtype=int)
+    num_regimes = int(env.num_regimes)
+    true_corr = _corr_by_regime(residuals, z, num_regimes)
+
+    diag = _collect_factorized_diagnostics(router, env, t_start, t_end)
+    pred_corr = np.asarray(diag["pred_corr"], dtype=float)
+    est_corr = _avg_corr_by_regime(pred_corr, z, num_regimes)
+    diag_no_g = None
+    est_corr_no_g = None
+    if router_no_g is not None:
+        diag_no_g = _collect_factorized_diagnostics(router_no_g, env, t_start, t_end)
+        pred_corr_no_g = np.asarray(diag_no_g["pred_corr"], dtype=float)
+        est_corr_no_g = _avg_corr_by_regime(pred_corr_no_g, z, num_regimes)
+    t_grid = diag["times"]
+
+    pred_labels = np.argmax(diag["w_post"], axis=1)
+    regime_accuracy = float(np.mean(pred_labels == z)) if z.size else float("nan")
+
+    switch_delays = []
+    for idx in range(1, z.size):
+        if z[idx] == z[idx - 1]:
+            continue
+        new_reg = int(z[idx])
+        match_idx = np.where(pred_labels[idx:] == new_reg)[0]
+        if match_idx.size:
+            switch_delays.append(int(match_idx[0]))
+    delay_mean = float(np.mean(switch_delays)) if switch_delays else float("nan")
+    delay_median = float(np.median(switch_delays)) if switch_delays else float("nan")
+
+    corr_mae = []
+    for m in range(num_regimes):
+        diff = est_corr[m] - true_corr[m]
+        if diff.size == 0:
+            corr_mae.append(float("nan"))
+            continue
+        mask = ~np.eye(diff.shape[0], dtype=bool)
+        corr_mae.append(float(np.nanmean(np.abs(diff[mask]))))
+
+    g_metrics = {}
+    g_true = getattr(env, "_tri_cycle_g", None)
+    if g_true is not None and diag["g_post"] is not None and diag["g_post"].size:
+        g_true_slice = np.asarray(g_true[t_start : t_end + 1], dtype=float)
+        g_pred = np.asarray(diag["g_post"], dtype=float)
+        g_aligned, perm, signs, corr = _align_latent_dims(g_true_slice, g_pred)
+        g_corrs = []
+        for i in range(min(g_true_slice.shape[1], g_aligned.shape[1])):
+            g_corrs.append(_safe_corr(g_true_slice[:, i], g_aligned[:, i]))
+        g_metrics = {
+            "perm": perm,
+            "signs": signs.tolist(),
+            "corr_matrix": corr.tolist(),
+            "mean_abs_corr": float(np.nanmean(np.abs(g_corrs))),
+            "per_dim_corr": g_corrs,
+        }
+    else:
+        g_aligned = None
+
+    n_experts = env.num_experts
+    pairs = [
+        (int(p[0]), int(p[1]))
+        for p in pairs
+        if int(p[0]) < n_experts and int(p[1]) < n_experts
+    ]
+
+    summary = {
+        "label": label,
+        "t_start": int(t_start),
+        "t_end": int(t_end),
+        "regime_accuracy": regime_accuracy,
+        "switch_delay_mean": delay_mean,
+        "switch_delay_median": delay_median,
+        "corr_mae_by_regime": corr_mae,
+        "g_recovery": g_metrics,
+        "avg_cost": float(np.nanmean(diag["costs"])) if diag["costs"].size else float("nan"),
+    }
+    if diag_no_g is not None:
+        summary["avg_cost_no_g"] = float(np.nanmean(diag_no_g["costs"]))
+        summary["avg_cost_gain"] = float(
+            summary["avg_cost_no_g"] - summary["avg_cost"]
+        )
+
+    with open(os.path.join(out_dir, "tri_cycle_metrics.json"), "w") as f:
+        json.dump(summary, f, indent=2)
+    with open(os.path.join(out_dir, "tri_cycle_metrics.txt"), "w") as f:
+        f.write("Tri-cycle diagnostics summary\n")
+        f.write(f"Label: {label}\n")
+        f.write(f"Window: t={t_start}..{t_end}\n")
+        f.write(f"Regime accuracy: {regime_accuracy:.4f}\n")
+        f.write(f"Switch delay (mean): {delay_mean:.3f}\n")
+        f.write(f"Switch delay (median): {delay_median:.3f}\n")
+        for m, err in enumerate(corr_mae):
+            f.write(f"Corr MAE regime {m}: {err:.4f}\n")
+        for pair in pairs:
+            i, j = int(pair[0]), int(pair[1])
+            if i >= n_experts or j >= n_experts:
+                continue
+            f.write(f"Pair {i}-{j} corr:\n")
+            for m in range(num_regimes):
+                f.write(
+                    f"  Regime {m}: true={true_corr[m][i, j]:.4f}, "
+                    f"est={est_corr[m][i, j]:.4f}\n"
+                )
+        if g_metrics:
+            f.write(f"G recovery mean |corr|: {g_metrics['mean_abs_corr']:.4f}\n")
+
+    # Correlation heatmaps (true vs estimated)
+    n_cols = 3 if est_corr_no_g is not None else 2
+    fig, axes = plt.subplots(
+        num_regimes,
+        n_cols,
+        figsize=(3.6 * n_cols, 2.9 * max(num_regimes, 1)),
+        sharex=True,
+        sharey=True,
+    )
+    if num_regimes == 1:
+        axes = np.array([axes])
+    for m in range(num_regimes):
+        ax_true = axes[m, 0]
+        ax_est = axes[m, 1]
+        im_true = ax_true.imshow(true_corr[m], vmin=-1.0, vmax=1.0, cmap="coolwarm")
+        ax_est.imshow(est_corr[m], vmin=-1.0, vmax=1.0, cmap="coolwarm")
+        ax_true.set_title(f"Regime {m}: true")
+        ax_est.set_title(f"Regime {m}: estimated")
+        if est_corr_no_g is not None:
+            ax_ng = axes[m, 2]
+            ax_ng.imshow(est_corr_no_g[m], vmin=-1.0, vmax=1.0, cmap="coolwarm")
+            ax_ng.set_title(f"Regime {m}: no-g")
+            ax_ng.set_yticks(np.arange(n_experts))
+            ax_ng.set_xticks(np.arange(n_experts))
+        ax_true.set_yticks(np.arange(n_experts))
+        ax_est.set_yticks(np.arange(n_experts))
+        ax_true.set_xticks(np.arange(n_experts))
+        ax_est.set_xticks(np.arange(n_experts))
+        ax_true.set_ylabel("Expert")
+    cax = fig.add_axes([0.9, 0.15, 0.02, 0.7])
+    fig.colorbar(im_true, cax=cax, label="Corr")
+    fig.suptitle("Residual correlation by regime", y=0.98)
+    fig.subplots_adjust(
+        top=0.86, bottom=0.08, left=0.08, right=0.88, wspace=0.25, hspace=0.3
+    )
+    _save_fig(fig, out_dir, "corr_heatmaps", save_png, save_pdf, show_plots)
+
+    # Pairwise correlation tracking over time
+    if pairs:
+        t_grid = diag["times"]
+        change_points = np.where(z[1:] != z[:-1])[0] + 1
+        n_pairs = len(pairs)
+        fig, axes = plt.subplots(
+            n_pairs,
+            1,
+            figsize=(9.0, 2.6 * max(n_pairs, 1)),
+            sharex=True,
+        )
+        if n_pairs == 1:
+            axes = [axes]
+        for ax, pair in zip(axes, pairs):
+            i, j = int(pair[0]), int(pair[1])
+            pred_series = pred_corr[:, i, j]
+            if corr_smooth_window > 1:
+                kernel = np.ones(int(corr_smooth_window), dtype=float)
+                kernel /= float(kernel.size)
+                pred_series = np.convolve(pred_series, kernel, mode="same")
+            true_series = np.array([true_corr[z_t][i, j] for z_t in z], dtype=float)
+            ax.plot(t_grid, pred_series, label=f"Pred {i}-{j}")
+            ax.step(
+                t_grid, true_series, label="True", linestyle="--", color="black", alpha=0.6
+            )
+            for cp in change_points:
+                if cp < t_grid.size:
+                    ax.axvline(t_grid[cp], color="gray", alpha=0.2, linewidth=0.8)
+            ax.set_ylabel(f"corr({i},{j})")
+            ax.set_ylim(-1.05, 1.05)
+            ax.grid(True, alpha=0.2)
+        axes[-1].set_xlabel("Time $t$")
+        axes[0].legend(
+            loc="upper left",
+            bbox_to_anchor=(1.02, 1.0),
+            borderaxespad=0.0,
+            fontsize=9,
+        )
+        fig.suptitle("Correlation tracking for key expert pairs", y=0.98)
+        fig.subplots_adjust(top=0.86, bottom=0.1, left=0.08, right=0.82, hspace=0.35)
+        _save_fig(fig, out_dir, "corr_pairs", save_png, save_pdf, show_plots)
+
+    # Regime posterior tracking
+    fig, (ax_w, ax_z) = plt.subplots(2, 1, sharex=True, figsize=(9.0, 5.4))
+    for m in range(diag["w_post"].shape[1]):
+        ax_w.plot(t_grid, diag["w_post"][:, m], label=f"Regime {m}")
+    ax_w.set_ylabel("Posterior weight")
+    ax_w.set_title("Regime posterior over time", pad=10)
+    ax_w.legend(
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        borderaxespad=0.0,
+        ncol=1,
+        fontsize=9,
+    )
+    ax_w.grid(True, alpha=0.2)
+    ax_z.step(t_grid, z, where="post", color="black", label="True regime")
+    ax_z.set_xlabel("Time $t$")
+    ax_z.set_ylabel("Regime")
+    ax_z.set_yticks(np.arange(num_regimes))
+    ax_z.grid(True, alpha=0.2)
+    fig.subplots_adjust(top=0.9, bottom=0.1, left=0.08, right=0.82, hspace=0.3)
+    _save_fig(fig, out_dir, "regime_posterior", save_png, save_pdf, show_plots)
+
+    # Shared factor recovery
+    if g_true is not None and g_aligned is not None:
+        d_g = min(g_true.shape[1], g_aligned.shape[1])
+        fig, axes = plt.subplots(
+            d_g,
+            1,
+            sharex=True,
+            figsize=(9.0, 2.6 * d_g),
+        )
+        if d_g == 1:
+            axes = [axes]
+        for i in range(d_g):
+            axes[i].plot(t_grid, g_true[t_start : t_end + 1, i], label="True")
+            axes[i].plot(t_grid, g_aligned[:, i], label="Inferred", alpha=0.8)
+            axes[i].set_ylabel(f"g[{i}]")
+            axes[i].grid(True, alpha=0.2)
+            if i == 0:
+                axes[i].legend(
+                    loc="upper left",
+                    bbox_to_anchor=(1.02, 1.0),
+                    borderaxespad=0.0,
+                    fontsize=9,
+                )
+        axes[-1].set_xlabel("Time $t$")
+        fig.suptitle("Shared-factor recovery (aligned)", y=0.98)
+        fig.subplots_adjust(
+            top=0.86, bottom=0.1, left=0.08, right=0.82, hspace=0.35
+        )
+        _save_fig(fig, out_dir, "g_recovery", save_png, save_pdf, show_plots)
+
+    # Expert structure: relative losses and selection frequency by regime
+    losses = residuals * residuals
+    avg_losses = np.full((num_regimes, n_experts), np.nan, dtype=float)
+    sel_freq = np.full((num_regimes, n_experts), np.nan, dtype=float)
+    for m in range(num_regimes):
+        mask = z == m
+        if mask.sum() == 0:
+            continue
+        avg_losses[m] = np.mean(losses[mask], axis=0)
+        choices_m = diag["choices"][mask]
+        for k in range(n_experts):
+            sel_freq[m, k] = float(np.mean(choices_m == k))
+
+    fig, ax = plt.subplots(1, 1, figsize=(6.6, 4.0))
+    im1 = ax.imshow(sel_freq, aspect="auto", cmap="magma", vmin=0.0, vmax=1.0)
+    ax.set_title("Selection freq by regime", pad=8)
+    ax.set_xlabel("Expert")
+    ax.set_ylabel("Regime")
+    ax.set_xticks(np.arange(n_experts))
+    ax.set_yticks(np.arange(num_regimes))
+    fig.colorbar(im1, ax=ax, fraction=0.046, pad=0.04)
+    fig.subplots_adjust(top=0.88, bottom=0.15, left=0.1, right=0.92)
+    _save_fig(fig, out_dir, "expert_structure", save_png, save_pdf, show_plots)
+
+    probe_cfg = transfer_probe or {}
+    if probe_cfg.get("enabled", False):
+        target = int(probe_cfg.get("target_expert", 0))
+        source = probe_cfg.get("source_expert", None)
+        source = None if source is None else int(source)
+        compare_no_g = bool(probe_cfg.get("compare_no_g", True))
+        show_truth = bool(probe_cfg.get("show_truth", True))
+        if 0 <= target < n_experts:
+            series = _collect_transfer_probe(router, env, target, t_start, t_end)
+            series_no_g = None
+            if compare_no_g and router_no_g is not None:
+                series_no_g = _collect_transfer_probe(
+                    router_no_g, env, target, t_start, t_end
+                )
+
+            fig, (ax_loss, ax_delta) = plt.subplots(
+                2, 1, sharex=True, figsize=(9.0, 5.6)
+            )
+            ax_loss.plot(
+                series["times"],
+                series["post_loss"],
+                label=f"Expert {target} belief (L2D SLDS)",
+                color="tab:blue",
+            )
+            if show_truth:
+                ax_loss.plot(
+                    series["times"],
+                    series["true_loss"],
+                    label=f"Expert {target} true loss",
+                    color="black",
+                    alpha=0.4,
+                )
+            if series_no_g is not None:
+                ax_loss.plot(
+                    series_no_g["times"],
+                    series_no_g["post_loss"],
+                    label=f"Expert {target} belief (L2D SLDS w/t $g_t$)",
+                    color="tab:orange",
+                    linestyle="--",
+                )
+            _shade_unavailability(ax_loss, series["times"], series["avail_target"])
+            ax_loss.set_ylabel("Predicted loss")
+            ax_loss.set_title(f"Expert {target} predicted loss")
+            ax_loss.grid(True, alpha=0.2)
+
+            delta = np.abs(series["post_loss"] - series["pre_loss"])
+            ax_delta.plot(
+                series["times"],
+                delta,
+                label="L2D SLDS",
+                color="tab:green",
+            )
+            if series_no_g is not None:
+                delta_no_g = np.abs(
+                    series_no_g["post_loss"] - series_no_g["pre_loss"]
+                )
+                ax_delta.plot(
+                    series_no_g["times"],
+                    delta_no_g,
+                    label="L2D SLDS w/t $g_t$",
+                    color="tab:red",
+                    linestyle="--",
+                )
+            _shade_unavailability(ax_delta, series["times"], series["avail_target"])
+            ax_delta.set_xlabel("Time $t$ (shaded = unavailable)")
+            ax_delta.set_ylabel("Update magnitude")
+            ax_delta.grid(True, alpha=0.2)
+
+            if source is not None:
+                sel_mask = series["selected"] == source
+                if np.any(sel_mask):
+                    y_min, y_max = ax_loss.get_ylim()
+                    y_tick = y_min + 0.03 * (y_max - y_min)
+                    ax_loss.vlines(
+                        series["times"][sel_mask],
+                        y_min,
+                        y_tick,
+                        color="tab:purple",
+                        alpha=0.4,
+                        linewidth=0.8,
+                        label=f"Selected {source}",
+                    )
+            obs_mask = series["selected"] == target
+            if np.any(obs_mask):
+                y_min, y_max = ax_loss.get_ylim()
+                y_tick = y_min + 0.06 * (y_max - y_min)
+                ax_loss.vlines(
+                    series["times"][obs_mask],
+                    y_min,
+                    y_tick,
+                    color="tab:green",
+                    alpha=0.4,
+                    linewidth=0.8,
+                    label=f"Selected {target}",
+                )
+
+            ax_loss.legend(
+                loc="upper left",
+                bbox_to_anchor=(1.02, 1.0),
+                borderaxespad=0.0,
+                fontsize=8,
+            )
+            ax_delta.legend(
+                loc="upper left",
+                bbox_to_anchor=(1.02, 1.0),
+                borderaxespad=0.0,
+                fontsize=8,
+            )
+            fig.subplots_adjust(top=0.9, bottom=0.1, left=0.08, right=0.8, hspace=0.35)
+            _save_fig(fig, out_dir, "transfer_probe", save_png, save_pdf, show_plots)

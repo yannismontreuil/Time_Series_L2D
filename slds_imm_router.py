@@ -29,6 +29,7 @@ from plot_utils import (
     evaluate_routers_and_baselines,
     analysis_late_arrival,
     plot_time_series,
+    run_tri_cycle_corr_diagnostics,
 )
 from horizon_planning import evaluate_horizon_planning
 
@@ -258,6 +259,7 @@ if __name__ == "__main__":
         pass
 
     routers_cfg = cfg.get("routers", {})
+    analysis_cfg = cfg.get("analysis", {}) or {}
     slds_cfg = routers_cfg.get("slds_imm", {}) or {}
     slds_corr_cfg = routers_cfg.get("slds_imm_corr", {}) or {}
     slds_corr_enabled = bool(slds_corr_cfg.get("enabled", True))
@@ -1117,8 +1119,8 @@ if __name__ == "__main__":
     router_partial_no_g = None
     router_full_no_g = None
     factorized_runs: list[dict] = []
-    factorized_label = "Factorized SLDS"
-    factorized_linear_label = "Factorized SLDS linear"
+    factorized_label = "L2D SLDS w/ $g_t$"
+    factorized_linear_label = "L2D SLDS"
     base_transition_mode = None
     extra_transition_mode = None
     if factorized_slds_enabled:
@@ -1385,19 +1387,19 @@ if __name__ == "__main__":
 
         for exploration_mode in exploration_modes:
             print(
-                f"\n--- Running FactorizedSLDS Router (partial, {base_transition_mode}, {exploration_mode}) ---"
+                f"\n--- Running L2D SLDS Router (partial, {base_transition_mode}, {exploration_mode}) ---"
             )
             fact_router_partial = _build_factorized_router(
                 "partial", base_transition_mode, exploration_mode
             )
             print(
-                f"\n--- Running FactorizedSLDS Router (full, {base_transition_mode}, {exploration_mode}) ---"
+                f"\n--- Running L2D SLDS Router (full, {base_transition_mode}, {exploration_mode}) ---"
             )
             fact_router_full = _build_factorized_router(
                 "full", base_transition_mode, exploration_mode
             )
             factorized_label_local = (
-                f"Factorized SLDS {base_transition_mode} ({exploration_mode})"
+                f"L2D SLDS w/ $g_t$ {base_transition_mode} ({exploration_mode})"
             )
 
             fact_router_partial_linear = None
@@ -1405,19 +1407,19 @@ if __name__ == "__main__":
             factorized_linear_label_local = factorized_linear_label
             if extra_transition_mode is not None:
                 print(
-                    f"\n--- Running FactorizedSLDS Router (partial, {extra_transition_mode}, {exploration_mode}) ---"
+                    f"\n--- Running L2D SLDS Router (partial, {extra_transition_mode}, {exploration_mode}) ---"
                 )
                 fact_router_partial_linear = _build_factorized_router(
                     "partial", extra_transition_mode, exploration_mode
                 )
                 print(
-                    f"\n--- Running FactorizedSLDS Router (full, {extra_transition_mode}, {exploration_mode}) ---"
+                    f"\n--- Running L2D SLDS Router (full, {extra_transition_mode}, {exploration_mode}) ---"
                 )
                 fact_router_full_linear = _build_factorized_router(
                     "full", extra_transition_mode, exploration_mode
                 )
                 factorized_linear_label_local = (
-                    f"Factorized SLDS {extra_transition_mode} ({exploration_mode})"
+                    f"L2D SLDS {extra_transition_mode} ({exploration_mode})"
                 )
 
             router_partial_no_g = _build_factorized_router_no_g(
@@ -1843,7 +1845,7 @@ if __name__ == "__main__":
             with ctx.Pool(processes=workers) as pool:
                 pool.map(_evaluate_factorized_run_worker, payloads)
         else:
-            for run in factorized_runs:
+            for run_idx, run in enumerate(factorized_runs):
                 l2d_run = (
                     copy.deepcopy(l2d_baseline) if l2d_baseline is not None else None
                 )
@@ -1886,7 +1888,55 @@ if __name__ == "__main__":
                     neuralucb_partial=neuralucb_partial_run,
                     neuralucb_full=neuralucb_full_run,
                     seed=seed,
+                    analysis_cfg=analysis_cfg,
                 )
+                tri_cfg = analysis_cfg.get("tri_cycle_corr", {}) or {}
+                if (
+                    tri_cfg.get("enabled", False)
+                    and getattr(env, "setting", None) == "tri_cycle_corr"
+                ):
+                    run_idx_cfg = tri_cfg.get("run_index", None)
+                    run_mode_cfg = tri_cfg.get("exploration_mode", None)
+                    if run_idx_cfg is not None and int(run_idx_cfg) != run_idx:
+                        continue
+                    if run_mode_cfg is not None and str(run_mode_cfg) != str(
+                        run.get("exploration_mode")
+                    ):
+                        continue
+                    router_key = str(tri_cfg.get("router", "factorized_full")).lower()
+                    router_map = {
+                        "factorized_full": run.get("fact_router_full"),
+                        "factorized_partial": run.get("fact_router_partial"),
+                        "no_g_full": run.get("router_full_no_g"),
+                        "no_g_partial": run.get("router_partial_no_g"),
+                        "factorized_full_linear": run.get("fact_router_full_linear"),
+                        "factorized_partial_linear": run.get("fact_router_partial_linear"),
+                    }
+                    tri_router = router_map.get(router_key)
+                    if tri_router is None:
+                        print(
+                            f"[tri-cycle] Router '{router_key}' unavailable for analysis."
+                        )
+                        continue
+                    out_dir = str(
+                        tri_cfg.get("out_dir", "out/tri_cycle_corr")
+                    )
+                    run_tri_cycle_corr_diagnostics(
+                        env=env,
+                        router=tri_router,
+                        router_no_g=run.get("router_full_no_g"),
+                        label=str(tri_cfg.get("label", run.get("factorized_label", "L2D SLDS w/ $g_t$"))),
+                        out_dir=out_dir,
+                        show_plots=bool(tri_cfg.get("show_plots", False)),
+                        save_plots=bool(tri_cfg.get("save_plots", True)),
+                        save_png=bool(tri_cfg.get("save_png", True)),
+                        save_pdf=bool(tri_cfg.get("save_pdf", True)),
+                        pairs=tri_cfg.get("pairs", None),
+                        t_start=int(tri_cfg.get("t_start", 1)),
+                        t_end=tri_cfg.get("t_end", None),
+                        corr_smooth_window=int(tri_cfg.get("corr_smooth_window", 1)),
+                        transfer_probe=tri_cfg.get("transfer_probe", None),
+                    )
     else:
         evaluate_routers_and_baselines(
             env,
@@ -1905,6 +1955,7 @@ if __name__ == "__main__":
             neuralucb_partial=neuralucb_partial,
             neuralucb_full=neuralucb_full,
             seed=seed,
+            analysis_cfg=analysis_cfg,
         )
 
 

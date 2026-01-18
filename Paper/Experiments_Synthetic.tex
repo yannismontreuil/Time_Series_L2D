@@ -206,3 +206,140 @@ by switch transitions rather than steady-state error.
 Bandit baselines adapt only after observing losses and cannot exploit the
 shared-factor covariance. This yields higher transient regret after each
 switch and a higher steady-state loss than the SLDS model.
+
+\paragraph{Context-scenario generator for scheduling.}
+When evaluating the predictive scheduling layer on synthetic data, we use a
+strong scenario generator that is intentionally close to the ground-truth
+context dynamics. Because the context is $x_t=y_{t-1}$ and $y_t$ follows an
+AR(1) with regime-dependent drift, we generate future contexts by simulating
+the same AR(1) form with coefficient fixed to the true value ($0.8$) and
+drift levels estimated from the observed prefix. In the tri-cycle setting the
+regime schedule is deterministic, so we reuse that schedule for forecasting.
+The process-noise scale is matched to the empirical residual variance (with
+the scaling specified in the config), yielding scenarios that are close to
+the ground-truth distribution while respecting the no-feedback constraint
+during planning.
+
+\paragraph{Planning diagnostics and how to read them.}
+We store all planning figures in \texttt{out/tri\_cycle\_corr/planning/} and
+use separate plots to isolate interpretability and performance:
+\begin{itemize}
+    \item \textbf{Context scenario fan chart.} The plot overlays the true
+    horizon context $x_{t+1:t+H}$ with multiple Monte Carlo scenario paths,
+    plus the median and 10--90\% band. This makes the sampling uncertainty
+    explicit and shows whether the generator is calibrated to the true
+    context dynamics.
+    \item \textbf{Demand heatmap with relative-threshold overlay.} For each horizon
+    step $h$, we visualize the estimated demand $\hat{\rho}_{t,h}(k)$ over
+    experts (heatmap) and overlay the active-set members as outlined squares.
+    This directly shows how the planner translates stochastic demand into a
+    relative-thresholded on-call set (relative to the max probability at each step) and how that differs across models (e.g., L2D SLDS vs
+    the no-$g_t$ ablation).
+    \item \textbf{Relative-thresholded mass curve.} The curve plots
+    $\sum_{k\in\widehat{\mathcal{S}}_{t,h}(\delta)} \hat{\rho}_{t,h}(k)$ for
+    each $h$, i.e., how much probability mass is captured by the relative-thresholded
+    set. Lower values indicate a sharp winner, while higher values indicate ties or
+    flatter demand that keeps multiple experts on-call.
+    \item \textbf{Active-set size over horizon.} This shows the capacity cost
+    of the schedule by reporting $|\widehat{\mathcal{S}}_{t,h}(\delta)|$ for
+    each $h$. Larger sets indicate greater uncertainty in the planner's
+    predicted choices.
+    \item \textbf{Scenario-wise planned expert raster.} Each row is a Monte
+    Carlo scenario and each column a horizon step; colors indicate the expert
+    selected by the planning rule. This makes discrete variability explicit
+    and shows when multiple experts are plausible under the forecast.
+    \item \textbf{Planning cost bar chart.} We compare mean true horizon cost
+    for the MC planner (L2D SLDS), its no-$g_t$ ablation, a strong
+    deterministic point-forecast planner (same model, $N{=}1$ scenario), and
+    a static top-$K$ on-call baseline (best fixed set with $K$ matched to the
+    MC average set size). This isolates the benefit of modeling demand
+    uncertainty rather than committing to a single forecast or a fixed pool.
+\end{itemize}
+
+\section{Diagnostics for the Tri-Cycle Correlation Experiment}
+\label{sec:synthetic_diagnostics}
+
+We report a suite of diagnostic plots (saved under
+\texttt{out/tri\_cycle\_corr/}) that verify whether each model recovers the
+intended regime structure, cross-expert correlations, and selection behavior.
+Each plot is defined from explicit statistics of the synthetic process and the
+model posterior. Below we state the quantity visualized and its interpretation.
+
+\paragraph{Residual correlation heatmaps (\texttt{corr\_heatmaps.pdf}).}
+For each regime $m$, we compute the empirical residuals
+$e_{t,k} = \hat{y}_{t,k} - y_t$ and the regime-restricted correlation matrix
+\begin{equation}
+R^{(m)}_{ij}
+= \frac{\mathrm{Cov}(e_{t,i}, e_{t,j} \mid z_t = m)}
+{\sqrt{\mathrm{Var}(e_{t,i} \mid z_t=m)\,\mathrm{Var}(e_{t,j} \mid z_t=m)}},
+\label{eq:diag_corr_true}
+\end{equation}
+estimated by sample covariance over all $t$ with $z_t=m$. The ``estimated''
+heatmap uses the model's posterior predictive correlations implied by the
+factorized SLDS, averaged over the same regime indices. When available, the
+``no-$g_t$'' panel shows the correlations predicted by the ablated model,
+which should be near zero off-diagonal due to \eqref{eq:nog_cov}. Agreement
+between the true and estimated heatmaps validates that the model captures the
+regime-dependent correlation structure induced by $g_t$.
+
+\paragraph{Correlation tracking for expert pairs (\texttt{corr\_pairs.pdf}).}
+For selected pairs $(i,j)$ we plot the posterior predictive correlation
+\begin{equation}
+\widehat{\rho}_{t,ij}
+= \mathrm{Corr}(e_{t,i}, e_{t,j} \mid \mathcal{F}_{t-1}),
+\end{equation}
+where $\mathcal{F}_{t-1}$ is the information available prior to observing time
+$t$. The dashed curve shows the true regime-specific correlation
+$\rho_{z_t,ij}$; vertical lines mark regime switches. This plot confirms both
+the correct regime dependence and the adaptation speed after switches.
+
+\paragraph{Regime posterior (\texttt{regime\_posterior.pdf}).}
+The upper panel visualizes the filtering posterior
+$w_{t,m} = p(z_t=m \mid \mathcal{F}_{t-1})$, while the lower panel plots the
+true regime $z_t$. High posterior mass on the true regime indicates that the
+IMM filter correctly infers the latent switching process.
+
+\paragraph{Shared-factor recovery (\texttt{g\_recovery.pdf}).}
+We compare the inferred $g_t$ (aligned by permutation/sign to the true
+trajectory) against the ground-truth shared factor from
+\eqref{eq:synthetic_g}. This directly tests whether the model recovers the
+shared latent dynamics that create cross-expert correlations. Alignment is
+necessary because linear-Gaussian latent factors are identifiable only up to
+permutation and sign.
+
+\paragraph{Selection frequency by regime (\texttt{expert\_structure.pdf}).}
+Let $\pi_{m,k}$ denote the fraction of times expert $k$ is selected when
+$z_t=m$. The heatmap reports
+\begin{equation}
+\pi_{m,k}
+= \frac{1}{|\{t : z_t=m\}|}\sum_{t: z_t=m} \mathbb{I}[r_t=k],
+\end{equation}
+where $r_t$ is the chosen expert. This plot checks whether the router learns
+the correct regime-specific expert ordering implied by
+\eqref{eq:expected_cost}. In the constructed environment, experts
+$\{0,1\}$ should dominate in regime~0 and $\{2,3\}$ in regime~1.
+
+\paragraph{Selection frequency by regime for all baselines
+(\texttt{expert\_structure\_all.pdf}).}
+The same statistic $\pi_{m,k}$ is shown for every baseline and router used in
+\texttt{config/exp\_synthetic\_1.yaml}, grouped by feedback type. This figure
+isolates whether each method discovers the correct regime-expert mapping, and
+highlights the failure modes of baselines that do not model shared factors or
+regimes. Only methods actually instantiated by the config are plotted.
+
+\paragraph{Transfer probe under expert unavailability
+(\texttt{transfer\_probe.pdf}).}
+We temporarily remove expert $1$ and track its predicted loss while updating
+on other experts. The main curve reports the posterior mean predicted loss for
+expert $1$,
+\begin{equation}
+\widehat{\ell}_{t,1}^{\text{post}}
+= \mathbb{E}\!\left[\ell_{t,1} \mid \mathcal{F}_t\right],
+\end{equation}
+computed after the belief update at time $t$, alongside the true loss
+$\ell_{t,1} = (\hat{y}_{t,1}-y_t)^2$. The shaded interval indicates when expert
+$1$ is unavailable. Vertical markers indicate selections of the correlated
+expert, testing whether those observations propagate through $g_t$ to update
+the belief about expert $1$. The lower panel shows the update magnitude
+$|\widehat{\ell}_{t,1}^{\text{post}}-\widehat{\ell}_{t,1}^{\text{pre}}|$,
+demonstrating how much the posterior belief changes after each observation.

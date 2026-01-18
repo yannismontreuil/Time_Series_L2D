@@ -653,6 +653,47 @@ class SyntheticTimeSeriesEnv:
                 self.availability[:, 4] = 0
                 mask = (z == 1) | (z == 2)
                 self.availability[mask, 4] = 1
+            # Apply optional unavailability/arrival overrides on top.
+            if (
+                unavailable_expert_idx is not None
+                and 0 <= unavailable_expert_idx < self.num_experts
+            ):
+                if unavailable_intervals is not None:
+                    for start, end in unavailable_intervals:
+                        t_start = max(int(start), 0)
+                        t_end = min(int(end) + 1, T)
+                        if t_start >= T or t_end <= 0:
+                            continue
+                        if t_start < t_end:
+                            self.availability[
+                                t_start:t_end, unavailable_expert_idx
+                            ] = 0
+                elif T > 2:
+                    if unavailable_start_t is None:
+                        t_off = T // 4
+                    else:
+                        t_off = int(unavailable_start_t)
+                    if 0 <= t_off < T - 1:
+                        t_on = min(2 * t_off, T - 1)
+                        if t_on > t_off:
+                            self.availability[
+                                t_off:t_on, unavailable_expert_idx
+                            ] = 0
+            if (
+                arrival_expert_idx is not None
+                and 0 <= arrival_expert_idx < self.num_experts
+            ):
+                self.availability[:, arrival_expert_idx] = 0
+                if arrival_intervals is not None:
+                    for start, end in arrival_intervals:
+                        t_start = max(int(start), 0)
+                        t_end = min(int(end) + 1, T)
+                        if t_start >= T or t_end <= 0:
+                            continue
+                        if t_start < t_end:
+                            self.availability[
+                                t_start:t_end, arrival_expert_idx
+                            ] = 1
         else:
             # Default: all experts available, then apply optional masks.
             self.availability = np.ones((T, self.num_experts), dtype=int)

@@ -428,6 +428,64 @@ is negligible compared to the SLDS update cost.
 \end{algorithmic}
 \end{algorithm}
 
+% =========================
+% Predictive Scheduling Details
+% =========================
+\section{Predictive Scheduling with Relative-Thresholded Sets}
+\label{app:planning_relative_threshold}
+
+We collect the scheduling notation and the relative-threshold rule used in the experiments.
+At decision time $t$, the planner has access to the working registry $\mathcal{K}^{\text{work}}_t$ and
+feasibility constraints $\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}=\mathcal{K}^{\text{work}}_t\cap\mathcal{A}_{t+h}$.
+Given a forecast trajectory $\mathbf{x}_{t+1:t+H}$, the open-loop planner selects
+\begin{equation}
+I_{t+h}^{\ast}(\mathbf{x}_{t+1:t+h})
+\in
+\arg\min_{k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}} C_{t+h,k}^{\dagger}(\mathbf{x}_{t+1:t+h}),
+\qquad h=1,\dots,H,
+\end{equation}
+where $C_{t+h,k}^{\dagger}$ is the predicted cost obtained by propagating the time-$t$ belief without
+any measurement updates. This defines the random planned winner $I_{t+h}^{\ast}$ under the
+scenario distribution $p(\mathbf{X}_{t+1:t+H}\mid\mathcal{F}_t)$ and yields the time-marginal demand
+\begin{equation}
+\rho_{t,h}(k)\coloneqq \mathbb{P}\!\left(I_{t+h}^{\ast}=k\mid\mathcal{F}_t\right),\qquad
+k\in\mathcal{K}^{\text{work}}_t.
+\end{equation}
+
+We summarize the demand with a relative-thresholded active set. Let
+\(
+\rho^{\max}_{t,h}\coloneqq \max_{k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}}\rho_{t,h}(k)
+\)
+(with $\rho^{\max}_{t,h}=0$ when the feasible set is empty). For $\delta\in[0,1)$, define
+\begin{equation}
+\mathcal{S}_{t,h}(\delta)
+\coloneqq
+\left\{k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}:\rho_{t,h}(k)\ge (1-\delta)\rho^{\max}_{t,h}\right\}.
+\end{equation}
+This rule keeps the on-call experts whose probability is within a multiplicative gap of the most
+likely expert. It is scale-free, does not depend on the number of experts, and is never empty when
+$\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}\neq\varnothing$. The extremes are
+$\delta=0$ (only maximizers) and $\delta\uparrow 1$ (all feasible experts). The mapping is monotone:
+if $0\le \delta_1\le \delta_2<1$ then $\mathcal{S}_{t,h}(\delta_1)\subseteq\mathcal{S}_{t,h}(\delta_2)$.
+
+\paragraph{Monte Carlo plug-in estimator.}
+With $N$ sampled scenarios, we estimate $\rho_{t,h}(k)$ by
+\(
+\hat{\rho}_{t,h}(k)=\frac{1}{N}\sum_{n=1}^N\mathbf{1}\{\widehat{I}^{(n)}_{t+h}=k\}
+\)
+and define the plug-in max
+\(
+\hat{\rho}^{\max}_{t,h}=\max_{k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}}\hat{\rho}_{t,h}(k)
+\).
+The estimated active set is
+\begin{equation}
+\widehat{\mathcal{S}}_{t,h}(\delta)
+\coloneqq
+\left\{k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}:\hat{\rho}_{t,h}(k)\ge (1-\delta)\hat{\rho}^{\max}_{t,h}\right\}.
+\end{equation}
+The resulting trajectory $\widehat{\mathcal{S}}_{t:t+H}(\delta)$ is the on-call plan reported by the
+planner.
+
 
 % \section{Time Complexity Analysis}
 

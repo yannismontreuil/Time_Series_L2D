@@ -2453,6 +2453,8 @@ class FactorizedSLDS(SLDSIMMRouter):
             lr=float(lr),
             weight_decay=float(weight_decay),
         )
+        best_state = None
+        best_loss = float("inf")
         for _ in range(max(1, int(steps))):
             optimizer.zero_grad()
             logits = self.transition_model(x_tensor)
@@ -2463,7 +2465,26 @@ class FactorizedSLDS(SLDSIMMRouter):
             loss = -(xi_tensor * log_probs).sum() / denom
             loss.backward()
             optimizer.step()
+            loss_val = float(loss.detach().cpu())
+            if loss_val < best_loss:
+                best_loss = loss_val
+                best_state = {
+                    k: v.detach().cpu().clone()
+                    for k, v in self.transition_model.state_dict().items()
+                }
         self.transition_model.eval()
+        with torch.no_grad():
+            logits = self.transition_model(x_tensor)
+            log_probs = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
+            denom = max(float(xi_tensor.sum().item()), self.eps)
+            final_loss = float((-(xi_tensor * log_probs).sum() / denom).detach().cpu())
+        if final_loss < best_loss:
+            best_state = {
+                k: v.detach().cpu().clone()
+                for k, v in self.transition_model.state_dict().items()
+            }
+        if best_state is not None:
+            self.transition_model.load_state_dict(best_state)
 
     def _train_transition_linear_torch(
         self,
@@ -2504,6 +2525,9 @@ class FactorizedSLDS(SLDSIMMRouter):
         step_dws: list[float] = []
         grad_norms: list[float] = []
         denom = max(float(xi_tensor.sum().detach().cpu()), float(self.eps))
+        best_loss = float("inf")
+        best_W = None
+        best_b = None
         for _ in range(max(1, int(steps))):
             W_prev = W_lin.detach().clone()
 
@@ -2522,11 +2546,28 @@ class FactorizedSLDS(SLDSIMMRouter):
             optimizer.step()
 
             step_dws.append(float((W_lin.detach() - W_prev).norm().cpu()))
-            losses.append(float(loss.detach().cpu()))
+            loss_val = float(loss.detach().cpu())
+            losses.append(loss_val)
+            if loss_val < best_loss:
+                best_loss = loss_val
+                best_W = W_lin.detach().cpu().clone()
+                best_b = b_lin.detach().cpu().clone()
+
+        with torch.no_grad():
+            scores = torch.einsum("mjd,td->tmj", W_lin, x_tensor) + b_lin
+            log_probs = scores - torch.logsumexp(scores, dim=-1, keepdim=True)
+            final_loss = float((-(xi_tensor * log_probs).sum() / denom).detach().cpu())
+        if final_loss < best_loss:
+            best_W = W_lin.detach().cpu().clone()
+            best_b = b_lin.detach().cpu().clone()
 
         # Save trained params
-        self.W_lin = W_lin.detach().cpu().numpy()
-        self.b_lin = b_lin.detach().cpu().numpy()
+        if best_W is None or best_b is None:
+            self.W_lin = W_lin.detach().cpu().numpy()
+            self.b_lin = b_lin.detach().cpu().numpy()
+        else:
+            self.W_lin = best_W.numpy()
+            self.b_lin = best_b.numpy()
 
 
     def _train_transition_attention_torch(
@@ -2571,6 +2612,10 @@ class FactorizedSLDS(SLDSIMMRouter):
         )
         scale = (W_q.shape[1] ** 0.5)
         denom = max(float(xi_tensor.sum().detach().cpu()), self.eps)
+        best_loss = float("inf")
+        best_Wq = None
+        best_Wk = None
+        best_b = None
         for _ in range(max(1, int(steps))):
             optimizer.zero_grad(set_to_none=True)
             q = torch.einsum("mad,td->tma", W_q, x_tensor)
@@ -2582,10 +2627,36 @@ class FactorizedSLDS(SLDSIMMRouter):
             loss = -(xi_tensor * log_probs).sum() / denom
             loss.backward()
             optimizer.step()
-        self.W_q = W_q.detach().cpu().numpy()
-        self.W_k = W_k.detach().cpu().numpy()
-        if b_attn is not None:
-            self.b_attn = b_attn.detach().cpu().numpy()
+            loss_val = float(loss.detach().cpu())
+            if loss_val < best_loss:
+                best_loss = loss_val
+                best_Wq = W_q.detach().cpu().clone()
+                best_Wk = W_k.detach().cpu().clone()
+                if b_attn is not None:
+                    best_b = b_attn.detach().cpu().clone()
+        with torch.no_grad():
+            q = torch.einsum("mad,td->tma", W_q, x_tensor)
+            k = torch.einsum("mad,td->tma", W_k, x_tensor)
+            scores = torch.einsum("tma,tna->tmn", q, k) / scale
+            if b_attn is not None:
+                scores = scores + b_attn
+            log_probs = scores - torch.logsumexp(scores, dim=-1, keepdim=True)
+            final_loss = float((-(xi_tensor * log_probs).sum() / denom).detach().cpu())
+        if final_loss < best_loss:
+            best_Wq = W_q.detach().cpu().clone()
+            best_Wk = W_k.detach().cpu().clone()
+            if b_attn is not None:
+                best_b = b_attn.detach().cpu().clone()
+        if best_Wq is None or best_Wk is None:
+            self.W_q = W_q.detach().cpu().numpy()
+            self.W_k = W_k.detach().cpu().numpy()
+            if b_attn is not None:
+                self.b_attn = b_attn.detach().cpu().numpy()
+        else:
+            self.W_q = best_Wq.numpy()
+            self.W_k = best_Wk.numpy()
+            if b_attn is not None and best_b is not None:
+                self.b_attn = best_b.numpy()
 
     def _kalman_sample(
         self,
