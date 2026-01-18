@@ -4,9 +4,9 @@
 \label{sec:preliminaries}
 
 We study sequential expert routing over a finite horizon \(t\in [T]\coloneqq\{1,\dots,T\}\) with
-\emph{bandit feedback on expert predictions (equivalently, per-expert costs)}: at each round, the
-router observes the target \(y_t\) but only the queried expert's prediction; since the fee schedule is
-known, this is equivalent to observing only the queried expert's cost. Let
+\emph{bandit feedback on expert predictions}: at each round, the router observes the target \(y_t\)
+but only the queried expert's prediction \(\widehat{y}_{t,I_t}\), so it can compute the signed
+residual and cost for the selected expert only. Let
 \((\Omega,\mathcal{F},\mathbb{P})\) be a probability space supporting all random variables. Let
 \(\mathcal{Y}\subseteq\mathbb{R}\) denote the target space.
 
@@ -20,8 +20,9 @@ The process unfolds in discrete rounds. At each time \(t\):
     \item \textbf{Action:} the router selects an expert index \(I_t \in \mathcal{E}_t\) using only
     decision-time information.
     \item \textbf{Feedback:} querying expert \(I_t\) returns a prediction \(\widehat{y}_{t,I_t}\);
-    the environment then reveals the target \(y_t \in \mathcal{Y}\).
-    The router incurs a cost associated with selecting expert \(I_t\).
+    the environment then reveals the target \(y_t \in \mathcal{Y}\). The observation is
+    \(O_t\coloneqq (I_t,\widehat{y}_{t,I_t},y_t)\), which lets the router compute the signed residual
+    \(e_t=y_t-\widehat{y}_{t,I_t}\) and cost for the queried expert.
 \end{enumerate}
 
 \paragraph{Expert registry and potential outcomes.}
@@ -42,7 +43,7 @@ counterfactual.
 Define the (potential) realized residual of expert \(k\) at time \(t\) as
 \begin{equation}
 \label{eq:realized_residual}
-    e_{t,k} \coloneqq \widehat{y}_{t,k}-y_t ,
+    e_{t,k} \coloneqq y_t-\widehat{y}_{t,k} ,
 \end{equation}
 which is observed only for the queried expert \(k=I_t\).
 The corresponding (potential) realized cost is
@@ -112,7 +113,7 @@ latent-state model that yields a tractable one-step-ahead predictive belief.
 \label{sec:generative_model}
 
 To obtain a tractable predictive model under non-stationarity and bandit feedback, we model the
-\emph{potential residuals} \(e_{t,k}=\widehat{y}_{t,k}-y_t\) from Section~\ref{sec:preliminaries}
+\emph{potential residuals} \(e_{t,k}=y_t-\widehat{y}_{t,k}\) from Section~\ref{sec:preliminaries}
 with a \textbf{factorized switching linear dynamical system (SLDS)}. The central bottleneck is
 censoring: at round \(t\) we observe only the queried residual
 \(
@@ -249,7 +250,8 @@ In the exact Bayesian filter, incorporating the observation \(e_t\) induces depe
 shared factor \(\mathbf{g}_t\) and the idiosyncratic states \((\mathbf{u}_{t,k})_k\), and hence across
 experts. For scalability, our inference maintains a \emph{factorized} approximation: after each
 update, we project the filtering belief back to a family in which (conditional on \(z_t\)) the
-idiosyncratic states are independent across experts and independent of \(\mathbf{g}_t\).
+idiosyncratic states are independent across experts and independent of \(\mathbf{g}_t\); see
+Appendix~\ref{app:cross_covariance} for the full (non-factorized) update and why we avoid it.
 
 \begin{restatable}[Information transfer under a shared factor]{proposition}{propinfo}
 \label{prop:cross_update}
@@ -310,38 +312,49 @@ C_{t,k}^{\mathrm{pred}}
 Let the myopic baseline be
 \begin{equation}
 \label{eq:myopic_baseline_ids}
-k_t^{\star} \in \arg\min_{k\in\mathcal{E}_t} \mathbb{E}\!\left[C_{t,k}^{\mathrm{pred}} \mid \mathcal{F}_t\right].
+k_t^{\mathrm{pred}} \in \arg\min_{k\in\mathcal{E}_t} \mathbb{E}\!\left[C_{t,k}^{\mathrm{pred}} \mid \mathcal{F}_t\right].
 \end{equation}
 The (predictive) value gap of choosing \(k\) is
 \begin{equation}
 \label{eq:model_gap}
 \Delta_t(k)
 \coloneqq
-\mathbb{E}\!\left[ C_{t,k}^{\mathrm{pred}} - C_{t, k_t^\star}^{\mathrm{pred}} \,\middle|\, \mathcal{F}_t \right]
+\mathbb{E}\!\left[ C_{t,k}^{\mathrm{pred}} - C_{t, k_t^{\mathrm{pred}}}^{\mathrm{pred}} \,\middle|\, \mathcal{F}_t \right]
 \ge 0,
 \end{equation}
-where nonnegativity follows from the definition of \(k_t^\star\).
+where nonnegativity follows from the definition of \(k_t^{\mathrm{pred}}\).
 
-\paragraph{Epistemic value: information gain about the shared factor.}
-In the factorized SLDS, cross-expert information transfer is mediated by the shared factor
-\(\mathbf{g}_t\) (Proposition~\ref{prop:cross_update}). We score expert \(k\) by the mutual
-information between \(\mathbf{g}_t\) and the \emph{hypothetical} residual that would be observed if
-\(k\) were queried:
+\paragraph{Epistemic value: information gain about the joint latent state \((z_t,\mathbf{g}_t)\).}
+In the factorized SLDS, non-stationarity is governed by the regime \(z_t\) and cross-expert
+information transfer is mediated by the shared factor \(\mathbf{g}_t\)
+(Proposition~\ref{prop:cross_update}). To accelerate adaptation under regime uncertainty, we score
+expert \(k\) by the mutual information between the \emph{joint} latent state \((z_t,\mathbf{g}_t)\)
+and the hypothetical residual:
 \begin{equation}
 \label{eq:ig_operational}
 \mathrm{IG}_t(k)
 \coloneqq
-\mathcal{I}\!\left(\mathbf{g}_t;\, e_{t,k}^{\mathrm{pred}} \,\middle|\, \mathcal{F}_t\right).
+\mathcal{I}\!\left((z_t,\mathbf{g}_t);\, e_{t,k}^{\mathrm{pred}} \,\middle|\, \mathcal{F}_t\right).
 \end{equation}
-Equivalently, conditioning on the event \(I_t=k\), the realized observation \(e_t\) is a draw from
-the same predictive law as \(e_{t,k}^{\mathrm{pred}}\), so
-\(\mathrm{IG}_t(k)=\mathcal{I}(\mathbf{g}_t;\, e_t \mid \mathcal{F}_t, I_t=k)\).
+By the chain rule for mutual information, this decomposes as
+\begin{equation}
+\label{eq:ig_chain_rule}
+\mathrm{IG}_t(k)
+=
+\underbrace{\mathcal{I}\!\left(z_t;\, e_{t,k}^{\mathrm{pred}} \,\middle|\, \mathcal{F}_t\right)}_{\text{mode-identification}}
++
+\underbrace{\mathcal{I}\!\left(\mathbf{g}_t;\, e_{t,k}^{\mathrm{pred}} \,\middle|\, z_t, \mathcal{F}_t\right)}_{\text{shared-factor refinement}}.
+\end{equation}
+The first term measures how much observing the residual helps identify the current regime---crucial
+for adapting to regime changes. The second term measures the reduction in uncertainty about the
+shared factor, enabling information transfer across experts.
 
+\paragraph{Closed-form shared-factor refinement.}
 Fix a regime \(z_t=m\). Under the factorized one-step-ahead predictive belief, the conditional
 predictive law is Gaussian:
 \begin{equation}
 \label{eq:channel_form}
-e_{t,k}^{\mathrm{pred}} \mid \mathbf{g}_t
+e_{t,k}^{\mathrm{pred}} \mid (\mathbf{g}_t, z_t=m)
 \sim
 \mathcal{N}\!\big(h_{t,k}^\top \mathbf{g}_t + b^{(m)}_{t,k},\, s^{(m)}_{t,k}\big),
 \end{equation}
@@ -353,28 +366,30 @@ s^{(m)}_{t,k}
 \coloneqq
 \phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\phi(\mathbf{x}_t) + R_{m,k}.
 \end{equation}
-The mutual information depends only on the covariance, so the mean offset \(b^{(m)}_{t,k}\) does not
-affect \eqref{eq:ig_mode}.
 Let \(\Sigma^{(m)}_{g,t\mid t-1}\) denote the one-step predictive covariance of \(\mathbf{g}_t\) under
-regime \(m\). Then the mode-conditioned information gain is
+regime \(m\). The mode-conditioned shared-factor information gain admits the closed form
 \begin{equation}
 \label{eq:ig_mode}
 \mathcal{I}\!\left(\mathbf{g}_t;e_{t,k}^{\mathrm{pred}}\mid \mathcal{F}_t,z_t=m\right)
 =
 \frac12\log\!\left(1+\frac{ h_{t,k}^\top \Sigma^{(m)}_{g,t\mid t-1} h_{t,k} }{s^{(m)}_{t,k}}\right).
 \end{equation}
-
-To obtain a tractable score under regime uncertainty, we marginalize using the predictive regime
-weights \(\bar{w}_t^{(m)} \coloneqq \mathbb{P}(z_t=m\mid\mathcal{F}_t)\) and define the computable proxy
+Averaging over the predictive regime weights \(\bar{w}_t^{(m)} \coloneqq \mathbb{P}(z_t=m\mid\mathcal{F}_t)\):
 \begin{equation}
-\label{eq:ig_mix}
-\mathrm{IG}_t(k)
-\coloneqq
+\label{eq:ig_g_mix}
+\mathcal{I}\!\left(\mathbf{g}_t;e_{t,k}^{\mathrm{pred}}\mid z_t, \mathcal{F}_t\right)
+=
 \sum_{m=1}^M \bar{w}_t^{(m)}\,
 \mathcal{I}\!\left(\mathbf{g}_t;e_{t,k}^{\mathrm{pred}}\mid \mathcal{F}_t,z_t=m\right).
 \end{equation}
-(We reuse the notation \(\mathrm{IG}_t(k)\) for this mixture proxy to \eqref{eq:ig_operational}; it is
-exact when \(z_t\) is known.)
+
+\paragraph{Mode-identification via Monte Carlo.}
+The mode-identification term \(\mathcal{I}(z_t; e_{t,k}^{\mathrm{pred}} \mid \mathcal{F}_t)\) measures
+how distinguishable the per-mode predictive distributions are. Since
+\(p(e_{t,k}\mid\mathcal{F}_t)=\sum_m \bar{w}_t^{(m)}\mathcal{N}(\mu^{(m)}_{e,t,k}, v^{(m)}_{e,t,k})\)
+is a Gaussian mixture (where \(\mu^{(m)}_{e,t,k}, v^{(m)}_{e,t,k}\) are the per-mode predictive mean
+and variance), this term does not admit a closed form but can be estimated efficiently via Monte
+Carlo; see Appendix for algorithmic details.
 
 \paragraph{Minimizing the information ratio.}
 IDS selects the routing action by minimizing the squared information ratio
@@ -384,9 +399,11 @@ I_t \in \arg\min_{k\in\mathcal{E}_t}\ \frac{\Delta_t(k)^2}{\mathrm{IG}_t(k)}.
 \end{equation}
 If \(\mathrm{IG}_t(k)=0\), we interpret the ratio as \(+\infty\) unless \(\Delta_t(k)=0\); if all
 \(\mathrm{IG}_t(k)=0\), IDS reduces to the myopic choice in \eqref{eq:myopic_baseline_ids}.
+In implementation, we clamp estimated \(\mathrm{IG}_t(k)\) below by a small \(\epsilon_{\mathrm{IG}}>0\)
+for numerical stability.
 This criterion prioritizes experts that are either near-optimal (small \(\Delta_t(k)\)) or highly
-informative about the shared dynamics (large \(\mathrm{IG}_t(k)\)), accelerating adaptation under
-censoring without auxiliary queries.
+informative about the latent state \((z_t,\mathbf{g}_t)\) (large \(\mathrm{IG}_t(k)\)), accelerating
+adaptation to both regime changes and shared-factor drift without auxiliary queries.
 
 \subsubsection{The IMM filtering recursion}
 The IMM maintains $M$ mode-conditioned Gaussian filters over the shared factor \(\mathbf{g}_t\) and
@@ -621,9 +638,11 @@ time $t$, the scheduler selects an \emph{active-set trajectory}
 \)
 with $\mathcal{S}_{t,h}\subseteq \mathcal{K}^{\text{work}}_t$, where $\mathcal{S}_{t,h}$ is the set of experts
 kept on-call for time $t+h$. Our goal is to choose $\mathcal{S}_{t:t+H}$ so that, for each $h$, the
-planner's predicted choice at time $t+h$ (defined below) falls in $\mathcal{S}_{t,h}$ with probability at
-least $1-\delta$. We achieve this by estimating the planner's time-marginal demand and taking a
-quantile-based coverage set at each lookahead. We distinguish the ideal schedule
+planner's predicted choices at time $t+h$ are distilled into a probability-of-use score for each expert.
+We then keep on-call the experts whose probability is close to the most likely expert at that time.
+Concretely, with tolerance $\delta\in[0,1)$, we include any expert whose time-marginal probability is
+at least a $(1-\delta)$ fraction of the maximum; larger $\delta$ lowers the relative threshold and
+produces larger sets. We distinguish the ideal schedule
 $\mathcal{S}_{t:t+H}(\delta)$ (built from the true marginals) from its Monte Carlo estimate
 $\widehat{\mathcal{S}}_{t:t+H}(\delta)$.
 
@@ -655,9 +674,16 @@ maintained idiosyncratic marginals at time $t$, i.e. the working registry $\math
 \mathcal{K}^{\text{work}}_t \cap \mathcal{A}_{t+h},
 \qquad h=1,\dots,H.
 \end{equation}
+Experts outside $\mathcal{K}^{\text{work}}_t$ are treated as infeasible even if they are available,
+because the planner has no maintained predictive belief for them.
 If expert $j$ is known at time $t$ to be unavailable on Mondays, then for any
 $h\in\{1,\dots,H\}$ such that $t+h$ falls on a Monday we set $j\notin\mathcal{A}_{t+h}$, hence
 $j\notin\mathcal{E}^{\mathrm{feas}}_{t+h \mid t}$, and $j$ cannot be selected by planning at that time.
+If \(\mathcal{E}^{\mathrm{feas}}_{t+h \mid t}=\varnothing\), then no expert is known feasible at time
+\(t+h\); in this case we define the planned choice as \(\widehat{I}_{t+h}=\varnothing\) and set the
+on-call set \(\mathcal{S}_{t,h}(\delta)=\varnothing\).
+In our experiments, $(\mathcal{A}_{t+h})_{h=1}^H$ is deterministic and known at time $t$ (e.g., fixed
+availability windows), so $\mathcal{E}^{\mathrm{feas}}_{t+h \mid t}$ is a deterministic constraint.
 
 \paragraph{Model-predictive optimal path (planning at time $t$).}
 Fix a candidate future context trajectory $\mathbf{x}_{t+1:t+H}$.
@@ -676,7 +702,9 @@ Equivalently, \(C_{t+h,k}^{\dagger}\) is the conditional expectation of
 \(C_{t+h,k}^{\mathrm{pred}}\) from \eqref{eq:virtual_cost_def}.
 Crucially, \eqref{eq:pred_cost} is computed \emph{without} querying experts during planning (no
 $\widehat{y}_{t+h,k}$ is revealed) and \emph{without} observing the future target $y_{t+h}$; it depends
-only on the time-$t$ SLDS belief and the hypothesized context prefix.
+only on the time-$t$ SLDS belief and the hypothesized context prefix. In particular, the belief is
+propagated forward \emph{open-loop} using the learned dynamics and the forecasted contexts, and no
+measurement updates or exploration bonuses are applied during planning.
 
 The \emph{predictive} choice at time $t+h$ is
 \begin{equation}
@@ -685,13 +713,17 @@ The \emph{predictive} choice at time $t+h$ is
 \in
 \arg\min_{k\in\mathcal{E}^{\mathrm{feas}}_{t+h \mid t}} C_{t+h,k}^{\dagger}(\mathbf{x}_{t+1:t+h}),
 \end{equation}
-with a fixed deterministic tie-break, and the corresponding planned path is
+with a fixed deterministic tie-break; if \(\mathcal{E}^{\mathrm{feas}}_{t+h \mid t}=\varnothing\),
+we set \(\widehat{I}_{t+h}=\varnothing\). The corresponding planned path is
 \begin{equation}
 \label{eq:pred_path}
 \widehat{I}_{t+1:t+H}(\mathbf{x}_{t+1:t+H})
 \coloneqq
 \bigl(\widehat{I}_{t+h}(\mathbf{x}_{t+1:t+h})\bigr)_{h=1}^{H}.
 \end{equation}
+We view the planned path as an element of
+\(\prod_{h=1}^{H}\left(\mathcal{E}^{\mathrm{feas}}_{t+h \mid t}\cup\{\varnothing\}\right)\), with
+\(\widehat{I}_{t+h}=\varnothing\) when \(\mathcal{E}^{\mathrm{feas}}_{t+h \mid t}=\varnothing\).
 
 \paragraph{Demand induced by context uncertainty.}
 For a \emph{fixed} candidate future context trajectory $\mathbf{x}_{t+1:t+H}$, the planning rule in
@@ -700,7 +732,7 @@ planned expert sequence $\widehat{I}_{t+1:t+H}(\mathbf{x}_{t+1:t+H})$. Consequen
 of randomness in the planned sequence is uncertainty about future contexts. Under the forecast model,
 $\mathbf{X}_{t+1:t+H}\sim p(\cdot\mid \mathcal{F}_t)$, this induces a distribution over planned expert
 paths. Formally, for any feasible index sequence
-$\mathbf{i}\in\prod_{h=1}^{H}\mathcal{E}^{\mathrm{feas}}_{t+h \mid t}$,
+$\mathbf{i}\in\prod_{h=1}^{H}\left(\mathcal{E}^{\mathrm{feas}}_{t+h \mid t}\cup\{\varnothing\}\right)$,
 \begin{equation}
 \label{eq:path_dist}
 \mathbb{P}\!\left(\widehat{I}_{t+1:t+H}(\mathbf{X}_{t+1:t+H})=\mathbf{i} \ \middle|\ \mathcal{F}_t\right).
@@ -719,6 +751,8 @@ $H\times|\mathcal{K}^{\text{work}}_t|$ demand matrix; each row is supported on t
 $\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}$. When the forecast is sharp, a row concentrates on one
 expert; when futures are ambiguous, mass spreads across multiple experts, motivating on-call sets that
 retain several candidates at the same lookahead.
+If \(\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}=\varnothing\), then \(\rho_{t,h}(k)=0\) for all
+\(k\in\mathcal{K}^{\text{work}}_t\).
 
 \subsection{Monte Carlo Planning for Predictive Scheduling}
 \label{sec:mc_planning}
@@ -772,7 +806,7 @@ the horizon. Collecting these per-time choices yields the scenario-wise planned 
 \coloneqq
 \bigl(\widehat{I}^{(n)}_{t+h}\bigr)_{h=1}^{H}
 \in
-\prod_{h=1}^{H}\mathcal{E}^{\mathrm{feas}}_{t+h \mid t}.
+\prod_{h=1}^{H}\left(\mathcal{E}^{\mathrm{feas}}_{t+h \mid t}\cup\{\varnothing\}\right).
 \end{equation}
 
 \paragraph{Estimating time-marginal demand.}
@@ -784,25 +818,36 @@ and $k\in\mathcal{K}^{\text{work}}_t$,
 \coloneqq
 \frac{1}{N}\sum_{n=1}^N \mathbf{1}\!\left\{\widehat{I}^{(n)}_{t+h}=k\right\}.
 \end{equation}
-For fixed $h$, the vector $\bigl(\hat{\rho}_{t,h}(k)\bigr)_{k\in\mathcal{K}^{\text{work}}_t}$ is
-a pmf supported on $\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}$: it assigns non-zero mass to multiple
-experts exactly when different scenarios yield different planned winners at time $t+h$. Conditioned
-on $\mathcal{F}_t$, the conditional law of large numbers gives
+For fixed $h$ and non-empty $\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}$, the vector
+$\bigl(\hat{\rho}_{t,h}(k)\bigr)_{k\in\mathcal{K}^{\text{work}}_t}$ is a pmf supported on
+$\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}$: it assigns non-zero mass to multiple experts exactly when
+different scenarios yield different planned winners at time $t+h$. If
+$\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}=\varnothing$, then $\hat{\rho}_{t,h}(k)=0$ for all $k$.
+Conditioned on $\mathcal{F}_t$, the conditional law of large numbers gives
 $\hat{\rho}_{t,h}(k)\to \rho_{t,h}(k)$ almost surely as $N\to\infty$
 for each $(h,k)$, under the context-sampling distribution actually used.
 
 \paragraph{From time-marginals to an active-set trajectory.}
 The time-marginals $\rho_{t,h}(\cdot)$ describe which expert the planner would select at time $t+h$ under
-the forecast. To translate these marginals into an on-call decision, we construct for each $h$ a
-(possibly multi-expert) \emph{coverage set} $\mathcal{S}_{t,h}(\delta)$ that contains the
-highest-probability experts summing to at least $1-\delta$.
+the forecast. To translate these marginals into an on-call decision, we form a
+(possibly multi-expert) \emph{relative-thresholded active set} by keeping only experts whose marginal
+probability is within a multiplicative gap of the most likely expert.
 
-Fix a tolerance $\delta\in[0,1)$. For each $h\in\{1,\dots,H\}$, let $k_{(1)}, k_{(2)}, \dots$ denote experts
-sorted so that $\rho_{t,h}(k_{(1)})\ge \rho_{t,h}(k_{(2)})\ge \cdots$. Define the minimum set size
+Fix a tolerance $\delta\in[0,1)$. For each $h\in\{1,\dots,H\}$, define the maximum mass
+\(
+\rho^{\max}_{t,h}\coloneqq \max_{k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}} \rho_{t,h}(k)
+\),
+with the convention that $\rho^{\max}_{t,h}=0$ when \(\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}=\varnothing\).
+The active set is
 \begin{equation}
-K_h \coloneqq \min \left\{ K : \sum_{i=1}^K \rho_{t,h}(k_{(i)}) \ge 1-\delta \right\},
+\mathcal{S}_{t,h}(\delta)
+\coloneqq
+\left\{ k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t} : \rho_{t,h}(k)\ge (1-\delta)\rho^{\max}_{t,h} \right\}.
 \end{equation}
-and set $\mathcal{S}_{t,h}(\delta) \coloneqq \{ k_{(1)}, \dots, k_{(K_h)} \}$. The resulting
+If \(\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}=\varnothing\), then \(\mathcal{S}_{t,h}(\delta)=\varnothing\).
+Otherwise, $\mathcal{S}_{t,h}(\delta)$ always contains the maximizers of $\rho_{t,h}$ and expands as the
+distribution flattens (larger $\delta$ lowers the relative threshold). The extremes are intuitive:
+$\delta=0$ yields the set of maximizers, while $\delta\uparrow 1$ includes all feasible experts. The resulting
 \emph{active-set trajectory} is
 \begin{equation}
 \label{eq:active_schedule}
@@ -812,22 +857,24 @@ and set $\mathcal{S}_{t,h}(\delta) \coloneqq \{ k_{(1)}, \dots, k_{(K_h)} \}$. T
 \end{equation}
 which prescribes the on-call set for each future time $t+h$.
 
-By construction, $\sum_{k\in\mathcal{S}_{t,h}(\delta)} \rho_{t,h}(k)\ge 1-\delta$ for each $h$, so
-\[
-\mathbb{P}\!\left(\widehat{I}_{t+h}\in \mathcal{S}_{t,h}(\delta)\ \middle|\ \mathcal{F}_t\right)\ge 1-\delta,
-\qquad h=1,\dots,H.
-\]
+By construction, every expert $k\in\mathcal{S}_{t,h}(\delta)$ satisfies
+\(\rho_{t,h}(k)\ge (1-\delta)\rho^{\max}_{t,h}\); the set therefore contains only near-maximal candidates.
+The total mass \(\sum_{k\in\mathcal{S}_{t,h}(\delta)} \rho_{t,h}(k)\) is not forced to exceed any fixed
+threshold and can be small when demand is diffuse; the rule is intentionally conservative but never
+empty when a feasible expert exists.
 Moreover, $\mathcal{S}_{t,h}(\delta)\subseteq \mathcal{E}^{\mathrm{feas}}_{t+h\mid t}$ for each $h$,
 so each scheduled set is feasible and contained in $\mathcal{K}^{\text{work}}_t$.
 
 \paragraph{Monte Carlo implementation.}
-In practice we replace $\rho_{t,h}$ by its Monte Carlo estimate $\hat{\rho}_{t,h}$ in the same construction.
-The resulting plug-in sets are denoted $\widehat{\mathcal{S}}_{t,h}(\delta)$, and the output schedule is
+In practice we replace $\rho_{t,h}$ by its Monte Carlo estimate $\hat{\rho}_{t,h}$ in the same construction:
+\(\widehat{\mathcal{S}}_{t,h}(\delta)=\{k:\hat{\rho}_{t,h}(k)\ge (1-\delta)\hat{\rho}^{\max}_{t,h}\}\). The
+resulting plug-in sets are denoted $\widehat{\mathcal{S}}_{t,h}(\delta)$, and the output schedule is
 \(
 \widehat{\mathcal{S}}_{t:t+H}(\delta)\coloneqq (\widehat{\mathcal{S}}_{t,h}(\delta))_{h=1}^H
 \).
 By the conditional law of large numbers, $\hat{\rho}_{t,h}(k)\to\rho_{t,h}(k)$ almost surely for each $(h,k)$,
-so $\widehat{\mathcal{S}}_{t,h}(\delta)$ converges to $\mathcal{S}_{t,h}(\delta)$ except at ties.
+so $\widehat{\mathcal{S}}_{t,h}(\delta)$ converges to $\mathcal{S}_{t,h}(\delta)$ except at ties and
+threshold boundaries.
 For example, with $H=3$ and experts \(\{1,2,3\}\), a realized schedule might be
 \(\widehat{\mathcal{S}}_{t:t+3}(\delta)=(\{2\},\{2,3\},\{1\})\), meaning that time $t+1$ calls for expert
 2, time $t+2$ keeps \(\{2,3\}\) on-call, and time $t+3$ calls for expert 1. If we also include the
@@ -836,6 +883,13 @@ one can form $\widehat{\mathcal{S}}^{\cup}_t(\delta)\coloneqq\bigcup_{h=1}^H \wi
 When uncertainty is high, the marginal mass can be spread across several experts and
 $\widehat{\mathcal{S}}_{t,h}(\delta)$ may include multiple candidates; when demand concentrates, it typically
 reduces to a single dominant expert.
+
+\paragraph{Regressive planning baseline.}
+For comparison, we also report a \emph{regressive} planning baseline that updates the context
+trajectory using the chosen expert's forecast at each lookahead step. This couples the forecasted
+contexts to the planned expert sequence and deviates from the exogenous-context assumption used for
+the predictive scheduling construction above. We treat it purely as a baseline, not as part of the
+formal scheduling rule.
 
 \begin{algorithm}[H]
 \caption{Predictive Scheduling via Monte Carlo}
@@ -846,14 +900,22 @@ reduces to a single dominant expert.
 \FOR{$n=1$ to $N$}
     \FOR{$h=1$ to $H$}
         \STATE $\mathcal{E}^{\mathrm{feas}}_{t+h\mid t} \leftarrow \mathcal{K}^{\text{work}}_t \cap \mathcal{A}_{t+h}$
-        \STATE Compute $C_{t+h,k}^{\dagger}(\mathbf{X}^{(n)}_{t+1:t+h})$ for all $k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}$ via \eqref{eq:pred_cost}
-        \STATE $\widehat{I}^{(n)}_{t+h} \in \arg\min_{k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}} C_{t+h,k}^{\dagger}(\mathbf{X}^{(n)}_{t+1:t+h})$
+        \IF{$\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}=\varnothing$}
+            \STATE $\widehat{I}^{(n)}_{t+h} \leftarrow \varnothing$
+        \ELSE
+            \STATE Compute $C_{t+h,k}^{\dagger}(\mathbf{X}^{(n)}_{t+1:t+h})$ for all $k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}$ via \eqref{eq:pred_cost}
+            \STATE $\widehat{I}^{(n)}_{t+h} \in \arg\min_{k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}} C_{t+h,k}^{\dagger}(\mathbf{X}^{(n)}_{t+1:t+h})$
+        \ENDIF
     \ENDFOR
 \ENDFOR
 \STATE Compute $\hat{\rho}_{t,h}(k)$ via \eqref{eq:mc_time_marginals} for all $h,k$.
 \FOR{$h=1$ to $H$}
-    \STATE Sort experts by $\hat{\rho}_{t,h}(k)$ and choose the smallest $K_h$ with cumulative mass $\ge 1-\delta$
-    \STATE $\widehat{\mathcal{S}}_{t,h}(\delta) \leftarrow \{k_{(1)},\dots,k_{(K_h)}\}$
+    \IF{$\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}=\varnothing$}
+        \STATE $\widehat{\mathcal{S}}_{t,h}(\delta) \leftarrow \varnothing$
+    \ELSE
+        \STATE $\hat{\rho}^{\max}_{t,h} \leftarrow \max_{k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}}\hat{\rho}_{t,h}(k)$
+        \STATE $\widehat{\mathcal{S}}_{t,h}(\delta) \leftarrow \{k\in\mathcal{E}^{\mathrm{feas}}_{t+h\mid t}:\hat{\rho}_{t,h}(k)\ge (1-\delta)\hat{\rho}^{\max}_{t,h}\}$
+    \ENDIF
 \ENDFOR
 \STATE {\bfseries Return:} $\widehat{\mathcal{S}}_{t:t+H}(\delta)=(\widehat{\mathcal{S}}_{t,h}(\delta))_{h=1}^H$.
 \end{algorithmic}

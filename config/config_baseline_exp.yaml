@@ -10,7 +10,7 @@ environment:
   # blocks to stress catastrophic forgetting and regime re-entry.
   setting: noisy_forgetting
   # State dimension d = dim φ(x). The current feature map returns 2D features.
-  state_dim: 2
+  state_dim: 1
   # Long horizon to expose regime structure and availability patterns.
   T: 3000
   seed: 42
@@ -71,7 +71,7 @@ routers:
 
     # Dimensions for shared factor and idiosyncratic states.
     shared_dim: 1
-    idiosyncratic_dim: 2
+    idiosyncratic_dim: 1
 
     # Shared-factor dynamics A_gk default to identity; Q_gk built from
     # tuned absolute process-noise value.

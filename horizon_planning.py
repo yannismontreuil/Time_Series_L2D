@@ -1,4 +1,5 @@
 import copy
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from typing import Callable, List, Sequence, Tuple, Optional
@@ -18,6 +19,34 @@ def _router_observes_residual(router) -> bool:
     return getattr(router, "observation_mode", "loss") == "residual"
 
 
+def _require_available(
+    available: Sequence[int],
+    t: int,
+    actor: str,
+) -> np.ndarray:
+    avail_arr = np.asarray(list(available), dtype=int)
+    if avail_arr.size == 0:
+        raise ValueError(f"{actor}: no available experts at t={t}.")
+    return avail_arr
+
+
+def _mask_feedback_vector(
+    values: np.ndarray,
+    available: np.ndarray,
+    selected: int | None,
+    full_feedback: bool,
+) -> np.ndarray:
+    values = np.asarray(values, dtype=float)
+    masked = np.full(values.shape, np.nan, dtype=float)
+    if full_feedback:
+        masked[available] = values[available]
+    else:
+        if selected is None:
+            raise ValueError("selected must be provided for partial feedback masking.")
+        masked[int(selected)] = values[int(selected)]
+    return masked
+
+
 def _get_router_observation(
     router,
     env: SyntheticTimeSeriesEnv,
@@ -34,12 +63,18 @@ def _get_router_observation(
         loss_r = residual_r ** 2
         residuals_full = None
         if getattr(router, "feedback_mode", "partial") == "full":
-            residuals_full = residuals
+            residuals_full = _mask_feedback_vector(
+                residuals, available, r_t, full_feedback=True
+            )
         return residual_r, loss_r, residuals_full
 
     loss_all = env.losses(t)
     loss_r = float(loss_all[r_t])
-    losses_full = loss_all if getattr(router, "feedback_mode", "partial") == "full" else None
+    losses_full = None
+    if getattr(router, "feedback_mode", "partial") == "full":
+        losses_full = _mask_feedback_vector(
+            loss_all, available, r_t, full_feedback=True
+        )
     return loss_r, loss_r, losses_full
 
 
@@ -121,8 +156,12 @@ def warm_start_router_to_time(
         router._time = max(0, t_start_int - 1)
     for t in range(t_start_int, t_max + 1):
         x_t = env.get_context(t)
-        available_t = env.get_available_experts(t)
+        available_t = _require_available(env.get_available_experts(t), t, "router warm-start")
         r_t, cache = router.select_expert(x_t, available_t)
+        if not np.any(available_t == int(r_t)):
+            raise ValueError(
+                f"router warm-start: selected expert {r_t} not in E_t at t={t}."
+            )
         loss_obs, loss_r, losses_full = _get_router_observation(
             router, env, t, x_t, available_t, r_t
         )
@@ -178,17 +217,21 @@ def _sample_context_scenarios(
     Sample context trajectories X^{(n)}_{t+1:t+H} from a scenario
     generator. For Gaussian AR(1), fit the autoregressive dynamics on
     historical contexts up to t0 and roll forward without using future
-    contexts.
+    contexts. For oracle_ar1 (synthetic only), use a regime-aware AR(1)
+    with fixed coefficient and drift estimated from history, optionally
+    using the deterministic regime schedule to stay close to ground truth.
     """
     H_eff = int(len(times))
     if num_scenarios <= 0:
         raise ValueError("num_scenarios must be a positive integer.")
     cfg = scenario_generator_cfg or {}
+    seed = cfg.get("seed", None)
+    rng = np.random.default_rng(seed)
     gen_type = str(cfg.get("type", "gaussian_ar1")).lower()
-    if gen_type not in ("gaussian_ar1", "deterministic"):
+    if gen_type not in ("gaussian_ar1", "deterministic", "oracle_ar1"):
         raise ValueError(
             f"Unsupported scenario generator type '{gen_type}'. "
-            "Expected 'gaussian_ar1' or 'deterministic'."
+            "Expected 'gaussian_ar1', 'deterministic', or 'oracle_ar1'."
         )
     if H_eff == 0:
         return np.zeros((int(num_scenarios), 0, 0), dtype=float)
@@ -212,6 +255,69 @@ def _sample_context_scenarios(
     if hist_ctx.shape[0] < 2:
         base = np.repeat(x_last[None, :], H_eff, axis=0)
         return np.repeat(base[None, :, :], int(num_scenarios), axis=0)
+
+    if gen_type == "oracle_ar1":
+        if ctx_dim != 1 or not hasattr(env, "y"):
+            raise ValueError(
+                "oracle_ar1 requires 1D contexts and env.y to be available."
+            )
+        y_hist = np.asarray(env.y[: t0 + 1], dtype=float).reshape(-1)
+        if y_hist.size < 2:
+            base = np.repeat(x_last[None, :], H_eff, axis=0)
+            return np.repeat(base[None, :, :], int(num_scenarios), axis=0)
+
+        ar_coef = float(cfg.get("ar_coef", 0.8))
+        z_hist = np.asarray(getattr(env, "z", None), dtype=int) if hasattr(env, "z") else None
+        M = int(getattr(env, "num_regimes", 1))
+        if z_hist is not None and z_hist.size >= t0 + 1:
+            z_hist = z_hist[: t0 + 1]
+        drift_global = float(np.mean(y_hist[1:] - ar_coef * y_hist[:-1]))
+        drift_by_regime = np.full(M, drift_global, dtype=float)
+        if z_hist is not None and z_hist.size >= 2:
+            for m in range(M):
+                idx = np.where(z_hist[1:] == m)[0]
+                if idx.size:
+                    diffs = y_hist[idx + 1] - ar_coef * y_hist[idx]
+                    drift_by_regime[m] = float(np.mean(diffs))
+
+        if z_hist is not None and z_hist.size >= 2:
+            resid = y_hist[1:] - ar_coef * y_hist[:-1] - drift_by_regime[z_hist[1:]]
+        else:
+            resid = y_hist[1:] - ar_coef * y_hist[:-1] - drift_global
+        resid_std = float(np.sqrt(np.mean(resid ** 2))) if resid.size else 0.0
+
+        sigma0_scale = float(cfg.get("sigma0", 1.0))
+        q_scale = float(cfg.get("q_scale", 1.0))
+        noise_scale = float(cfg.get("noise_scale", 1.0))
+        sigma0 = noise_scale * sigma0_scale * resid_std
+        q = noise_scale * q_scale * resid_std
+
+        use_true_regime = bool(cfg.get("use_true_regime", True))
+        z_future = None
+        if use_true_regime and z_hist is not None and hasattr(env, "z"):
+            z_full = np.asarray(env.z, dtype=int)
+            if z_full.size >= t0 + H_eff + 1:
+                z_future = z_full[t0 + 1 : t0 + 1 + H_eff]
+        if z_future is None:
+            z_future = np.zeros(H_eff, dtype=int)
+            z_prev = int(z_hist[t0]) if z_hist is not None and z_hist.size else 0
+            Pi_true = getattr(env, "Pi_true", None)
+            for h in range(H_eff):
+                if Pi_true is not None and np.ndim(Pi_true) == 2:
+                    probs = np.asarray(Pi_true[int(z_prev)], dtype=float)
+                    probs = probs / np.sum(probs) if probs.sum() > 0 else np.ones(M) / M
+                    z_prev = int(rng.choice(np.arange(M), p=probs))
+                z_future[h] = z_prev
+
+        scenarios = np.zeros((int(num_scenarios), H_eff, ctx_dim), dtype=float)
+        for n in range(int(num_scenarios)):
+            y_prev = float(y_hist[-1])
+            for h in range(H_eff):
+                scenarios[n, h, 0] = y_prev
+                drift = float(drift_by_regime[int(z_future[h])])
+                eps = float(rng.normal(loc=0.0, scale=(sigma0 if h == 0 else q)))
+                y_prev = ar_coef * y_prev + drift + eps
+        return scenarios
 
     # Fit a per-dimension AR(1): x_t = c + rho * x_{t-1} + eps_t.
     x_prev = hist_ctx[:-1]
@@ -237,8 +343,6 @@ def _sample_context_scenarios(
     sigma0_vec = noise_scale * sigma0_scale * resid_std
     q_vec = noise_scale * q_scale * resid_std
 
-    seed = cfg.get("seed", None)
-    rng = np.random.default_rng(seed)
     scenarios = np.zeros((int(num_scenarios), H_eff, ctx_dim), dtype=float)
     for n in range(int(num_scenarios)):
         x_prev_n = x_last.copy()
@@ -272,7 +376,16 @@ def eval_schedule_on_env(
     for idx_h in range(H):
         t = int(times[idx_h])
         j = int(schedule[idx_h])
+        if j < 0:
+            preds[idx_h] = np.nan
+            costs[idx_h] = np.nan
+            continue
         x_t = env.get_context(t)
+        available = env.get_available_experts(t)
+        if j not in set(map(int, available)):
+            preds[idx_h] = np.nan
+            costs[idx_h] = np.nan
+            continue
         preds[idx_h] = env.expert_predict(j, x_t)
         loss_all = env.losses(t)
         costs[idx_h] = float(loss_all[j] + beta[j])
@@ -303,7 +416,12 @@ def compute_oracle_and_baseline_schedules(
 
     # Availability sets for each future step t0+1,...,t0+H_eff
     avail_per_h: List[np.ndarray] = [
-        env.get_available_experts(int(t)).copy() for t in times
+        _require_available(
+            env.get_available_experts(int(t)),
+            int(t),
+            "oracle schedule",
+        ).copy()
+        for t in times
     ]
 
     # Oracle "truth" schedule: per-step best expert on the true
@@ -367,10 +485,13 @@ def warm_start_l2d_to_time(
     t_max = min(max(int(t0), 0), T - 1)
     for t in range(1, t_max + 1):
         x_t = env.get_context(t)
-        available_t = env.get_available_experts(t)
+        available_t = _require_available(env.get_available_experts(t), t, "L2D warm-start")
         r_t = baseline.select_expert(x_t, available_t)
         loss_all = env.losses(t)
-        baseline.update(x_t, loss_all, available_t)
+        loss_masked = _mask_feedback_vector(
+            loss_all, available_t, r_t, full_feedback=True
+        )
+        baseline.update(x_t, loss_masked, available_t, selected_expert=r_t)
 
 
 def warm_start_linucb_to_time(
@@ -386,9 +507,18 @@ def warm_start_linucb_to_time(
     t_max = min(max(int(t0), 0), T - 1)
     for t in range(1, t_max + 1):
         x_t = env.get_context(t)
-        available_t = env.get_available_experts(t)
+        available_t = _require_available(
+            env.get_available_experts(t), t, "LinUCB warm-start"
+        )
         loss_all = env.losses(t)
-        baseline.update(x_t, loss_all, available_t)
+        r_t = baseline.select_expert(x_t, available_t)
+        loss_masked = _mask_feedback_vector(
+            loss_all,
+            available_t,
+            r_t,
+            full_feedback=baseline.feedback_mode == "full",
+        )
+        baseline.update(x_t, loss_masked, available_t, selected_expert=r_t)
 
 
 def warm_start_neuralucb_to_time(
@@ -404,9 +534,18 @@ def warm_start_neuralucb_to_time(
     t_max = min(max(int(t0), 0), T - 1)
     for t in range(1, t_max + 1):
         x_t = env.get_context(t)
-        available_t = env.get_available_experts(t)
+        available_t = _require_available(
+            env.get_available_experts(t), t, "NeuralUCB warm-start"
+        )
         loss_all = env.losses(t)
-        baseline.update(x_t, loss_all, available_t)
+        r_t = baseline.select_expert(x_t, available_t)
+        loss_masked = _mask_feedback_vector(
+            loss_all,
+            available_t,
+            r_t,
+            full_feedback=baseline.feedback_mode == "full",
+        )
+        baseline.update(x_t, loss_masked, available_t, selected_expert=r_t)
 
 
 def _policy_predicted_costs(
@@ -428,7 +567,7 @@ def _policy_predicted_costs(
         costs = np.zeros(num_experts, dtype=float)
         for j in range(num_experts):
             mu_j, sigma_j = policy._theta_and_sigma(int(j), phi)
-            costs[j] = mu_j - policy.alpha_ucb * sigma_j + policy.beta[j]
+            costs[j] = mu_j + policy.beta[j]
         return costs
     if isinstance(policy, NeuralUCB):
         phi = policy._phi(x_future)
@@ -436,7 +575,7 @@ def _policy_predicted_costs(
         costs = np.zeros(num_experts, dtype=float)
         for j in range(num_experts):
             mu_j, sigma_j = policy._theta_and_sigma(int(j), h)
-            costs[j] = mu_j - policy.alpha_ucb * sigma_j + policy.beta[j]
+            costs[j] = mu_j + policy.beta[j]
         return costs
     raise TypeError(f"Unsupported policy type '{type(policy).__name__}' for planning.")
 
@@ -484,6 +623,7 @@ def _plan_horizon_schedule_policy_monte_carlo(
             x_future = scenarios[n, h]
             avail = avail_sets[h]
             if avail.size == 0:
+                choices_scen[n, h] = -1
                 continue
             costs = _policy_predicted_costs(policy_n, x_future, N_experts)
             scores_scen[n, h, :] = costs
@@ -510,13 +650,14 @@ def _plan_horizon_schedule_policy_monte_carlo(
             schedule.append(-1)
             continue
         sorted_k = sorted(avail.tolist(), key=lambda k: (-rho_hat[h, k], int(k)))
-        cum = 0.0
-        set_h: List[int] = []
-        for k in sorted_k:
-            set_h.append(int(k))
-            cum += float(rho_hat[h, k])
-            if cum >= 1.0 - delta:
-                break
+        max_rho = float(np.max(rho_hat[h, avail]))
+        if max_rho <= 0.0:
+            set_h = []
+        else:
+            threshold = (1.0 - delta) * max_rho
+            set_h = [
+                int(k) for k in sorted_k if float(rho_hat[h, k]) >= threshold
+            ]
         active_sets.append(set_h)
         schedule.append(int(sorted_k[0]))
 
@@ -540,7 +681,8 @@ def _plan_horizon_schedule_monte_carlo(
     delta: float,
     scenario_generator_cfg: Optional[dict],
     scenarios: Optional[np.ndarray] = None,
-) -> Tuple[List[int], np.ndarray, np.ndarray, np.ndarray, List[List[int]]]:
+    return_choices: bool = False,
+) -> tuple:
     """
     Monte Carlo predictive scheduling (Section "Predictive Resource Allocation"):
       - sample context scenarios X_{t+1:t+H}^{(n)},
@@ -548,14 +690,15 @@ def _plan_horizon_schedule_monte_carlo(
       - compute planning-time predicted costs C_{t+h,k}^† for feasible experts,
       - take deterministic argmin per scenario and step,
       - estimate time-marginal demand ρ̂_{t,h}(k),
-      - build coverage sets Ŝ_{t,h}(δ) with cumulative mass ≥ 1-δ.
+      - build relative-thresholded sets Ŝ_{t,h}(δ) with ρ̂_{t,h}(k)
+        ≥ (1-δ) max_j ρ̂_{t,h}(j).
 
     Returns:
       schedule: deterministic single-expert summary (argmax ρ̂ per step),
       p_avail: time-marginal demand (ρ̂),
       p_all: alias of time-marginal demand (ρ̂),
       J_sched: scenario-wise costs along the summary schedule,
-      active_sets: coverage sets Ŝ_{t,h}(δ) for each h.
+      active_sets: relative-thresholded sets Ŝ_{t,h}(δ) for each h.
     """
     H_eff = int(times.shape[0])
     if H_eff == 0:
@@ -685,7 +828,7 @@ def _plan_horizon_schedule_monte_carlo(
             if j >= 0:
                 rho_hat[h, j] += 1.0 / float(N_scen)
 
-    # Coverage sets and deterministic schedule summary.
+    # Relative-thresholded sets and deterministic schedule summary.
     delta = float(np.clip(delta, 0.0, 0.999))
     active_sets: List[List[int]] = []
     schedule: List[int] = []
@@ -693,19 +836,17 @@ def _plan_horizon_schedule_monte_carlo(
         feas = [k for k in registry if k in avail_sets[h]]
         if not feas:
             active_sets.append([])
-            if avail_sets[h]:
-                schedule.append(int(sorted(avail_sets[h])[0]))
-            else:
-                schedule.append(-1)
+            schedule.append(-1)
             continue
         sorted_k = sorted(feas, key=lambda k: (-rho_hat[h, k], int(k)))
-        cum = 0.0
-        set_h: List[int] = []
-        for k in sorted_k:
-            set_h.append(int(k))
-            cum += float(rho_hat[h, k])
-            if cum >= 1.0 - delta:
-                break
+        max_rho = float(max(rho_hat[h, int(k)] for k in feas))
+        if max_rho <= 0.0:
+            set_h = []
+        else:
+            threshold = (1.0 - delta) * max_rho
+            set_h = [
+                int(k) for k in sorted_k if float(rho_hat[h, k]) >= threshold
+            ]
         active_sets.append(set_h)
         schedule.append(int(sorted_k[0]))
 
@@ -717,6 +858,16 @@ def _plan_horizon_schedule_monte_carlo(
             if 0 <= j < N_experts:
                 J_sched[n, h] = scores_scen[n, h, j]
 
+    if return_choices:
+        return (
+            schedule,
+            rho_hat,
+            rho_hat,
+            J_sched,
+            active_sets,
+            choices_scen,
+            scores_scen,
+        )
     return schedule, rho_hat, rho_hat, J_sched, active_sets
 
 
@@ -749,8 +900,8 @@ def evaluate_horizon_planning(
     scenario_generator_cfg: Optional[dict] = None,
     delta: float = 0.1,
     online_start_t: Optional[int] = None,
-    factorized_label: str = "Factorized SLDS",
-    factorized_linear_label: str = "Factorized SLDS linear",
+    factorized_label: str = "L2D SLDS w/ $g_t$",
+    factorized_linear_label: str = "L2D SLDS",
 ) -> None:
     """
     Compare horizon-H planning from time t0 for:
@@ -761,7 +912,7 @@ def evaluate_horizon_planning(
 
     Produces summary printouts and plots of forecasts vs truth and
     per-step costs over the horizon, plus expert scheduling. In Monte
-    Carlo mode, delta controls the active-set coverage threshold.
+    Carlo mode, delta controls the relative active-set threshold vs the max mass.
     online_start_t (if provided) overrides any router.em_tk warm start.
     """
     raw_method = str(planning_method)
@@ -922,11 +1073,31 @@ def evaluate_horizon_planning(
         print("Horizon too short after clipping; skipping horizon planning evaluation.")
         return
 
+    out_dir = (
+        os.path.join("out", "tri_cycle_corr", "planning")
+        if getattr(env, "setting", None) == "tri_cycle_corr"
+        else os.path.join("out", "horizon_planning")
+    )
+    os.makedirs(out_dir, exist_ok=True)
+
+    def _save_planning_fig(fig: plt.Figure, name: str) -> None:
+        fig.savefig(os.path.join(out_dir, f"{name}.pdf"), bbox_inches="tight")
+        fig.savefig(
+            os.path.join(out_dir, f"{name}.png"), dpi=300, bbox_inches="tight"
+        )
+        plt.close(fig)
+
     shared_scenarios = None
     if mode == "monte_carlo":
         shared_scenarios = _sample_context_scenarios(
             env, times, num_scenarios, scenario_generator_cfg
         )
+    p_all_factorial_partial = None
+    p_all_factorial_full = None
+    choices_factorial_partial_scen = None
+    choices_factorial_full_scen = None
+    scores_factorial_partial_scen = None
+    scores_factorial_full_scen = None
 
     print(
         f"\n[Horizon planning] method = {raw_method}, "
@@ -945,20 +1116,56 @@ def evaluate_horizon_planning(
 
     if mode == "regressive":
         # Original regressive / router-influenced-context planning.
-        sched_partial, _, _ = router_partial.plan_horizon_schedule(
-            x_t=x_now,
-            H=H_eff,
-            experts_predict=experts_predict,
-            context_update=context_update,
-            available_experts_per_h=avail_lists,
-        )
-        sched_full, _, _ = router_full.plan_horizon_schedule(
-            x_t=x_now,
-            H=H_eff,
-            experts_predict=experts_predict,
-            context_update=context_update,
-            available_experts_per_h=avail_lists,
-        )
+        if isinstance(router_partial, FactorizedSLDS):
+            (
+                sched_partial,
+                _,
+                _,
+                _,
+                _,
+            ) = _plan_horizon_schedule_monte_carlo(
+                router_partial,
+                env,
+                beta,
+                times,
+                avail_per_h,
+                1,
+                delta,
+                {"type": "deterministic"},
+            )
+        else:
+            sched_partial, _, _ = router_partial.plan_horizon_schedule(
+                x_t=x_now,
+                H=H_eff,
+                experts_predict=experts_predict,
+                context_update=context_update,
+                available_experts_per_h=avail_lists,
+            )
+        if isinstance(router_full, FactorizedSLDS):
+            (
+                sched_full,
+                _,
+                _,
+                _,
+                _,
+            ) = _plan_horizon_schedule_monte_carlo(
+                router_full,
+                env,
+                beta,
+                times,
+                avail_per_h,
+                1,
+                delta,
+                {"type": "deterministic"},
+            )
+        else:
+            sched_full, _, _ = router_full.plan_horizon_schedule(
+                x_t=x_now,
+                H=H_eff,
+                experts_predict=experts_predict,
+                context_update=context_update,
+                available_experts_per_h=avail_lists,
+            )
 
         if router_partial_corr is not None:
             sched_partial_corr, _, _ = router_partial_corr.plan_horizon_schedule(
@@ -1030,7 +1237,7 @@ def evaluate_horizon_planning(
             (
                 sched_factorial_partial,
                 _,
-                _,
+                p_all_factorial_partial,
                 _,
                 active_sets_factorial_partial,
             ) = _plan_horizon_schedule_monte_carlo(
@@ -1251,9 +1458,11 @@ def evaluate_horizon_planning(
             (
                 sched_factorial_partial,
                 _,
-                _,
+                p_all_factorial_partial,
                 _,
                 active_sets_factorial_partial,
+                choices_factorial_partial_scen,
+                scores_factorial_partial_scen,
             ) = _plan_horizon_schedule_monte_carlo(
                 router_factorial_partial,
                 env,
@@ -1264,18 +1473,23 @@ def evaluate_horizon_planning(
                 delta,
                 scenario_generator_cfg,
                 scenarios=shared_scenarios,
+                return_choices=True,
             )
         else:
             sched_factorial_partial = []
             active_sets_factorial_partial = []
+            choices_factorial_partial_scen = None
+            scores_factorial_partial_scen = None
 
         if router_factorial_full is not None:
             (
                 sched_factorial_full,
                 _,
-                _,
+                p_all_factorial_full,
                 _,
                 active_sets_factorial_full,
+                choices_factorial_full_scen,
+                scores_factorial_full_scen,
             ) = _plan_horizon_schedule_monte_carlo(
                 router_factorial_full,
                 env,
@@ -1286,6 +1500,7 @@ def evaluate_horizon_planning(
                 delta,
                 scenario_generator_cfg,
                 scenarios=shared_scenarios,
+                return_choices=True,
             )
         else:
             sched_factorial_full = []
@@ -1473,9 +1688,75 @@ def evaluate_horizon_planning(
     for h in range(H_eff):
         avail = avail_per_h[h]
         if avail.size == 0:
-            sched_random.append(-1)
+            raise ValueError(
+                f"random schedule: no available experts at horizon step {h}."
+            )
         else:
             sched_random.append(int(rng_sched.choice(avail)))
+
+    sched_factorial_partial_det: List[int] = []
+    active_sets_factorial_partial_det: List[List[int]] = []
+    p_all_factorial_partial_det = None
+    sched_factorial_partial_static: List[int] = []
+    active_sets_factorial_partial_static: List[List[int]] = []
+    static_set_factorial_partial: List[int] = []
+    if (
+        mode == "monte_carlo"
+        and router_factorial_partial is not None
+        and isinstance(router_factorial_partial, FactorizedSLDS)
+    ):
+        det_cfg = dict(scenario_generator_cfg or {})
+        det_cfg.setdefault("type", "gaussian_ar1")
+        det_cfg["noise_scale"] = 0.0
+        det_cfg["sigma0"] = 0.0
+        det_cfg["q_scale"] = 0.0
+        det_scen = _sample_context_scenarios(env, times, 1, det_cfg)
+        (
+            sched_factorial_partial_det,
+            _,
+            p_all_factorial_partial_det,
+            _,
+            active_sets_factorial_partial_det,
+        ) = _plan_horizon_schedule_monte_carlo(
+            router_factorial_partial,
+            env,
+            beta,
+            times,
+            avail_per_h,
+            1,
+            delta,
+            det_cfg,
+            scenarios=det_scen,
+        )
+
+        if (
+            p_all_factorial_partial is not None
+            and p_all_factorial_partial.size
+            and scores_factorial_partial_scen is not None
+        ):
+            sizes = [len(s) for s in active_sets_factorial_partial if s]
+            avg_size = int(round(float(np.mean(sizes)))) if sizes else 1
+            avg_size = max(1, min(avg_size, env.num_experts))
+            total_mass = np.sum(p_all_factorial_partial, axis=0)
+            static_set_factorial_partial = sorted(
+                range(env.num_experts),
+                key=lambda k: (-float(total_mass[k]), int(k)),
+            )[:avg_size]
+            expected_costs = np.nanmean(
+                np.asarray(scores_factorial_partial_scen, dtype=float), axis=0
+            )
+            for h in range(expected_costs.shape[0]):
+                if not static_set_factorial_partial:
+                    sched_factorial_partial_static.append(-1)
+                    continue
+                best_k = min(
+                    static_set_factorial_partial,
+                    key=lambda k: (float(expected_costs[h, k]), int(k)),
+                )
+                sched_factorial_partial_static.append(int(best_k))
+            active_sets_factorial_partial_static = [
+                list(static_set_factorial_partial) for _ in range(H_eff)
+            ]
 
     # Evaluate oracle and all other schedules on the true environment
     # path (clairvoyant per-step best given true losses).
@@ -1503,6 +1784,23 @@ def evaluate_horizon_planning(
     else:
         preds_factorial_full_plan = np.array([], dtype=float)
         cost_factorial_full_plan = np.array([], dtype=float)
+
+    if sched_factorial_partial_det:
+        preds_factorial_partial_det, cost_factorial_partial_det = eval_schedule_on_env(
+            env, beta, times, sched_factorial_partial_det
+        )
+    else:
+        preds_factorial_partial_det = np.array([], dtype=float)
+        cost_factorial_partial_det = np.array([], dtype=float)
+
+    if sched_factorial_partial_static:
+        (
+            preds_factorial_partial_static,
+            cost_factorial_partial_static,
+        ) = eval_schedule_on_env(env, beta, times, sched_factorial_partial_static)
+    else:
+        preds_factorial_partial_static = np.array([], dtype=float)
+        cost_factorial_partial_static = np.array([], dtype=float)
 
     if sched_factorial_linear_partial:
         (
@@ -1706,20 +2004,22 @@ def evaluate_horizon_planning(
 
     const_preds_vis = [_shift_vis_preds(p) for p in const_preds]
 
-    base_partial_label = "Factorized SLDS w/o g_t (partial fb)"
-    base_full_label = "Factorized SLDS w/o g_t (full fb)"
+    base_partial_label = "L2D SLDS w/t $g_t$ (partial fb)"
+    base_full_label = "L2D SLDS w/t $g_t$ (full fb)"
     factorized_partial_label = f"{factorized_label} (partial fb)"
     factorized_full_label = f"{factorized_label} (full fb)"
     factorized_linear_partial_label = f"{factorized_linear_label} (partial fb)"
     factorized_linear_full_label = f"{factorized_linear_label} (full fb)"
+    factorized_partial_det_label = f"{factorized_label} (deterministic forecast)"
+    factorized_partial_static_label = f"{factorized_label} (static top-K)"
     corr_partial_label = "Router Corr (partial feedback)"
     corr_full_label = "Router Corr (full feedback)"
     corr_em_partial_label = "Router Corr EM (partial fb)"
     corr_em_full_label = "Router Corr EM (full fb)"
     neural_partial_label = "Neural router (partial fb)"
     neural_full_label = "Neural router (full fb)"
-    l2d_label = "L2D baseline"
-    l2d_sw_label = "L2D_SW baseline"
+    l2d_label = "L2D (full feedback)"
+    l2d_sw_label = "L2D_SW (full feedback)"
     linucb_partial_label = "LinUCB (partial feedback)"
     linucb_full_label = "LinUCB (full feedback)"
     neuralucb_partial_label = "NeuralUCB (partial feedback)"
@@ -1742,6 +2042,16 @@ def evaluate_horizon_planning(
     if cost_factorial_full_plan.size > 0:
         print(
             f"{factorized_full_label}:      {cost_factorial_full_plan.mean():.4f}"
+        )
+    if cost_factorial_partial_det.size > 0:
+        print(
+            f"{factorized_partial_det_label}: "
+            f"{np.nanmean(cost_factorial_partial_det):.4f}"
+        )
+    if cost_factorial_partial_static.size > 0:
+        print(
+            f"{factorized_partial_static_label}: "
+            f"{np.nanmean(cost_factorial_partial_static):.4f}"
         )
     if cost_factorial_linear_partial_plan.size > 0:
         print(
@@ -1850,12 +2160,12 @@ def evaluate_horizon_planning(
                 return
             h_max = min(3, len(active_sets))
             print(
-                f"\n  {label} coverage sets (delta={float(delta):.3f}, steps 1..{h_max}):"
+                f"\n  {label} relative-thresholded sets (delta={float(delta):.3f}, steps 1..{h_max}):"
             )
             for h in range(h_max):
                 print(f"    h={h + 1}: {active_sets[h]}")
 
-        print("\n[Monte Carlo] Coverage sets from time-marginals:")
+        print("\n[Monte Carlo] Relative-thresholded sets from time-marginals:")
         print_active_sets(active_sets_partial, base_partial_label)
         print_active_sets(active_sets_full, base_full_label)
         print_active_sets(active_sets_partial_corr, corr_partial_label)
@@ -1876,6 +2186,298 @@ def evaluate_horizon_planning(
         print_active_sets(active_sets_linucb_full, linucb_full_label)
         print_active_sets(active_sets_neuralucb_partial, neuralucb_partial_label)
         print_active_sets(active_sets_neuralucb_full, neuralucb_full_label)
+
+        def print_time_marginals(rho: np.ndarray, label: str) -> None:
+            if rho is None or rho.size == 0:
+                return
+            print(f"\n  {label} time-marginal selection probabilities:")
+            for h in range(rho.shape[0]):
+                row = np.array2string(
+                    rho[h],
+                    precision=3,
+                    floatmode="fixed",
+                )
+                print(f"    h={h + 1}: {row}")
+
+        print("\n[Monte Carlo] Time-marginal selection probabilities per step:")
+        print_time_marginals(p_all_factorial_partial, factorized_partial_label)
+        print_time_marginals(p_all_partial, base_partial_label)
+
+        def print_choice_debug(
+            choices_scen: Optional[np.ndarray],
+            scores_scen: Optional[np.ndarray],
+            scenarios: Optional[np.ndarray],
+            label: str,
+        ) -> None:
+            if choices_scen is None:
+                return
+            choices = np.asarray(choices_scen, dtype=int)
+            if choices.ndim != 2:
+                return
+            print(f"\n  {label} MC choice diagnostics:")
+            for h in range(choices.shape[1]):
+                avail = np.asarray(avail_per_h[h], dtype=int)
+                vals = choices[:, h]
+                vals = vals[vals >= 0]
+                if vals.size == 0:
+                    print(f"    h={h + 1}: avail={avail.size}, no feasible choices")
+                    continue
+                counts = np.bincount(vals, minlength=env.num_experts)
+                uniq = int(np.count_nonzero(counts))
+                top_frac = float(counts.max()) / float(vals.size)
+                line = f"h={h + 1}: avail={avail.size}, uniq={uniq}, top_frac={top_frac:.3f}"
+                if scenarios is not None and scenarios.size:
+                    scen_h = np.asarray(scenarios[:, h, :], dtype=float)
+                    if scen_h.size:
+                        ctx_std = float(np.mean(np.std(scen_h, axis=0)))
+                        line += f", ctx_std={ctx_std:.4f}"
+                if scores_scen is not None and scores_scen.size:
+                    gaps = []
+                    scores_h = np.asarray(scores_scen[:, h, :], dtype=float)
+                    for n in range(scores_h.shape[0]):
+                        row = scores_h[n, avail]
+                        finite = row[np.isfinite(row)]
+                        if finite.size >= 2:
+                            srt = np.sort(finite)
+                            gaps.append(float(srt[1] - srt[0]))
+                    if gaps:
+                        line += f", gap_mean={float(np.mean(gaps)):.4f}"
+                print(f"    {line}")
+
+        print("\n[Monte Carlo] Choice diversity diagnostics:")
+        print_choice_debug(
+            choices_factorial_partial_scen,
+            scores_factorial_partial_scen,
+            shared_scenarios,
+            factorized_partial_label,
+        )
+
+        # ------------------------------------------------------------------
+        # Planning diagnostics (Monte Carlo only): saved to planning/ folder
+        # ------------------------------------------------------------------
+        if shared_scenarios is not None and shared_scenarios.size:
+            scen = np.asarray(shared_scenarios, dtype=float)
+            if scen.ndim == 3 and scen.shape[2] > 0:
+                x_true = np.array(
+                    [float(env.get_context(int(t))[0]) for t in times], dtype=float
+                )
+                x_scen = scen[:, :, 0]
+                q10, q50, q90 = np.quantile(x_scen, [0.1, 0.5, 0.9], axis=0)
+                fig, ax = plt.subplots(1, 1, figsize=(8.4, 3.6))
+                sample_n = min(10, x_scen.shape[0])
+                sample_idx = np.linspace(
+                    0, x_scen.shape[0] - 1, sample_n, dtype=int
+                )
+                for idx in sample_idx:
+                    ax.plot(
+                        times,
+                        x_scen[idx],
+                        color="tab:blue",
+                        alpha=0.2,
+                        linewidth=1.0,
+                    )
+                ax.fill_between(
+                    times,
+                    q10,
+                    q90,
+                    color="tab:blue",
+                    alpha=0.2,
+                    label="MC 10-90%",
+                )
+                ax.plot(times, q50, color="tab:blue", label="MC median")
+                ax.plot(times, x_true, color="black", linewidth=1.5, label="True context")
+                ax.set_xlabel("Time $t$")
+                ax.set_ylabel("Context $x_t$")
+                ax.set_title("Monte Carlo context scenarios")
+                ax.legend(loc="upper left", fontsize=8)
+                ax.grid(True, alpha=0.2)
+                _save_planning_fig(fig, "planning_context_fan")
+
+        def _coverage_mass(
+            rho: np.ndarray, active_sets: List[List[int]]
+        ) -> np.ndarray:
+            if rho is None or rho.size == 0:
+                return np.array([], dtype=float)
+            mass = np.zeros(rho.shape[0], dtype=float)
+            for h in range(rho.shape[0]):
+                if h >= len(active_sets):
+                    continue
+                aset = active_sets[h]
+                if aset:
+                    mass[h] = float(np.sum(rho[h, np.asarray(aset, dtype=int)]))
+            return mass
+
+        rho_main = p_all_factorial_partial
+        rho_nog = p_all_partial
+        active_main = active_sets_factorial_partial
+        active_nog = active_sets_partial
+        if rho_main is not None and rho_main.size:
+            # Demand heatmap(s) with active-set overlays.
+            fig, axes = plt.subplots(
+                1,
+                2 if rho_nog is not None and rho_nog.size else 1,
+                figsize=(9.6, 3.6),
+                sharey=True,
+            )
+            axes = np.atleast_1d(axes)
+            for ax, rho, aset, title in [
+                (axes[0], rho_main, active_main, factorized_partial_label),
+                (axes[1], rho_nog, active_nog, base_partial_label)
+                if len(axes) > 1
+                else (None, None, None, None),
+            ]:
+                if ax is None or rho is None or rho.size == 0:
+                    continue
+                im = ax.imshow(
+                    rho,
+                    aspect="auto",
+                    origin="lower",
+                    interpolation="nearest",
+                    cmap="viridis",
+                    vmin=0.0,
+                    vmax=np.max(rho) if rho.size else 1.0,
+                )
+                if aset:
+                    for h, row in enumerate(aset):
+                        for k in row:
+                            ax.scatter(
+                                int(k),
+                                int(h),
+                                marker="s",
+                                facecolors="none",
+                                edgecolors="white",
+                                linewidths=0.7,
+                                s=30,
+                            )
+                ax.set_title(title, fontsize=9)
+                ax.set_xlabel("Expert")
+                ax.set_xticks(np.arange(env.num_experts))
+                ax.set_ylabel("Horizon step $h$")
+            fig.colorbar(im, ax=axes, label="Selection prob", fraction=0.04, pad=0.04)
+            fig.suptitle("Planning demand and relative-thresholded sets", y=0.98)
+            fig.subplots_adjust(top=0.82, bottom=0.18, wspace=0.25)
+            _save_planning_fig(fig, "planning_demand_heatmap")
+
+            # Thresholded mass over horizon.
+            mass_main = _coverage_mass(rho_main, active_main)
+            mass_nog = _coverage_mass(rho_nog, active_nog)
+            mass_det = _coverage_mass(rho_main, active_sets_factorial_partial_det)
+            mass_static = _coverage_mass(
+                rho_main, active_sets_factorial_partial_static
+            )
+            fig, ax = plt.subplots(1, 1, figsize=(7.6, 3.2))
+            h_grid = np.arange(1, rho_main.shape[0] + 1)
+            ax.plot(h_grid, mass_main, label=factorized_full_label, marker="o")
+            if mass_nog.size:
+                ax.plot(h_grid, mass_nog, label=base_full_label, marker="s")
+            if mass_det.size:
+                ax.plot(
+                    h_grid,
+                    mass_det,
+                    label=factorized_partial_det_label,
+                    marker="^",
+                )
+            if mass_static.size:
+                ax.plot(
+                    h_grid,
+                    mass_static,
+                    label=factorized_partial_static_label,
+                    marker="D",
+                )
+            ax.set_xlabel("Horizon step $h$")
+            ax.set_ylabel("Relative-thresholded mass")
+            ax.set_ylim(0.0, 1.05)
+            ax.set_title("Relative-thresholded set mass")
+            ax.grid(True, alpha=0.2)
+            ax.legend(fontsize=8)
+            _save_planning_fig(fig, "planning_coverage_mass")
+
+            # Active-set size over horizon.
+            size_main = np.array([len(s) for s in active_main], dtype=float)
+            fig, ax = plt.subplots(1, 1, figsize=(7.6, 3.0))
+            ax.plot(h_grid, size_main, label=factorized_full_label, marker="o")
+            if active_nog:
+                size_nog = np.array([len(s) for s in active_nog], dtype=float)
+                ax.plot(h_grid, size_nog, label=base_full_label, marker="s")
+            if active_sets_factorial_partial_det:
+                size_det = np.array(
+                    [len(s) for s in active_sets_factorial_partial_det], dtype=float
+                )
+                ax.plot(
+                    h_grid,
+                    size_det,
+                    label=factorized_partial_det_label,
+                    marker="^",
+                )
+            if active_sets_factorial_partial_static:
+                size_static = np.array(
+                    [len(s) for s in active_sets_factorial_partial_static], dtype=float
+                )
+                ax.plot(
+                    h_grid,
+                    size_static,
+                    label=factorized_partial_static_label,
+                    marker="D",
+                )
+            ax.set_xlabel("Horizon step $h$")
+            ax.set_ylabel("Active-set size")
+            ax.set_title("Planned active-set size")
+            ax.grid(True, alpha=0.2)
+            ax.legend(fontsize=8)
+            _save_planning_fig(fig, "planning_active_set_size")
+
+            # Cost comparison over the true horizon.
+            cost_items = [
+                (oracle_label, cost_oracle),
+                (factorized_partial_label, cost_factorial_partial_plan),
+                (base_partial_label, cost_partial_plan),
+                (factorized_partial_det_label, cost_factorial_partial_det),
+                (factorized_partial_static_label, cost_factorial_partial_static),
+            ]
+            labels = []
+            means = []
+            for label, costs in cost_items:
+                if costs is None or np.asarray(costs).size == 0:
+                    continue
+                labels.append(label)
+                means.append(float(np.nanmean(costs)))
+            if labels:
+                fig, ax = plt.subplots(1, 1, figsize=(8.0, 3.4))
+                x = np.arange(len(labels))
+                ax.bar(x, means, color="tab:blue", alpha=0.7)
+                ax.set_xticks(x)
+                ax.set_xticklabels(labels, rotation=20, ha="right", fontsize=8)
+                ax.set_ylabel("Mean cost on horizon")
+                ax.set_title("Planning cost on true horizon")
+                ax.grid(True, axis="y", alpha=0.2)
+                _save_planning_fig(fig, "planning_cost_bar")
+
+        # Scenario-wise planned expert raster (main method).
+        if choices_factorial_partial_scen is not None:
+            choices = np.asarray(choices_factorial_partial_scen, dtype=float)
+            if choices.ndim == 2 and choices.size:
+                max_scen = min(30, choices.shape[0])
+                data = choices[:max_scen].copy()
+                data[data < 0] = np.nan
+                cmap = plt.get_cmap("tab20", env.num_experts)
+                cmap = cmap.copy()
+                cmap.set_bad(color="white")
+                fig, ax = plt.subplots(1, 1, figsize=(8.2, 3.6))
+                im = ax.imshow(
+                    np.ma.masked_invalid(data),
+                    aspect="auto",
+                    origin="lower",
+                    cmap=cmap,
+                    vmin=0,
+                    vmax=max(env.num_experts - 1, 1),
+                )
+                ax.set_xlabel("Horizon step $h$")
+                ax.set_ylabel("Scenario index")
+                ax.set_title(
+                    f"{factorized_partial_label}: planned experts per scenario"
+                )
+                fig.colorbar(im, ax=ax, label="Expert id")
+                _save_planning_fig(fig, "planning_scenario_raster")
 
         # --------------------------------------------------------------
         # New: Monte Carlo trajectories for oracle + factorized schedules

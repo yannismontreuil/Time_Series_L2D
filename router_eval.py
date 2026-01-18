@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 
 from models.factorized_slds import FactorizedSLDS
 from models.router_model import SLDSIMMRouter
@@ -168,6 +168,34 @@ def _router_observes_residual(router: SLDSIMMRouter) -> bool:
     return getattr(router, "observation_mode", "loss") == "residual"
 
 
+def _require_available(
+    available: np.ndarray | Sequence[int],
+    t: int,
+    actor: str,
+) -> np.ndarray:
+    avail_arr = np.asarray(list(available), dtype=int)
+    if avail_arr.size == 0:
+        raise ValueError(f"{actor}: no available experts at t={t}.")
+    return avail_arr
+
+
+def _mask_feedback_vector(
+    values: np.ndarray,
+    available: np.ndarray,
+    selected: int | None,
+    full_feedback: bool,
+) -> np.ndarray:
+    values = np.asarray(values, dtype=float)
+    masked = np.full(values.shape, np.nan, dtype=float)
+    if full_feedback:
+        masked[available] = values[available]
+    else:
+        if selected is None:
+            raise ValueError("selected must be provided for partial feedback masking.")
+        masked[int(selected)] = values[int(selected)]
+    return masked
+
+
 def _get_router_observation(
     router: SLDSIMMRouter,
     env: TimeSeriesEnv,
@@ -184,12 +212,18 @@ def _get_router_observation(
         loss_r = residual_r ** 2
         residuals_full = None
         if router.feedback_mode == "full":
-            residuals_full = residuals
+            residuals_full = _mask_feedback_vector(
+                residuals, available, r_t, full_feedback=True
+            )
         return residual_r, loss_r, residuals_full
 
     loss_all = env.losses(t)
     loss_r = float(loss_all[r_t])
-    losses_full = loss_all if router.feedback_mode == "full" else None
+    losses_full = None
+    if router.feedback_mode == "full":
+        losses_full = _mask_feedback_vector(
+            loss_all, available, r_t, full_feedback=True
+        )
     return loss_r, loss_r, losses_full
 
 
@@ -242,8 +276,12 @@ def _train_router_offline(
     for t in range(1, t_end_clipped + 1):
         x_t = env.get_context(t)
         _log_transition(router, t, x_t)
-        available = env.get_available_experts(t)
+        available = _require_available(env.get_available_experts(t), t, "router offline-train")
         r_t, cache = router.select_expert(x_t, available)
+        if not np.any(available == int(r_t)):
+            raise ValueError(
+                f"router offline-train: selected expert {r_t} not in E_t at t={t}."
+            )
         loss_obs, loss_r, losses_full = _get_router_observation(
             router, env, t, x_t, available, r_t
         )
@@ -303,8 +341,12 @@ def _run_router_online_window(
     for t in range(t_start, t_end + 1):
         x_t = env.get_context(t)
         _log_transition(router, t, x_t)
-        available = env.get_available_experts(t)
+        available = _require_available(env.get_available_experts(t), t, "router online-run")
         r_t, cache = router.select_expert(x_t, available)
+        if not np.any(available == int(r_t)):
+            raise ValueError(
+                f"router online-run: selected expert {r_t} not in E_t at t={t}."
+            )
 
         loss_obs, loss_r, losses_full = _get_router_observation(
             router, env, t, x_t, available, r_t
@@ -438,10 +480,12 @@ def run_router_on_env(
     for t in range(1, T):
         x_t = env.get_context(t)
         _log_transition(router, t, x_t)
-        available = env.get_available_experts(t)
+        available = _require_available(env.get_available_experts(t), t, "router run")
 
         # Router decision for step t (select expert for loss at time t)
         r_t, cache = router.select_expert(x_t, available)
+        if not np.any(available == int(r_t)):
+            raise ValueError(f"router run: selected expert {r_t} not in E_t at t={t}.")
 
         # Environment produces observation (loss or residual) at time t
         loss_obs, loss_r, losses_full = _get_router_observation(
@@ -500,8 +544,12 @@ def run_router_on_env_training_window(
     for t in range(1, t_train_end + 1):
         x_t = env.get_context(t)
         _log_transition(router, t, x_t)
-        available = env.get_available_experts(t)
+        available = _require_available(env.get_available_experts(t), t, "router training window")
         r_t, cache = router.select_expert(x_t, available)
+        if not np.any(available == int(r_t)):
+            raise ValueError(
+                f"router training window: selected expert {r_t} not in E_t at t={t}."
+            )
         loss_obs, loss_r, losses_full = _get_router_observation(
             router, env, t, x_t, available, r_t
         )
@@ -608,19 +656,24 @@ def run_l2d_on_env(
     for t in range(t_start, T):
         x_t = env.get_context(t)
         _log_transition(baseline, t, x_t)
-        available = env.get_available_experts(t)
+        available = _require_available(env.get_available_experts(t), t, "L2D")
 
         r_t = baseline.select_expert(x_t, available)
+        if not np.any(available == int(r_t)):
+            raise ValueError(f"L2D: selected expert {r_t} not in E_t at t={t}.")
 
         loss_all = env.losses(t)
         loss_r = float(loss_all[r_t])
         cost_t = loss_r + baseline.beta[r_t]
+        loss_masked = _mask_feedback_vector(
+            loss_all, available, r_t, full_feedback=True
+        )
 
         costs[t - 1] = cost_t
         choices[t - 1] = int(r_t)
 
         # Full-feedback update on all experts' losses for available experts
-        baseline.update(x_t, loss_all, available, selected_expert=r_t)
+        baseline.update(x_t, loss_masked, available, selected_expert=r_t)
 
     return costs, choices
 
@@ -650,18 +703,26 @@ def run_linucb_on_env(
     for t in range(t_start, T):
         x_t = env.get_context(t)
         _log_transition(baseline, t, x_t)
-        available = env.get_available_experts(t)
+        available = _require_available(env.get_available_experts(t), t, "LinUCB")
 
         r_t = baseline.select_expert(x_t, available)
+        if not np.any(available == int(r_t)):
+            raise ValueError(f"LinUCB: selected expert {r_t} not in E_t at t={t}.")
 
         loss_all = env.losses(t)
         loss_r = float(loss_all[r_t])
         cost_t = loss_r + baseline.beta[r_t]
+        loss_masked = _mask_feedback_vector(
+            loss_all,
+            available,
+            r_t,
+            full_feedback=baseline.feedback_mode == "full",
+        )
 
         costs[t - 1] = cost_t
         choices[t - 1] = int(r_t)
 
-        baseline.update(x_t, loss_all, available, selected_expert=r_t)
+        baseline.update(x_t, loss_masked, available, selected_expert=r_t)
 
     return costs, choices
 
@@ -691,18 +752,26 @@ def run_neuralucb_on_env(
     for t in range(t_start, T):
         x_t = env.get_context(t)
         _log_transition(baseline, t, x_t)
-        available = env.get_available_experts(t)
+        available = _require_available(env.get_available_experts(t), t, "NeuralUCB")
 
         r_t = baseline.select_expert(x_t, available)
+        if not np.any(available == int(r_t)):
+            raise ValueError(f"NeuralUCB: selected expert {r_t} not in E_t at t={t}.")
 
         loss_all = env.losses(t)
         loss_r = float(loss_all[r_t])
         cost_t = loss_r + baseline.beta[r_t]
+        loss_masked = _mask_feedback_vector(
+            loss_all,
+            available,
+            r_t,
+            full_feedback=baseline.feedback_mode == "full",
+        )
 
         costs[t - 1] = cost_t
         choices[t - 1] = int(r_t)
 
-        baseline.update(x_t, loss_all, available)
+        baseline.update(x_t, loss_masked, available, selected_expert=r_t)
 
     return costs, choices
 
@@ -743,9 +812,7 @@ def run_random_on_env(
 
     for t in range(1, T):
         _log_transition(None, t, np.asarray([]), fallback_label="Random")
-        available = env.get_available_experts(t)
-        if available.size == 0:
-            available = np.arange(N, dtype=int)
+        available = _require_available(env.get_available_experts(t), t, "Random")
 
         r_t = int(rng.choice(available))
 
@@ -792,9 +859,7 @@ def run_oracle_on_env(
         loss_all = env.losses(t)
         total_costs = loss_all + beta
 
-        available = env.get_available_experts(t)
-        if available.size == 0:
-            available = np.arange(N, dtype=int)
+        available = _require_available(env.get_available_experts(t), t, "Oracle")
 
         avail_costs = total_costs[available]
         r_t = int(available[int(np.argmin(avail_costs))])

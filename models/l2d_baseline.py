@@ -198,6 +198,8 @@ class L2D:
         phi_x = self._advance_and_get_phi(x)
         scores = self._scores(phi_x)
         available_experts = np.asarray(list(available_experts), dtype=int)
+        if available_experts.size == 0:
+            raise ValueError("L2D: no available experts in select_expert.")
         avail_scores = scores[available_experts]
         idx = int(np.argmax(avail_scores))
         return int(available_experts[idx])
@@ -211,6 +213,8 @@ class L2D:
     ) -> None:
         losses_all = np.asarray(losses_all, dtype=float).reshape(self.N)
         available_experts = np.asarray(list(available_experts), dtype=int)
+        if available_experts.size == 0:
+            raise ValueError("L2D: no available experts in update.")
 
         rmse = np.sqrt(np.maximum(losses_all, 0.0))
         mu = self.alpha * rmse + self.beta

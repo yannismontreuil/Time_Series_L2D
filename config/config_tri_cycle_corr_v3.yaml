@@ -26,7 +26,7 @@ environment:
   # Dimensions
   num_experts: 5
   num_regimes: 3
-  state_dim: 2
+  state_dim: 1
 
   # Lower target noise; residuals dominated by shared expert noise.
   noise_scale: 0.12
@@ -47,15 +47,18 @@ environment:
       - [1.0, 1.2, 0.4, 0.6, 1.6]
       - [0.4, 1.3, 1.0, 1.2, 0.6]
 
+  #SHould we also update a newly entered experts? it seems intuitive to do so no?
+
 routers:
   beta: 0.0
   staleness_threshold: null
+
 
   factorized_slds:
     enabled: true
     num_regimes: 3
     shared_dim: 1
-    idiosyncratic_dim: 2
+    idiosyncratic_dim: 1
     delta_max: 10000 # keep 1000 if no pruning
     R_scalar: 0.5
     Q_g_scales: [0.05, 0.05, 0.05]
@@ -76,8 +79,8 @@ routers:
     # Offline EM uses full feedback even for partial routers.
     em_offline_full_feedback: true
     em_tk: 1500
-    em_n: 15
-    em_samples: 100
+    em_n: 2
+    em_samples: 10
     em_burn_in: 20
     # Offline EM validation.
     em_use_validation: true
@@ -92,13 +95,13 @@ routers:
     # Optional stride between rolling windows; null -> evenly spaced.
     em_val_roll_stride: null
     em_val_len: null
-    em_theta_lr: 0.005
-    em_theta_steps: 5
+    em_theta_lr: 0.01
+    em_theta_steps: 10
     em_print_val_loss: true
     em_eps_n: 1.0e-3
 
     # Online (sliding-window) EM adaptation.
-    em_online_enabled: true
+    em_online_enabled: false
     em_online_window: 400
     em_online_period: 300
     em_online_n: 1

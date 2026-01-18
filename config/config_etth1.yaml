@@ -19,7 +19,7 @@ environment:
   num_regimes: 2
 
   # State dimension d = dim φ(x). The current feature map returns 2D features.
-  state_dim: 2
+  state_dim: 1
 
   # Optional: limit the number of time steps T used from the dataset.
   # If omitted or null, the full ETTh1 series is used.
@@ -86,7 +86,7 @@ routers:
   slds_imm_corr:
     # Shared factor dimension d_g and idiosyncratic dimension d_u.
     shared_dim: 1
-    idiosyncratic_dim: 2
+    idiosyncratic_dim: 1
 
     # Shared-factor dynamics A_gk default to identity; Q_gk built from scales.
     # Scales tuned via hyperparameter search with M=2 and q_scale ≈ 0.5.

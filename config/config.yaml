@@ -31,7 +31,7 @@ environment:
   # (e.g., T: 1000) and optionally override the noise scale:
   noise_scale: 0.6
   # State dimension d = dim φ(x). The current feature map returns 2D features.
-  state_dim: 2
+  state_dim: 1
   # Time horizon T
   T: 2000
   seed: 42
@@ -128,7 +128,7 @@ routers:
     feature_activation: "tanh"
     # Shared factor dimension d_g and idiosyncratic dimension d_u.
     shared_dim: 1
-    idiosyncratic_dim: 2
+    idiosyncratic_dim: 1
     # Shared-factor dynamics A_gk default to identity; Q_gk built from scales.
     # Hyperparameter-tuned absolute value for shared-factor process noise
     # (best partial: q_g = 0.01).
@@ -171,7 +171,7 @@ routers:
       feature_mode: "fixed"
       feature_learning_rate: 0.0
       shared_dim: 1
-      idiosyncratic_dim: 2
+      idiosyncratic_dim: 1
       Q_g_scales: 0.01
       Q_u_scales: 0.001
       feature_arch: "linear"
@@ -180,7 +180,7 @@ routers:
       feature_mode: "fixed"
       feature_learning_rate: 0.0
       shared_dim: 1
-      idiosyncratic_dim: 2
+      idiosyncratic_dim: 1
       Q_g_scales: 1.0
       Q_u_scales: 0.001
       feature_arch: "linear"
@@ -191,7 +191,7 @@ routers:
   # when expert j was selected at t-1. Defaults to zero bias.
   slds_imm_corr_recurrent:
     shared_dim: 1
-    idiosyncratic_dim: 2
+    idiosyncratic_dim: 1
     Q_g_scales: 0.01
     Q_u_scales: 0.001
     R_scalar: 1.0
@@ -203,7 +203,7 @@ routers:
   factorized_slds:
     num_regimes: 5
     shared_dim: 1
-    idiosyncratic_dim: 2
+    idiosyncratic_dim: 1
     delta_max: 50
 
   # Optional configuration for the recurrent SLDS-IMM router.
@@ -333,7 +333,7 @@ hyperparam_search:
   feature_learning_rate_grid: [0.0, 0.001, 0.01]
   feature_arch_grid: ["linear", "mlp"]
   shared_dim_grid: [1, 2]
-  idiosyncratic_dim_grid: [1, 2, 3]
+  idiosyncratic_dim_grid: [1]
   num_regimes_grid: [2, 3]
   seeds: [42, 43, 44, 45, 46]
   r_slds:
