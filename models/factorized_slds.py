@@ -3283,9 +3283,11 @@ class FactorizedSLDS(SLDSIMMRouter):
                 if count <= epsilon_N:
                     continue
                 reg = lambda_A_g * np.eye(self.d_g)
-                self.A_g[m] = (sum_gg + lambda_A_g * M_A_g) @ np.linalg.inv(
-                    sum_gprev + reg
-                )
+                # Use solve for numerical stability: A = X @ Y^{-1} => A^T = solve(Y, X^T)
+                self.A_g[m] = np.linalg.solve(
+                    sum_gprev + reg,
+                    (sum_gg + lambda_A_g * M_A_g).T
+                ).T
                 sum_gres = np.zeros((self.d_g, self.d_g), dtype=float)
                 for s in range(z_samples.shape[0]):
                     z_seq = z_samples[s]
@@ -3324,9 +3326,11 @@ class FactorizedSLDS(SLDSIMMRouter):
                 if count <= epsilon_N:
                     continue
                 reg = lambda_A_u * np.eye(self.d_phi)
-                self.A_u[m] = (sum_uu + lambda_A_u * M_A_u) @ np.linalg.inv(
-                    sum_uprev + reg
-                )
+                # Use solve for numerical stability: A = X @ Y^{-1} => A^T = solve(Y, X^T)
+                self.A_u[m] = np.linalg.solve(
+                    sum_uprev + reg,
+                    (sum_uu + lambda_A_u * M_A_u).T
+                ).T
                 sum_ures = np.zeros((self.d_phi, self.d_phi), dtype=float)
                 for k in expert_ids:
                     u_samp = u_samples[k]

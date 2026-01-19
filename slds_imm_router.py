@@ -107,7 +107,9 @@ def _collect_factorized_em_data(
             available = np.asarray(env.get_available_experts(t), dtype=int)
             if available.size == 0:
                 raise ValueError(f"EM warmup: no available experts at t={t}.")
-            r_t = int(np.min(available))
+            # Use router's policy for action selection to avoid biasing EM
+            # estimates under partial feedback.
+            r_t = int(router.select(x_t, available))
 
             preds = env.all_expert_predictions(x_t)
             residuals_all = preds - float(env.y[t])

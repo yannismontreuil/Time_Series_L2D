@@ -226,7 +226,11 @@ def _get_router_observation(
         preds = env.all_expert_predictions(x_t)
         residuals = preds - y_t
         residual_r = float(residuals[int(r_t)])
-        loss_r = residual_r ** 2
+        # Use router's loss_fn if available (e.g., custom ψ), else squared loss.
+        if hasattr(router, "loss_fn") and router.loss_fn is not None:
+            loss_r = float(router._apply_loss_fn(np.array([residual_r]))[0])
+        else:
+            loss_r = residual_r ** 2
         residuals_full = None
         if router.feedback_mode == "full":
             residuals_full = _mask_feedback_vector(

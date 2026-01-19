@@ -313,10 +313,10 @@ def _sample_context_scenarios(
         for n in range(int(num_scenarios)):
             y_prev = float(y_hist[-1])
             for h in range(H_eff):
-                scenarios[n, h, 0] = y_prev
                 drift = float(drift_by_regime[int(z_future[h])])
                 eps = float(rng.normal(loc=0.0, scale=(sigma0 if h == 0 else q)))
                 y_prev = ar_coef * y_prev + drift + eps
+                scenarios[n, h, 0] = y_prev
         return scenarios
 
     # Fit a per-dimension AR(1): x_t = c + rho * x_{t-1} + eps_t.
@@ -439,15 +439,24 @@ def compute_oracle_and_baseline_schedules(
     always_avail_mask = avail_window.all(axis=0)
     candidate_experts = np.where(always_avail_mask)[0]
     if candidate_experts.size == 0:
-        candidate_experts = np.arange(env.num_experts)
+        # No always-available expert; pick those with maximum availability count.
+        avail_counts = avail_window.sum(axis=0)
+        max_avail = avail_counts.max()
+        candidate_experts = np.where(avail_counts == max_avail)[0]
 
     avg_cost_per_expert: List[float] = []
     for j in candidate_experts:
         costs_j = []
-        for t in times:
-            loss_all = env.losses(int(t))
-            costs_j.append(float(loss_all[j] + beta[j]))
-        avg_cost_per_expert.append(float(np.mean(costs_j)))
+        for h_idx, t in enumerate(times):
+            # Only average cost over times when this expert is available.
+            if j in avail_per_h[h_idx]:
+                loss_all = env.losses(int(t))
+                costs_j.append(float(loss_all[j] + beta[j]))
+        if costs_j:
+            avg_cost_per_expert.append(float(np.mean(costs_j)))
+        else:
+            # Expert never available; assign infinite cost.
+            avg_cost_per_expert.append(float("inf"))
     j_baseline = int(candidate_experts[int(np.argmin(avg_cost_per_expert))])
     sched_baseline = [j_baseline] * H_eff
 
@@ -752,7 +761,12 @@ def _plan_horizon_schedule_monte_carlo(
                     x_future, w, mu_g, Sigma_g, mu_u, Sigma_u
                 )
 
-                feas = [k for k in registry if k in avail_sets[h]]
+                avail_now = sorted(int(k) for k in avail_sets[h])
+                for k in avail_now:
+                    if k not in mu_u_pred:
+                        mu_u_pred[k] = router.u_mean0.copy()
+                        Sigma_u_pred[k] = router.u_cov0.copy()
+                feas = avail_now
                 phi = router._compute_phi(x_future)
                 costs, _ = router._score_experts(
                     phi,
@@ -814,7 +828,7 @@ def _plan_horizon_schedule_monte_carlo(
 
                 scores_scen[n, h, :] = scores
 
-                feas = [k for k in registry if k in avail_sets[h]]
+                feas = sorted(int(k) for k in avail_sets[h])
                 if feas:
                     feas_scores = scores[np.asarray(feas, dtype=int)]
                     best_idx = int(np.argmin(feas_scores))
