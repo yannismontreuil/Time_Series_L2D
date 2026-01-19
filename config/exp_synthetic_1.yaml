@@ -155,6 +155,7 @@ baselines:
     feedback_mode: "partial"
 
 analysis:
+  baselines_train_from_start: true
   tri_cycle_corr:
     enabled: true
     router: "factorized_full"

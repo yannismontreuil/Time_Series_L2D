@@ -476,7 +476,26 @@ def evaluate_routers_and_baselines(
         router_partial_corr_em,
         router_full_corr_em,
     )
-    baseline_start_t = 1 if em_tk_anchor is None else int(em_tk_anchor) + 1
+    baselines_train_from_start = False
+    if analysis_cfg is not None:
+        baselines_train_from_start = bool(
+            analysis_cfg.get("baselines_train_from_start", False)
+        )
+    if baselines_train_from_start or em_tk_anchor is None:
+        baseline_start_t = 1
+    else:
+        baseline_start_t = int(em_tk_anchor) + 1
+    if baselines_train_from_start:
+        em_anchor_str = "none" if em_tk_anchor is None else str(int(em_tk_anchor))
+        print(
+            f"[baselines] training from t=1 (full history); "
+            f"evaluation masked after em_tk={em_anchor_str}."
+        )
+    elif em_tk_anchor is not None:
+        print(
+            f"[baselines] training starts at t={baseline_start_t} "
+            f"(em_tk_anchor={int(em_tk_anchor)})."
+        )
     transition_cfg = get_transition_log_config()
     if transition_cfg is not None and transition_cfg.get("online_only", False):
         if transition_cfg.get("start_t") is None:
