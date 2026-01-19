@@ -30,6 +30,7 @@ from plot_utils import (
     analysis_late_arrival,
     plot_time_series,
     run_tri_cycle_corr_diagnostics,
+    plot_pruning_dynamics,
 )
 from horizon_planning import evaluate_horizon_planning
 
@@ -1807,6 +1808,35 @@ if __name__ == "__main__":
         _configure_factorized_online_em(run.get("router_partial_no_g"))
         _configure_factorized_online_em(run.get("router_full_no_g"))
 
+    planning_snapshot_t = None
+    planning_online_start_t = None
+    planning_snapshots = None
+    if horizon_cfg:
+        planning_snapshot_t = int(horizon_cfg.get("t0", 175))
+        planning_online_start_t = horizon_cfg.get("online_start_t", None)
+        em_tk_candidates = []
+        for r in (
+            router_partial,
+            router_full,
+            fact_router_partial,
+            fact_router_full,
+            fact_router_partial_linear,
+            fact_router_full_linear,
+            router_partial_corr_em,
+            router_full_corr_em,
+        ):
+            if r is None:
+                continue
+            em_val = getattr(r, "em_tk", None)
+            if em_val is not None:
+                em_tk_candidates.append(int(em_val))
+        em_tk_anchor = max(em_tk_candidates) if em_tk_candidates else None
+        if em_tk_anchor is not None and planning_snapshot_t <= em_tk_anchor:
+            planning_snapshot_t = int(em_tk_anchor + 1)
+            if planning_online_start_t is None:
+                planning_online_start_t = int(em_tk_anchor)
+        planning_snapshots = {}
+
     # Plot the true series and expert predictions
     # plot_time_series(env)
 
@@ -1871,6 +1901,8 @@ if __name__ == "__main__":
                     copy.deepcopy(neuralucb_full) if neuralucb_full is not None else None
                 )
 
+                snap_dict = planning_snapshots if run_idx == 0 else None
+                snap_t = planning_snapshot_t if run_idx == 0 else None
                 evaluate_routers_and_baselines(
                     env,
                     run["router_partial_no_g"],
@@ -1889,6 +1921,8 @@ if __name__ == "__main__":
                     neuralucb_full=neuralucb_full_run,
                     seed=seed,
                     analysis_cfg=analysis_cfg,
+                    planning_snapshot_t=snap_t,
+                    planning_snapshots=snap_dict,
                 )
                 tri_cfg = analysis_cfg.get("tri_cycle_corr", {}) or {}
                 if (
@@ -1937,6 +1971,41 @@ if __name__ == "__main__":
                         corr_smooth_window=int(tri_cfg.get("corr_smooth_window", 1)),
                         transfer_probe=tri_cfg.get("transfer_probe", None),
                     )
+                prune_cfg = analysis_cfg.get("pruning", {}) or {}
+                if prune_cfg.get("enabled", False):
+                    run_idx_cfg = prune_cfg.get("run_index", None)
+                    run_mode_cfg = prune_cfg.get("exploration_mode", None)
+                    if run_idx_cfg is not None and int(run_idx_cfg) != run_idx:
+                        continue
+                    if run_mode_cfg is not None and str(run_mode_cfg) != str(
+                        run.get("exploration_mode")
+                    ):
+                        continue
+                    router_full = run.get("fact_router_full")
+                    router_no_g = run.get("router_full_no_g")
+                    if router_full is None or router_no_g is None:
+                        print("[pruning] Required routers unavailable; skipping.")
+                        continue
+                    expert_idx_cfg = prune_cfg.get("expert_idx", None)
+                    if expert_idx_cfg is None:
+                        print("[pruning] expert_idx not configured; skipping.")
+                        continue
+                    out_dir = str(prune_cfg.get("out_dir", "out/pruning"))
+                    rolling_window = int(prune_cfg.get("rolling_window", 100))
+                    plot_pruning_dynamics(
+                        env=env,
+                        router_full=router_full,
+                        router_no_g=router_no_g,
+                        expert_idx=int(expert_idx_cfg),
+                        rolling_window=rolling_window,
+                        out_dir=out_dir,
+                        show_plots=bool(prune_cfg.get("show_plots", False)),
+                        save_plots=bool(prune_cfg.get("save_plots", True)),
+                        save_png=bool(prune_cfg.get("save_png", True)),
+                        save_pdf=bool(prune_cfg.get("save_pdf", True)),
+                        label_full=str(prune_cfg.get("label_full", run.get("factorized_label", "L2D SLDS w/ $g_t$"))),
+                        label_no_g=str(prune_cfg.get("label_no_g", "L2D SLDS w/t $g_t$")),
+                    )
     else:
         evaluate_routers_and_baselines(
             env,
@@ -1956,6 +2025,8 @@ if __name__ == "__main__":
             neuralucb_full=neuralucb_full,
             seed=seed,
             analysis_cfg=analysis_cfg,
+            planning_snapshot_t=planning_snapshot_t,
+            planning_snapshots=planning_snapshots,
         )
 
 
@@ -2037,36 +2108,54 @@ if __name__ == "__main__":
         scenario_generator_cfg = dict(scenario_generator_cfg)
         scenario_generator_cfg["seed"] = seed
     delta = float(horizon_cfg.get("delta", 0.1))
-    online_start_t = horizon_cfg.get("online_start_t", None)
-
-    em_tk_candidates = []
-    for r in (
-        router_partial,
-        router_full,
-        fact_router_partial,
-        fact_router_full,
-        fact_router_partial_linear,
-        fact_router_full_linear,
-        router_partial_corr_em,
-        router_full_corr_em,
-    ):
-        if r is None:
-            continue
-        em_val = getattr(r, "em_tk", None)
-        if em_val is not None:
-            em_tk_candidates.append(int(em_val))
-    em_tk_anchor = max(em_tk_candidates) if em_tk_candidates else None
-
-    t0 = int(t0_cfg)
-    if em_tk_anchor is not None:
-        if t0 <= em_tk_anchor:
-            t0 = int(em_tk_anchor + 1)
-        if online_start_t is None:
-            online_start_t = int(em_tk_anchor)
+    online_start_t = (
+        planning_online_start_t
+        if planning_online_start_t is not None
+        else horizon_cfg.get("online_start_t", None)
+    )
+    t0 = int(planning_snapshot_t) if planning_snapshot_t is not None else int(t0_cfg)
     if t0 != int(t0_cfg):
         print(
             f"[Horizon planning] Adjusted t0 from {t0_cfg} to {t0} "
-            f"to start after EM (em_tk={em_tk_anchor})."
+            f"to start after EM."
+        )
+
+    snapshot_keys = []
+    if router_partial is not None:
+        snapshot_keys.append("router_partial")
+    if router_full is not None:
+        snapshot_keys.append("router_full")
+    if fact_router_partial is not None:
+        snapshot_keys.append("fact_router_partial")
+    if fact_router_full is not None:
+        snapshot_keys.append("fact_router_full")
+    if fact_router_partial_linear is not None:
+        snapshot_keys.append("fact_router_partial_linear")
+    if fact_router_full_linear is not None:
+        snapshot_keys.append("fact_router_full_linear")
+    use_snapshots = (
+        planning_snapshots is not None
+        and snapshot_keys
+        and all(key in planning_snapshots for key in snapshot_keys)
+    )
+    if use_snapshots:
+        router_partial = planning_snapshots.get("router_partial", router_partial)
+        router_full = planning_snapshots.get("router_full", router_full)
+        fact_router_partial = planning_snapshots.get(
+            "fact_router_partial", fact_router_partial
+        )
+        fact_router_full = planning_snapshots.get(
+            "fact_router_full", fact_router_full
+        )
+        fact_router_partial_linear = planning_snapshots.get(
+            "fact_router_partial_linear", fact_router_partial_linear
+        )
+        fact_router_full_linear = planning_snapshots.get(
+            "fact_router_full_linear", fact_router_full_linear
+        )
+        print(
+            f"[Horizon planning] Using stored router snapshots at t={t0} "
+            f"to avoid re-fitting."
         )
 
     evaluate_horizon_planning(
@@ -2092,6 +2181,7 @@ if __name__ == "__main__":
         scenario_generator_cfg=scenario_generator_cfg,
         delta=delta,
         online_start_t=online_start_t,
+        skip_router_warm_start=use_snapshots,
         factorized_label=factorized_label,
         factorized_linear_label=factorized_linear_label,
     )

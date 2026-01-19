@@ -7,9 +7,9 @@ Switch delay (median): 0.000
 Corr MAE regime 0: 0.0551
 Corr MAE regime 1: 0.0706
 Pair 0-1 corr:
-  Regime 0: true=0.9067, est=0.8106
+  Regime 0: true=0.9067, est=0.8107
   Regime 1: true=0.6263, est=0.8453
 Pair 2-3 corr:
   Regime 0: true=0.8381, est=0.8231
   Regime 1: true=0.9320, est=0.8012
-G recovery mean |corr|: 0.8837
+G recovery mean |corr|: 0.8838
