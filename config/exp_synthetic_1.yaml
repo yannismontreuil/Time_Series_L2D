@@ -23,7 +23,7 @@ environment:
   data_source: synthetic
   setting: tri_cycle_corr
   T: 3000
-  seed: 11
+  seed: 10
 
   # Dimensions
   num_experts: 4
@@ -143,12 +143,12 @@ baselines:
     beta: null
 
   linucb:
-    alpha_ucb: 0.67
+    alpha_ucb: 5
     l2_reg: 1.0
     feedback_mode: "partial"
 
   neural_ucb:
-    alpha_ucb: 0.67
+    alpha_ucb: 5
     lambda_reg: 1.0
     hidden_dim: 16
     nn_learning_rate: 0.001
