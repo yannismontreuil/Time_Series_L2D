@@ -1,22 +1,33 @@
-hyperparam_search:
-  num_workers: 8
-  num_regimes_grid: [2, 3]
-  lambda_risk_grid: [-0.5, -0.2, 0.0, 0.2]
-  q_g_scale_grid: [0.25, 0.5, 1.0]
-  q_u_scale_grid: [0.25, 0.5, 1.0, 2.0]
-  r_scale_grid: [0.5, 1.0, 2.0]
+plot_shift: 1
+plot_target: "y"
+plot_synth_preview: true
+
+transition_log:
+  enabled: true
+  print: false
+  precision: 4
+  stride: 1
+  print_wlin_blin: false
+  plot: true
+  plot_show: true
+  plot_save: false
+  plot_na: true
+  online_only: true
+  plot_only_ours: true
+  plot_entropy: true
 
 environment:
   # Main experiment environment for ETTh1 (oil temperature as target).
   # We reuse the same router code as for the synthetic environment, but
   # the data now comes from a real-world dataset.
+#  T: 17536 # total 17536 time steps
   data_source: etth1
   csv_path: data/ETTh1.csv
   target_column: OT
 
-  # Number of experts and regimes.
-  num_experts: 5
-  num_regimes: 2
+#  # Number of experts and regimes.
+  num_experts: 4
+#  num_regimes: 2
 
   # State dimension d = dim φ(x). The current feature map returns 2D features.
   state_dim: 1
@@ -44,135 +55,139 @@ environment:
   analysis_window: 500
   analysis_adoption_threshold: 0.5
 
-late_arrival_analysis: true
-
 routers:
-  # Risk sensitivity for SLDS-IMM routers.
-  # Scalar (regime-independent) in this experiment.
-  lambda_risk: -0.2
-
-  # Consultation costs for routers (β_j).
-  # Can be a single scalar (broadcast to all experts) or
-  # a list of length num_experts.
   beta: 0.0
-
-  # Independent-expert SLDS-IMM router configuration (shares R with
-  # the correlated router).
-  slds_imm:
-    # Process noise covariances Q_k are built from per-regime scales.
-    # Here we use scales tuned via hyperparameter search (q_scale ≈ 0.5).
-    Q_scales: [0.0025, 0.025]
-
-    # Observation noise R_{k,j}: single scalar broadcast to all regimes/experts.
-    # This value was tuned via hyperparameter search (r_scale ≈ 2.0).
-    R_scalar: 2.0
-
-    # Regime transition matrix Π (shape [num_regimes, num_regimes]).
-    # For ETTh1 with num_regimes=2 we start from the same example as in
-    # the synthetic setting.
-    Pi:
-      - [0.9, 0.1]
-      - [0.2, 0.8]
-
-    # Prior on reliability states α_{j,t} (shape [d] and [d,d]).
-    pop_mean: [0.0, 0.0]
-    pop_cov:
-      - [1.0, 0.0]
-      - [0.0, 1.0]
-    # Numerical stabilizer ε for covariances.
-    eps: 1.0e-8
-
-  # Correlated-expert SLDS-IMM router configuration.
-  slds_imm_corr:
-    # Shared factor dimension d_g and idiosyncratic dimension d_u.
-    shared_dim: 1
-    idiosyncratic_dim: 1
-
-    # Shared-factor dynamics A_gk default to identity; Q_gk built from scales.
-    # Scales tuned via hyperparameter search with M=2 and q_scale ≈ 0.5.
-    Q_g_scales: [0.0025, 0.0125]
-
-    # Idiosyncratic dynamics A_uk default to identity; Q_uk built from scales.
-    Q_u_scales: [0.0025, 0.025]
-
-    # Shared-factor loadings B_j: first feature loads on shared factor with
-    # this scalar (same for all experts).
-    B_intercept_load: 1.0
-
-    # Priors for shared factor g_t and idiosyncratic states u_{j,t}.
-    g_mean0: [0.0]
-    g_cov0:
-      - [1.0]
-    u_mean0: [0.0, 0.0]
-    u_cov0:
-      - [1.0, 0.0]
-      - [0.0, 1.0]
-
-    # Numerical stabilizer ε for joint covariances.
-    eps: 1.0e-8
-
-  # Registry pruning threshold for correlated router (in decision epochs).
-  # If null, pruning is disabled.
   staleness_threshold: null
+
+  factorized_slds:
+    enabled: true
+    num_regimes: 2
+    shared_dim: 2
+    idiosyncratic_dim: 1
+    delta_max: 250
+    R_scalar: 0.0009
+    A_g:
+      - [[0.95, 0.0], [0.0, 0.95]]
+      - [[0.95, 0.0], [0.0, 0.95]]
+    A_u:
+      - [[0.95]]
+      - [[0.95]]
+    Q_g:
+      - [[0.2, 0.0], [0.0, 0.01]]
+      - [[0.01, 0.0], [0.0, 0.2]]
+    Q_u_scales: [0.015, 0.015]
+    exploration: ["g_z"]
+    exploration_diag_enabled: true
+    exploration_diag_stride: 200
+    exploration_diag_samples: 50
+    exploration_diag_print: true
+
+    em_enabled: true
+    em_offline_full_feedback: true
+    em_tk: 400
+    em_n: 5
+    em_samples: 10
+    em_burn_in: 100
+    em_use_validation: true
+    em_val_strategy: "rolling"
+    em_val_fraction: 0.4
+    em_val_roll_len: 100
+    em_val_roll_splits: 2
+    em_val_roll_stride: null
+    em_val_len: null
+    em_theta_lr: 0.01
+    em_theta_steps: 10
+    em_print_val_loss: true
+    em_eps_n: 1.0e-3
+
+    em_online_enabled: true
+    em_online_window: 400
+    em_online_period: 300
+    em_online_n: 1
+    em_online_samples: 20
+    em_online_burn_in: 3
+    em_online_theta_lr: 0.001
+    em_online_theta_steps: 1
+    em_online_eps_n: 1.0e-3
+    em_online_print_val_loss: true
+    em_online_start_t: null
+
+    transition_mode: "attention"
 
 baselines:
   l2d:
-    # L2D baseline with configurable architecture ("mlp" or "rnn")
     arch: "mlp"
-    learning_rate: 0.01
-    hidden_dim: 8
+    learning_rate: 0.001
+    hidden_dim: 4
     window_size: 1
-
-    # Coefficients α_j in μ_j = α_j * RMSE + β_j.
-    # Scalar or list of length num_experts.
     alpha: 1.0
-
-    # Consultation costs for L2D baseline. If omitted or null, the
-    # router β vector from routers.beta is used.
     beta: null
 
   l2d_sw:
-    # L2D baseline with sliding-window context (L2D_SW)
     arch: "rnn"
-    learning_rate: 0.01
-    hidden_dim: 8
-    window_size: 5
+    learning_rate: 0.001
+    hidden_dim: 4
+    window_size: 200
     alpha: 1.0
     beta: null
 
   linucb:
-    alpha_ucb: 1.0
-    lambda_reg: 1.0
+    alpha_ucb: 5
+    l2_reg: 1.0
+    feedback_mode: "partial"
 
   neural_ucb:
-    alpha_ucb: 1.0
+    alpha_ucb: 5
     lambda_reg: 1.0
     hidden_dim: 16
     nn_learning_rate: 0.001
+    feedback_mode: "partial"
+
+analysis:
+  baselines_train_from_start: true
+  tri_cycle_corr:
+    enabled: false
+    router: "factorized_full"
+    out_dir: "out/tri_cycle_corr"
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true
+    pairs: [[0, 1], [2, 3]]
+    corr_smooth_window: 25
+    transfer_probe:
+      enabled: true
+      target_expert: 1
+      source_expert: 0
+      compare_no_g: true
+      show_truth: true
+    expert_structure_baselines: true
+
+  pruning:
+    enabled: true
+    expert_idx: 1
+    rolling_window: 100
+    out_dir: "out/pruning"
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true
 
 
 horizon_planning:
-  # Starting time index for horizon planning in slds_imm_router.py
-  t0: 700
+  # Start horizon planning after EM warm-start.
+  t0: 1650
 
-  # Planning horizon length
-  H: 20
-  # Planning method for horizon scheduling:
-  #   - "regressive": original router-influenced context planning
-  #   - "monte_carlo": scenario-based staffing planning with N=1
-  #   - "{N}_monte_carlo": N-scenario Monte Carlo staffing planning
-  method: "20_monte_carlo"
+  H: 50
+  method: "100_monte_carlo"
 
-  # Scenario generator parameters for Monte Carlo planning.
-  # Gaussian AR(1) feature-space perturbation as in
-  # Section~\ref{sec:staffing-generator-gaussian}.
+  # Coverage tolerance for active-set scheduling.
+  delta: 0.05
+
   scenario_generator:
-    type: "gaussian_ar1"
-    # Max |rho| cap for the AR(1) coefficient fit on history.
-    rho: 0.9
-    # Initial innovation scale (multiplies fitted residual std).
-    sigma0: 0.1
-    # Per-step innovation scale (multiplies fitted residual std).
-    q_scale: 0.1
-    # Global scale on Monte Carlo context noise.
-    noise_scale: 1.0
+    type: "oracle_ar1"
+    ar_coef: 0.8
+    use_true_regime: true
+    sigma0: 1
+    q_scale: 1
+    noise_scale: 1

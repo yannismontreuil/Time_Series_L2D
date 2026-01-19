@@ -109,7 +109,7 @@ def _collect_factorized_em_data(
                 raise ValueError(f"EM warmup: no available experts at t={t}.")
             # Use router's policy for action selection to avoid biasing EM
             # estimates under partial feedback.
-            r_t = int(router.select(x_t, available))
+            r_t = int(router.select_action(x_t, available))
 
             preds = env.all_expert_predictions(x_t)
             residuals_all = preds - float(env.y[t])
