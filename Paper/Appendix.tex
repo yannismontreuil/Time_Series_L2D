@@ -9,7 +9,7 @@
 \caption{\textsc{LearnParameter\_EM}: Monte Carlo EM for the Factorized SLDS (windowed batch; includes $\theta$ for context-dependent transitions)}
 \label{alg:trainmodel_em}
 \begin{algorithmic}[1]
-\STATE {\bfseries Input:} index set $\mathcal{T}=\{t_a,\dots,t_b\}$; contexts $(\mathbf{x}_t)_{t\in\mathcal{T}}$; available sets $(\mathcal{E}_t)_{t\in\mathcal{T}}$; actions $(I_t)_{t\in\mathcal{T}}$; observed residuals $(e_t)_{t\in\mathcal{T}}$ with $e_t=y_t-\widehat{y}_{t,I_t}$; feature map $\phi$; EM iterations $N_{\mathrm{EM}}$; posterior samples $N_{\mathrm{samp}}$; burn-in $N_{\mathrm{burn}}$; occupancy floor $\epsilon_N>0$; MAP priors $(M^{(g)}_A,\lambda^{(g)}_A,\Psi^{(g)},\nu^{(g)})$, $(M^{(u)}_A,\lambda^{(u)}_A,\Psi^{(u)},\nu^{(u)})$, $(M_B,\lambda_B)$, $(a_R,b_R)$, and $\lambda_\theta$ for $\theta$ in $\Pi_\theta(\mathbf{x}_t)$.
+\STATE {\bfseries Input:} index set $\mathcal{T}=\{t_a,\dots,t_b\}$; contexts $(\mathbf{x}_t)_{t\in\mathcal{T}}$; available sets $(\mathcal{E}_t)_{t\in\mathcal{T}}$; actions $(I_t)_{t\in\mathcal{T}}$; observed residuals $(e_t)_{t\in\mathcal{T}}$ with $e_t=\widehat{y}_{t,I_t}-y_t$; feature map $\phi$; EM iterations $N_{\mathrm{EM}}$; posterior samples $N_{\mathrm{samp}}$; burn-in $N_{\mathrm{burn}}$; occupancy floor $\epsilon_N>0$; MAP priors $(M^{(g)}_A,\lambda^{(g)}_A,\Psi^{(g)},\nu^{(g)})$, $(M^{(u)}_A,\lambda^{(u)}_A,\Psi^{(u)},\nu^{(u)})$, $(M_B,\lambda_B)$, $(a_R,b_R)$, and $\lambda_\theta$ for $\theta$ in $\Pi_\theta(\mathbf{x}_t)$.
 \STATE $\mathcal{K}\leftarrow \bigcup_{t\in\mathcal{T}} \mathcal{E}_t$
 \STATE {\bfseries Initialize:} parameters $\Theta^{(0)}$; initial state priors for $z_{t_a},\mathbf{g}_{t_a},\{\mathbf{u}_{t_a,k}\}_{k\in\mathcal{K}}$.
 \FOR{iteration $i = 1$ to $N_{\mathrm{EM}}$}
@@ -95,10 +95,10 @@
         y_{t}^{(m)}\coloneqq e_t-\phi_t^\top\,\mathbb{E}_m[\mathbf{u}_{t,k}],\qquad
         w_t^{(m)}\coloneqq \gamma_t^{(m)}/R_{m,k}.
         \]
-        \STATE Let $\Sigma_{g,t}^{(m)}\coloneqq \mathbb{E}_m[\mathbf{g}_t\mathbf{g}_t^\top]$ and $\mu_{g,t}^{(m)}\coloneqq \mathbb{E}_m[\mathbf{g}_t]$.
+        \STATE Let $M_{g,t}^{(m)}\coloneqq \mathbb{E}_m[\mathbf{g}_t\mathbf{g}_t^\top]$ and $\mu_{g,t}^{(m)}\coloneqq \mathbb{E}_m[\mathbf{g}_t]$ (so $M_{g,t}^{(m)}=\mathrm{Cov}_m(\mathbf{g}_t)+\mu_{g,t}^{(m)}\mu_{g,t}^{(m)\top}$).
         \STATE Define the (exact-EM) normal-equation matrices
         \[
-        \mathcal{H}_k \coloneqq \sum_{t\in\mathcal{T}:I_t=k}\sum_{m=1}^M w_t^{(m)}\left(\Sigma_{g,t}^{(m)}\otimes(\phi_t\phi_t^\top)\right),\qquad
+        \mathcal{H}_k \coloneqq \sum_{t\in\mathcal{T}:I_t=k}\sum_{m=1}^M w_t^{(m)}\left(M_{g,t}^{(m)}\otimes(\phi_t\phi_t^\top)\right),\qquad
         \mathcal{b}_k \coloneqq \sum_{t\in\mathcal{T}:I_t=k}\sum_{m=1}^M w_t^{(m)}\left(\mu_{g,t}^{(m)}\otimes \phi_t\right)\, y_t^{(m)}.
         \]
         \STATE Update

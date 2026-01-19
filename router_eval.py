@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 from typing import Optional, Sequence, Tuple
 
@@ -14,6 +15,22 @@ TimeSeriesEnv = SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv
 _TRANSITION_LOG_CFG: Optional[dict] = None
 _TRANSITION_LOG_LABELS: dict[int, str] = {}
 _TRANSITION_LOG_STORE: dict[str, list[tuple[int, Optional[np.ndarray]]]] = {}
+
+
+def _maybe_snapshot_router(
+    router: SLDSIMMRouter | FactorizedSLDS | L2D | LinUCB | NeuralUCB,
+    t: int,
+    snapshot_at_t: Optional[int],
+    snapshot_dict: Optional[dict],
+    snapshot_key: Optional[str],
+) -> None:
+    if snapshot_at_t is None or snapshot_dict is None or snapshot_key is None:
+        return
+    if int(t) != int(snapshot_at_t):
+        return
+    if snapshot_key in snapshot_dict:
+        return
+    snapshot_dict[snapshot_key] = copy.deepcopy(router)
 
 
 def set_transition_log_config(cfg: Optional[dict]) -> None:
@@ -209,7 +226,11 @@ def _get_router_observation(
         preds = env.all_expert_predictions(x_t)
         residuals = preds - y_t
         residual_r = float(residuals[int(r_t)])
-        loss_r = residual_r ** 2
+        # Use router's loss_fn if available (e.g., custom ψ), else squared loss.
+        if hasattr(router, "loss_fn") and router.loss_fn is not None:
+            loss_r = float(router._apply_loss_fn(np.array([residual_r]))[0])
+        else:
+            loss_r = residual_r ** 2
         residuals_full = None
         if router.feedback_mode == "full":
             residuals_full = _mask_feedback_vector(
@@ -312,6 +333,9 @@ def _run_router_online_window(
     env: TimeSeriesEnv,
     t_start: int,
     t_end: int,
+    snapshot_at_t: Optional[int] = None,
+    snapshot_dict: Optional[dict] = None,
+    snapshot_key: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run the router on a specified time window [t_start, t_end],
@@ -372,6 +396,9 @@ def _run_router_online_window(
                 available_experts=available,
                 cache=cache,
             )
+        _maybe_snapshot_router(
+            router, t, snapshot_at_t, snapshot_dict, snapshot_key
+        )
 
     if has_training_mode:
         router.training_mode = old_mode
@@ -455,6 +482,9 @@ def run_router_on_env_expanding(
 def run_router_on_env(
     router: SLDSIMMRouter,
     env: TimeSeriesEnv,
+    snapshot_at_t: Optional[int] = None,
+    snapshot_dict: Optional[dict] = None,
+    snapshot_key: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run the router on the synthetic environment.
@@ -513,6 +543,9 @@ def run_router_on_env(
                 available_experts=available,
                 cache=cache,
             )
+        _maybe_snapshot_router(
+            router, t, snapshot_at_t, snapshot_dict, snapshot_key
+        )
 
     return np.array(costs), np.array(choices)
 
@@ -521,6 +554,9 @@ def run_router_on_env_training_window(
     router: SLDSIMMRouter,
     env: TimeSeriesEnv,
     t_train_end: int,
+    snapshot_at_t: Optional[int] = None,
+    snapshot_dict: Optional[dict] = None,
+    snapshot_key: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run the router on a training window [1, t_train_end], recording costs
@@ -574,6 +610,9 @@ def run_router_on_env_training_window(
                 available_experts=available,
                 cache=cache,
             )
+        _maybe_snapshot_router(
+            router, t, snapshot_at_t, snapshot_dict, snapshot_key
+        )
 
     if has_training_mode:
         router.training_mode = old_mode
@@ -585,6 +624,9 @@ def run_router_on_env_em_split(
     router: SLDSIMMRouter,
     env: TimeSeriesEnv,
     t_train_end: int,
+    snapshot_at_t: Optional[int] = None,
+    snapshot_dict: Optional[dict] = None,
+    snapshot_key: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Run EM-style training on [1, t_train_end] (if applicable), then run
@@ -597,10 +639,21 @@ def run_router_on_env_em_split(
         return run_router_on_env(router, env)
 
     train_costs, train_choices = run_router_on_env_training_window(
-        router, env, t_train_end
+        router,
+        env,
+        t_train_end,
+        snapshot_at_t=snapshot_at_t,
+        snapshot_dict=snapshot_dict,
+        snapshot_key=snapshot_key,
     )
     online_costs, online_choices = _run_router_online_window(
-        router, env, t_train_end + 1, T - 1
+        router,
+        env,
+        t_train_end + 1,
+        T - 1,
+        snapshot_at_t=snapshot_at_t,
+        snapshot_dict=snapshot_dict,
+        snapshot_key=snapshot_key,
     )
 
     costs = (
@@ -618,11 +671,20 @@ def run_router_on_env_em_split(
 def run_factored_router_on_env(
     router: FactorizedSLDS,
     env: TimeSeriesEnv,
+    snapshot_at_t: Optional[int] = None,
+    snapshot_dict: Optional[dict] = None,
+    snapshot_key: Optional[str] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Backward-compatible wrapper around run_router_on_env for FactorizedSLDS.
     """
-    return run_router_on_env(router, env)
+    return run_router_on_env(
+        router,
+        env,
+        snapshot_at_t=snapshot_at_t,
+        snapshot_dict=snapshot_dict,
+        snapshot_key=snapshot_key,
+    )
 
 
 def run_l2d_on_env(

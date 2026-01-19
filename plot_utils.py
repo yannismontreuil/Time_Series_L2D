@@ -442,6 +442,8 @@ def evaluate_routers_and_baselines(
     router_full_neural=None,
     seed: int = 0,
     analysis_cfg: Optional[dict] = None,
+    planning_snapshot_t: Optional[int] = None,
+    planning_snapshots: Optional[dict] = None,
 ) -> None:
     """
     Evaluate how the partial- and full-feedback routers behave on the
@@ -474,7 +476,26 @@ def evaluate_routers_and_baselines(
         router_partial_corr_em,
         router_full_corr_em,
     )
-    baseline_start_t = 1 if em_tk_anchor is None else int(em_tk_anchor) + 1
+    baselines_train_from_start = False
+    if analysis_cfg is not None:
+        baselines_train_from_start = bool(
+            analysis_cfg.get("baselines_train_from_start", False)
+        )
+    if baselines_train_from_start or em_tk_anchor is None:
+        baseline_start_t = 1
+    else:
+        baseline_start_t = int(em_tk_anchor) + 1
+    if baselines_train_from_start:
+        em_anchor_str = "none" if em_tk_anchor is None else str(int(em_tk_anchor))
+        print(
+            f"[baselines] training from t=1 (full history); "
+            f"evaluation masked after em_tk={em_anchor_str}."
+        )
+    elif em_tk_anchor is not None:
+        print(
+            f"[baselines] training starts at t={baseline_start_t} "
+            f"(em_tk_anchor={int(em_tk_anchor)})."
+        )
     transition_cfg = get_transition_log_config()
     if transition_cfg is not None and transition_cfg.get("online_only", False):
         if transition_cfg.get("start_t") is None:
@@ -483,14 +504,27 @@ def evaluate_routers_and_baselines(
             set_transition_log_config(transition_cfg)
 
     # Run both base routers to obtain costs and choices
-    def _run_base_router(router: SLDSIMMRouter):
+    def _run_base_router(router: SLDSIMMRouter, snapshot_key: Optional[str] = None):
         em_tk = getattr(router, "em_tk", None)
         if em_tk is not None:
-            return run_router_on_env_em_split(router, env, int(em_tk))
-        return run_router_on_env(router, env)
+            return run_router_on_env_em_split(
+                router,
+                env,
+                int(em_tk),
+                snapshot_at_t=planning_snapshot_t,
+                snapshot_dict=planning_snapshots,
+                snapshot_key=snapshot_key,
+            )
+        return run_router_on_env(
+            router,
+            env,
+            snapshot_at_t=planning_snapshot_t,
+            snapshot_dict=planning_snapshots,
+            snapshot_key=snapshot_key,
+        )
 
-    costs_partial, choices_partial = _run_base_router(router_partial)
-    costs_full, choices_full = _run_base_router(router_full)
+    costs_partial, choices_partial = _run_base_router(router_partial, "router_partial")
+    costs_full, choices_full = _run_base_router(router_full, "router_full")
 
     costs_factorial_partial = None
     choices_factorial_partial = None
@@ -498,11 +532,20 @@ def evaluate_routers_and_baselines(
         em_tk_fact = getattr(router_factorial_partial, "em_tk", None)
         if em_tk_fact is not None:
             costs_factorial_partial, choices_factorial_partial = run_router_on_env_em_split(
-                router_factorial_partial, env, int(em_tk_fact)
+                router_factorial_partial,
+                env,
+                int(em_tk_fact),
+                snapshot_at_t=planning_snapshot_t,
+                snapshot_dict=planning_snapshots,
+                snapshot_key="fact_router_partial",
             )
         else:
             costs_factorial_partial, choices_factorial_partial = run_factored_router_on_env(
-                router_factorial_partial, env
+                router_factorial_partial,
+                env,
+                snapshot_at_t=planning_snapshot_t,
+                snapshot_dict=planning_snapshots,
+                snapshot_key="fact_router_partial",
             )
 
     costs_factorial_full = None
@@ -511,11 +554,20 @@ def evaluate_routers_and_baselines(
         em_tk_fact = getattr(router_factorial_full, "em_tk", None)
         if em_tk_fact is not None:
             costs_factorial_full, choices_factorial_full = run_router_on_env_em_split(
-                router_factorial_full, env, int(em_tk_fact)
+                router_factorial_full,
+                env,
+                int(em_tk_fact),
+                snapshot_at_t=planning_snapshot_t,
+                snapshot_dict=planning_snapshots,
+                snapshot_key="fact_router_full",
             )
         else:
             costs_factorial_full, choices_factorial_full = run_factored_router_on_env(
-                router_factorial_full, env
+                router_factorial_full,
+                env,
+                snapshot_at_t=planning_snapshot_t,
+                snapshot_dict=planning_snapshots,
+                snapshot_key="fact_router_full",
             )
 
     costs_factorial_linear_partial = None
@@ -525,12 +577,23 @@ def evaluate_routers_and_baselines(
         if em_tk_fact is not None:
             costs_factorial_linear_partial, choices_factorial_linear_partial = (
                 run_router_on_env_em_split(
-                    router_factorial_partial_linear, env, int(em_tk_fact)
+                    router_factorial_partial_linear,
+                    env,
+                    int(em_tk_fact),
+                    snapshot_at_t=planning_snapshot_t,
+                    snapshot_dict=planning_snapshots,
+                    snapshot_key="fact_router_partial_linear",
                 )
             )
         else:
             costs_factorial_linear_partial, choices_factorial_linear_partial = (
-                run_factored_router_on_env(router_factorial_partial_linear, env)
+                run_factored_router_on_env(
+                    router_factorial_partial_linear,
+                    env,
+                    snapshot_at_t=planning_snapshot_t,
+                    snapshot_dict=planning_snapshots,
+                    snapshot_key="fact_router_partial_linear",
+                )
             )
 
     costs_factorial_linear_full = None
@@ -540,12 +603,23 @@ def evaluate_routers_and_baselines(
         if em_tk_fact is not None:
             costs_factorial_linear_full, choices_factorial_linear_full = (
                 run_router_on_env_em_split(
-                    router_factorial_full_linear, env, int(em_tk_fact)
+                    router_factorial_full_linear,
+                    env,
+                    int(em_tk_fact),
+                    snapshot_at_t=planning_snapshot_t,
+                    snapshot_dict=planning_snapshots,
+                    snapshot_key="fact_router_full_linear",
                 )
             )
         else:
             costs_factorial_linear_full, choices_factorial_linear_full = (
-                run_factored_router_on_env(router_factorial_full_linear, env)
+                run_factored_router_on_env(
+                    router_factorial_full_linear,
+                    env,
+                    snapshot_at_t=planning_snapshot_t,
+                    snapshot_dict=planning_snapshots,
+                    snapshot_key="fact_router_full_linear",
+                )
             )
 
     # Neural routers (if provided)
@@ -2272,302 +2346,183 @@ def analysis_late_arrival(
             f"[analysis_late_arrival] Expert {j_new} is never available; "
             "nothing to analyze."
         )
-        return
+    return
 
-    first_one_indices = np.where(avail_j)[0]
-    t_start = int(first_one_indices[0])
-    t_end = T - 1
-    for t in range(t_start + 1, T):
-        if not avail_j[t]:
-            t_end = t - 1
-            break
 
-    # Warn if the expert was already available from t=0 (no true "late" arrival).
-    if t_start == 0 and not np.any(~avail_j[:t_start]):
-        print(
-            f"[analysis_late_arrival] Expert {j_new} is available from t=0; "
-            "t_start=0 will be treated as the analysis start, but this is "
-            "not a strict late-arrival scenario."
-        )
+def plot_pruning_dynamics(
+    env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,
+    router_full: FactorizedSLDS,
+    router_no_g: FactorizedSLDS,
+    expert_idx: int,
+    rolling_window: int = 100,
+    out_dir: str = "out/pruning",
+    show_plots: bool = False,
+    save_plots: bool = True,
+    save_png: bool = True,
+    save_pdf: bool = True,
+    label_full: str = "L2D SLDS w/ $g_t$",
+    label_no_g: str = "L2D SLDS w/t $g_t$",
+) -> None:
+    if not isinstance(router_full, FactorizedSLDS) or not isinstance(router_no_g, FactorizedSLDS):
+        raise ValueError("plot_pruning_dynamics expects FactorizedSLDS routers.")
+    if rolling_window <= 0:
+        raise ValueError("rolling_window must be positive.")
 
-    # Analysis window: from t_start to min(t_start + window, t_end, T-1).
-    t_window_end = min(t_start + int(window), t_end, T - 1)
-    if t_window_end <= t_start:
-        print(
-            f"[analysis_late_arrival] Arrival window [{t_start}, {t_window_end}] "
-            "is too short; skipping analysis."
-        )
-        return
+    env_avail = getattr(env, "availability", None)
+    if env_avail is None:
+        raise ValueError("Environment has no availability matrix for pruning analysis.")
+    avail_arr = np.asarray(env_avail, dtype=int)
+    T, N = avail_arr.shape
+    j = int(expert_idx)
+    if not (0 <= j < N):
+        raise ValueError(f"expert_idx={j} out of range for env.num_experts={N}.")
 
-    # Map time indices t=1,...,T-1 to array indices 0,...,T-2.
-    start_idx = max(t_start, 1) - 1
-    end_idx_excl = t_window_end
-    if end_idx_excl <= start_idx:
-        print(
-            f"[analysis_late_arrival] Effective analysis range is empty after "
-            f"aligning to t>=1 (start_idx={start_idx}, end_idx_excl={end_idx_excl})."
-        )
-        return
+    times = np.arange(1, T, dtype=int)
+    avail_j = avail_arr[1:T, j].astype(bool)
 
-    idx_range = np.arange(start_idx, end_idx_excl, dtype=int)
-    num_steps = int(idx_range.shape[0])
+    def _run_router(router: FactorizedSLDS):
+        router = copy.deepcopy(router)
+        router.reset_beliefs()
+        in_registry = np.zeros(times.shape[0], dtype=bool)
+        selected = np.full(times.shape[0], -1, dtype=int)
+        pred_var = np.full(times.shape[0], np.nan, dtype=float)
+        prune_times = []
+        prev_in_registry = None
 
-    # Reset router beliefs and L2D internal state so that this analysis
-    # run starts from a fresh prior, independent of any previous calls.
-    router_partial.reset_beliefs()
-    router_full.reset_beliefs()
-    if router_partial_corr is not None:
-        router_partial_corr.reset_beliefs()
-    if router_full_corr is not None:
-        router_full_corr.reset_beliefs()
-    if router_partial_corr_rec is not None:
-        router_partial_corr_rec.reset_beliefs()
-    if router_full_corr_rec is not None:
-        router_full_corr_rec.reset_beliefs()
-    if router_partial_corr_em is not None:
-        router_partial_corr_em.reset_beliefs()
-    if router_full_corr_em is not None:
-        router_full_corr_em.reset_beliefs()
-    if l2d_baseline is not None:
-        l2d_baseline.reset_state()
-    if l2d_sw_baseline is not None:
-        l2d_sw_baseline.reset_state()
+        for idx, t in enumerate(times):
+            x_t = env.get_context(int(t))
+            available = np.asarray(env.get_available_experts(int(t)), dtype=int)
+            r_t, cache = router.select_expert(x_t, available)
+            selected[idx] = int(r_t)
 
-    # Common consultation costs (shared across methods)
-    beta = router_partial.beta[: N]
+            curr_in_registry = int(j) in set(getattr(router, "registry", []))
+            in_registry[idx] = curr_in_registry
+            if prev_in_registry is not None and prev_in_registry and not curr_in_registry:
+                prune_times.append(int(t))
+            prev_in_registry = curr_in_registry
 
-    # Run routers and baselines to obtain costs and choices.
-    costs_partial, choices_partial = run_router_on_env(router_partial, env)
-    costs_full, choices_full = run_router_on_env(router_full, env)
+            w_pred = cache.get("w_pred", None)
+            stats = cache.get("stats", {})
+            if w_pred is not None and j in stats:
+                var_modes = np.asarray(stats[j]["var"], dtype=float)
+                pred_var[idx] = float(np.dot(np.asarray(w_pred, dtype=float), var_modes))
+            elif curr_in_registry and w_pred is not None:
+                phi = cache["phi"]
+                mu_g_pred = cache["mu_g_pred"]
+                Sigma_g_pred = cache["Sigma_g_pred"]
+                mu_u_pred = cache["mu_u_pred"]
+                Sigma_u_pred = cache["Sigma_u_pred"]
+                _, _, stats_tmp = router._compute_predictive_stats(
+                    phi,
+                    w_pred,
+                    mu_g_pred,
+                    Sigma_g_pred,
+                    mu_u_pred,
+                    Sigma_u_pred,
+                    [j],
+                )
+                if j in stats_tmp:
+                    var_modes = np.asarray(stats_tmp[j]["var"], dtype=float)
+                    pred_var[idx] = float(np.dot(np.asarray(w_pred, dtype=float), var_modes))
 
-    costs_partial_corr_rec, choices_partial_corr_rec = None, None
-    if router_partial_corr_rec is not None:
-        costs_partial_corr_rec, choices_partial_corr_rec = run_router_on_env(
-            router_partial_corr_rec, env
-        )
+            if getattr(router, "observation_mode", "loss") == "residual":
+                y_t = float(env.y[int(t)])
+                preds = env.all_expert_predictions(x_t)
+                residuals = preds - y_t
+                residual_r = float(residuals[int(r_t)])
+                loss_obs = residual_r
+                losses_full = None
+                if getattr(router, "feedback_mode", "partial") == "full":
+                    losses_full = np.full(residuals.shape, np.nan, dtype=float)
+                    losses_full[available] = residuals[available]
+            else:
+                loss_all = env.losses(int(t))
+                loss_obs = float(loss_all[int(r_t)])
+                losses_full = None
+                if getattr(router, "feedback_mode", "partial") == "full":
+                    losses_full = np.full(loss_all.shape, np.nan, dtype=float)
+                    losses_full[available] = loss_all[available]
 
-    costs_full_corr_rec, choices_full_corr_rec = None, None
-    if router_full_corr_rec is not None:
-        costs_full_corr_rec, choices_full_corr_rec = run_router_on_env(
-            router_full_corr_rec, env
-        )
-
-    costs_partial_corr, choices_partial_corr = None, None
-    if router_partial_corr is not None:
-        costs_partial_corr, choices_partial_corr = run_router_on_env(
-            router_partial_corr, env
-        )
-
-    costs_full_corr, choices_full_corr = None, None
-    if router_full_corr is not None:
-        costs_full_corr, choices_full_corr = run_router_on_env(
-            router_full_corr, env
-        )
-
-    costs_partial_corr_em, choices_partial_corr_em = None, None
-    if router_partial_corr_em is not None:
-        costs_partial_corr_em, choices_partial_corr_em = run_router_on_env(
-            router_partial_corr_em, env
-        )
-
-    costs_full_corr_em, choices_full_corr_em = None, None
-    if router_full_corr_em is not None:
-        costs_full_corr_em, choices_full_corr_em = run_router_on_env(
-            router_full_corr_em, env
-        )
-
-    costs_l2d, choices_l2d = None, None
-    if l2d_baseline is not None:
-        costs_l2d, choices_l2d = run_l2d_on_env(l2d_baseline, env)
-
-    costs_l2d_sw, choices_l2d_sw = None, None
-    if l2d_sw_baseline is not None:
-        costs_l2d_sw, choices_l2d_sw = run_l2d_on_env(l2d_sw_baseline, env)
-
-    costs_linucb_partial, choices_linucb_partial = None, None
-    if linucb_partial is not None:
-        costs_linucb_partial, choices_linucb_partial = run_linucb_on_env(
-            linucb_partial, env
-        )
-
-    costs_linucb_full, choices_linucb_full = None, None
-    if linucb_full is not None:
-        costs_linucb_full, choices_linucb_full = run_linucb_on_env(
-            linucb_full, env
-        )
-
-    costs_neuralucb_partial, choices_neuralucb_partial = None, None
-    if neuralucb_partial is not None:
-        costs_neuralucb_partial, choices_neuralucb_partial = run_neuralucb_on_env(
-            neuralucb_partial, env
-        )
-
-    costs_neuralucb_full, choices_neuralucb_full = None, None
-    if neuralucb_full is not None:
-        costs_neuralucb_full, choices_neuralucb_full = run_neuralucb_on_env(
-            neuralucb_full, env
-        )
-
-    # Random and oracle baselines
-    costs_random, choices_random = run_random_on_env(env, beta, seed=int(seed))
-    costs_oracle, choices_oracle = run_oracle_on_env(env, beta)
-
-    # Collect methods with valid outputs.
-    methods: list[tuple[str, np.ndarray, np.ndarray]] = [
-        ("partial", costs_partial, choices_partial),
-        ("full", costs_full, choices_full),
-        ("random", costs_random, choices_random),
-        ("oracle", costs_oracle, choices_oracle),
-    ]
-    if costs_partial_corr is not None and choices_partial_corr is not None:
-        methods.append(("partial_corr", costs_partial_corr, choices_partial_corr))
-    if costs_full_corr is not None and choices_full_corr is not None:
-        methods.append(("full_corr", costs_full_corr, choices_full_corr))
-    if costs_partial_corr_rec is not None and choices_partial_corr_rec is not None:
-        methods.append(
-            ("partial_corr_rec", costs_partial_corr_rec, choices_partial_corr_rec)
-        )
-    if costs_full_corr_rec is not None and choices_full_corr_rec is not None:
-        methods.append(("full_corr_rec", costs_full_corr_rec, choices_full_corr_rec))
-    if costs_partial_corr_em is not None and choices_partial_corr_em is not None:
-        methods.append(("partial_corr_em", costs_partial_corr_em, choices_partial_corr_em))
-    if costs_full_corr_em is not None and choices_full_corr_em is not None:
-        methods.append(("full_corr_em", costs_full_corr_em, choices_full_corr_em))
-    if costs_l2d is not None and choices_l2d is not None:
-        methods.append(("l2d", costs_l2d, choices_l2d))
-    if costs_l2d_sw is not None and choices_l2d_sw is not None:
-        methods.append(("l2d_sw", costs_l2d_sw, choices_l2d_sw))
-    if costs_linucb_partial is not None and choices_linucb_partial is not None:
-        methods.append(("linucb_partial", costs_linucb_partial, choices_linucb_partial))
-    if costs_linucb_full is not None and choices_linucb_full is not None:
-        methods.append(("linucb_full", costs_linucb_full, choices_linucb_full))
-    if costs_neuralucb_partial is not None and choices_neuralucb_partial is not None:
-        methods.append(
-            ("neuralucb_partial", costs_neuralucb_partial, choices_neuralucb_partial)
-        )
-    if costs_neuralucb_full is not None and choices_neuralucb_full is not None:
-        methods.append(
-            ("neuralucb_full", costs_neuralucb_full, choices_neuralucb_full)
-        )
-
-    methods_plot = [m for m in methods if m[0] != "random"]
-
-    # Sanity check on index range vs arrays.
-    for _, costs_m, choices_m in methods:
-        if costs_m.shape[0] < end_idx_excl or choices_m.shape[0] < end_idx_excl:
-            raise ValueError(
-                "Inconsistent time horizon between methods and env; "
-                "costs/choices shorter than expected."
+            router.update_beliefs(
+                r_t=int(r_t),
+                loss_obs=float(loss_obs),
+                losses_full=losses_full,
+                available_experts=available,
+                cache=cache,
             )
 
-    costs_oracle_window = costs_oracle[start_idx:end_idx_excl]
+        return in_registry, selected, pred_var, prune_times
 
-    print(
-        f"\n=== Late-arrival analysis for expert {j_new} ===\n"
-        f"First availability interval: t in [{t_start}, {t_end}] (inclusive)\n"
-        f"Analysis window: t in [{max(t_start,1)}, {t_window_end}] "
-        f"({num_steps} steps), adoption_threshold={adoption_threshold:.2f}\n"
-    )
-    header = (
-        f"{'Method':<20} {'freq_new':>9} {'mean_cost':>11} "
-        f"{'mean_regret':>12} {'t_adopt':>9}"
-    )
-    print(header)
-    print("-" * len(header))
+    in_reg_full, sel_full, var_full, prune_full = _run_router(router_full)
+    in_reg_no_g, sel_no_g, var_no_g, prune_no_g = _run_router(router_no_g)
 
-    for name, costs_m, choices_m in methods:
-        costs_win = costs_m[start_idx:end_idx_excl]
-        choices_win = choices_m[start_idx:end_idx_excl]
+    def _rolling_mean(mask: np.ndarray, window: int) -> np.ndarray:
+        if mask.size == 0:
+            return mask.astype(float)
+        win = min(int(window), int(mask.size))
+        kernel = np.ones(win, dtype=float) / float(win)
+        return np.convolve(mask.astype(float), kernel, mode="same")
 
-        sel_new = (choices_win == j_new)
-        freq_new = float(sel_new.mean()) if num_steps > 0 else 0.0
-        regret_win = float((costs_win - costs_oracle_window).mean())
-        mean_cost_win = float(costs_win.mean())
+    sel_rate_full = _rolling_mean(sel_full == j, rolling_window)
+    sel_rate_no_g = _rolling_mean(sel_no_g == j, rolling_window)
 
-        t_adopt_str = "never"
-        if num_steps > 0 and sel_new.any():
-            running_freq = np.cumsum(sel_new.astype(float)) / np.arange(
-                1, num_steps + 1, dtype=float
-            )
-            idx_adopt = np.where(running_freq >= adoption_threshold)[0]
-            if idx_adopt.size > 0:
-                t_adopt = int((start_idx + idx_adopt[0]) + 1)  # map index to time t
-                t_adopt_str = str(t_adopt)
+    unavail_spans = []
+    start_idx = None
+    for idx, is_avail in enumerate(avail_j):
+        if not is_avail and start_idx is None:
+            start_idx = idx
+        if is_avail and start_idx is not None:
+            unavail_spans.append((start_idx, idx - 1))
+            start_idx = None
+    if start_idx is not None:
+        unavail_spans.append((start_idx, len(avail_j) - 1))
 
-        print(
-            f"{name:<20} {freq_new:9.3f} {mean_cost_win:11.4f} "
-            f"{regret_win:12.4f} {t_adopt_str:>9}"
-        )
+    fig, axes = plt.subplots(3, 1, figsize=(10, 7), sharex=True)
 
-    # ------------------------------------------------------------------
-    # Visualization: reaction to late-arriving expert
-    # ------------------------------------------------------------------
-    if num_steps > 0:
-        t_grid_win = np.arange(start_idx, end_idx_excl, dtype=int) + 1
-        t_start_eff = max(t_start, 1)
+    for ax in axes:
+        for seg_start, seg_end in unavail_spans:
+            t_start = int(times[seg_start])
+            t_end = int(times[seg_end]) + 1
+            ax.axvspan(t_start, t_end, color="gray", alpha=0.15, lw=0)
 
-        fig, (ax_freq, ax_reg) = plt.subplots(
-            2, 1, sharex=True, figsize=(10, 6)
-        )
+    axes[0].step(times, avail_j.astype(float), where="post", color="gray", alpha=0.6, label="available")
+    axes[0].step(times, in_reg_full.astype(float), where="post", label=f"registry ({label_full})")
+    axes[0].step(times, in_reg_no_g.astype(float), where="post", label=f"registry ({label_no_g})", linestyle="--")
+    for t_prune in prune_full:
+        axes[0].axvline(t_prune, color="tab:blue", alpha=0.3, linewidth=1.0)
+    for t_prune in prune_no_g:
+        axes[0].axvline(t_prune, color="tab:orange", alpha=0.3, linewidth=1.0)
+    axes[0].set_ylabel("Availability / Registry")
+    axes[0].set_yticks([0, 1])
+    axes[0].set_title(f"Expert {j}: availability and registry membership")
+    axes[0].legend(loc="upper right", fontsize=10)
 
-        # Running selection frequency of the new expert in the window.
-        for name, _, choices_m in methods_plot:
-            choices_win = choices_m[start_idx:end_idx_excl]
-            sel_new = (choices_win == j_new).astype(float)
-            running_freq = np.cumsum(sel_new) / np.arange(
-                1, num_steps + 1, dtype=float
-            )
-            color = get_model_color(name)
-            ax_freq.plot(
-                t_grid_win,
-                running_freq,
-                label=name,
-                color=color,
-            )
+    axes[1].plot(times, var_full, label=f"pred var ({label_full})")
+    axes[1].plot(times, var_no_g, label=f"pred var ({label_no_g})", linestyle="--")
+    axes[1].set_ylabel("Pred. variance")
+    axes[1].set_title(f"Expert {j}: predictive uncertainty")
+    axes[1].legend(loc="upper right", fontsize=10)
 
-        ax_freq.axhline(
-            adoption_threshold,
-            color="gray",
-            linestyle="--",
-            linewidth=1.0,
-            label=f"adoption threshold={adoption_threshold:.2f}",
-        )
-        ax_freq.axvline(
-            t_start_eff,
-            color="black",
-            linestyle=":",
-            linewidth=1.0,
-        )
-        ax_freq.set_ylabel(f"Freq(exp {j_new})")
-        ax_freq.set_title(
-            f"Running selection frequency for late expert {j_new}"
-        )
-        ax_freq.legend(loc="upper left", fontsize=9)
+    axes[2].plot(times, sel_rate_full, label=f"select freq ({label_full})")
+    axes[2].plot(times, sel_rate_no_g, label=f"select freq ({label_no_g})", linestyle="--")
+    axes[2].set_ylabel(f"Selection freq (win={rolling_window})")
+    axes[2].set_xlabel("Time $t$")
+    axes[2].set_title(f"Expert {j}: rolling selection frequency")
+    axes[2].legend(loc="upper right", fontsize=10)
 
-        # Cumulative regret vs oracle in the same window.
-        for name, costs_m, _ in methods_plot:
-            costs_win = costs_m[start_idx:end_idx_excl]
-            delta = costs_win - costs_oracle_window
-            cum_regret = np.cumsum(delta)
-            color = get_model_color(name)
-            ax_reg.plot(
-                t_grid_win,
-                cum_regret,
-                label=name,
-                color=color,
-            )
+    plt.tight_layout()
 
-        ax_reg.axhline(0.0, color="black", linestyle="--", linewidth=1.0)
-        ax_reg.set_xlabel("Time $t$")
-        ax_reg.set_ylabel("Cumulative regret vs oracle")
-        ax_reg.set_title(
-            f"Late-arrival window cumulative regret (expert {j_new})"
-        )
-        ax_reg.legend(loc="upper left", fontsize=9)
-
-        plt.tight_layout()
+    if save_plots:
+        os.makedirs(out_dir, exist_ok=True)
+        base = os.path.join(out_dir, f"pruning_dynamics_expert_{j}")
+        if save_pdf:
+            fig.savefig(f"{base}.pdf", bbox_inches="tight")
+        if save_png:
+            fig.savefig(f"{base}.png", dpi=300, bbox_inches="tight")
+    if show_plots:
         plt.show()
-
+    else:
+        plt.close(fig)
 
 def _mask_feedback_vector_local(
     values: np.ndarray,

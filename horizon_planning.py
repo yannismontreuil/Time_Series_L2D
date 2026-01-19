@@ -313,10 +313,10 @@ def _sample_context_scenarios(
         for n in range(int(num_scenarios)):
             y_prev = float(y_hist[-1])
             for h in range(H_eff):
-                scenarios[n, h, 0] = y_prev
                 drift = float(drift_by_regime[int(z_future[h])])
                 eps = float(rng.normal(loc=0.0, scale=(sigma0 if h == 0 else q)))
                 y_prev = ar_coef * y_prev + drift + eps
+                scenarios[n, h, 0] = y_prev
         return scenarios
 
     # Fit a per-dimension AR(1): x_t = c + rho * x_{t-1} + eps_t.
@@ -439,15 +439,24 @@ def compute_oracle_and_baseline_schedules(
     always_avail_mask = avail_window.all(axis=0)
     candidate_experts = np.where(always_avail_mask)[0]
     if candidate_experts.size == 0:
-        candidate_experts = np.arange(env.num_experts)
+        # No always-available expert; pick those with maximum availability count.
+        avail_counts = avail_window.sum(axis=0)
+        max_avail = avail_counts.max()
+        candidate_experts = np.where(avail_counts == max_avail)[0]
 
     avg_cost_per_expert: List[float] = []
     for j in candidate_experts:
         costs_j = []
-        for t in times:
-            loss_all = env.losses(int(t))
-            costs_j.append(float(loss_all[j] + beta[j]))
-        avg_cost_per_expert.append(float(np.mean(costs_j)))
+        for h_idx, t in enumerate(times):
+            # Only average cost over times when this expert is available.
+            if j in avail_per_h[h_idx]:
+                loss_all = env.losses(int(t))
+                costs_j.append(float(loss_all[j] + beta[j]))
+        if costs_j:
+            avg_cost_per_expert.append(float(np.mean(costs_j)))
+        else:
+            # Expert never available; assign infinite cost.
+            avg_cost_per_expert.append(float("inf"))
     j_baseline = int(candidate_experts[int(np.argmin(avg_cost_per_expert))])
     sched_baseline = [j_baseline] * H_eff
 
@@ -752,7 +761,12 @@ def _plan_horizon_schedule_monte_carlo(
                     x_future, w, mu_g, Sigma_g, mu_u, Sigma_u
                 )
 
-                feas = [k for k in registry if k in avail_sets[h]]
+                avail_now = sorted(int(k) for k in avail_sets[h])
+                for k in avail_now:
+                    if k not in mu_u_pred:
+                        mu_u_pred[k] = router.u_mean0.copy()
+                        Sigma_u_pred[k] = router.u_cov0.copy()
+                feas = avail_now
                 phi = router._compute_phi(x_future)
                 costs, _ = router._score_experts(
                     phi,
@@ -814,7 +828,7 @@ def _plan_horizon_schedule_monte_carlo(
 
                 scores_scen[n, h, :] = scores
 
-                feas = [k for k in registry if k in avail_sets[h]]
+                feas = sorted(int(k) for k in avail_sets[h])
                 if feas:
                     feas_scores = scores[np.asarray(feas, dtype=int)]
                     best_idx = int(np.argmin(feas_scores))
@@ -900,6 +914,8 @@ def evaluate_horizon_planning(
     scenario_generator_cfg: Optional[dict] = None,
     delta: float = 0.1,
     online_start_t: Optional[int] = None,
+    skip_router_warm_start: bool = False,
+    skip_baseline_warm_start: bool = False,
     factorized_label: str = "L2D SLDS w/ $g_t$",
     factorized_linear_label: str = "L2D SLDS",
 ) -> None:
@@ -914,6 +930,7 @@ def evaluate_horizon_planning(
     per-step costs over the horizon, plus expert scheduling. In Monte
     Carlo mode, delta controls the relative active-set threshold vs the max mass.
     online_start_t (if provided) overrides any router.em_tk warm start.
+    Set skip_router_warm_start to use precomputed router states at t0.
     """
     raw_method = str(planning_method)
     method = raw_method.lower()
@@ -947,123 +964,125 @@ def evaluate_horizon_planning(
             "Expected 'regressive', 'monte_carlo', or '{N}_monte_carlo'."
         )
 
-    # Warm-start routers to time t0 under their feedback modes.
-    warm_start_router_to_time(
-        router_partial,
-        env,
-        t0,
-        t_start=_resolve_warm_start_time(router_partial, t0, online_start_t),
-    )
-    warm_start_router_to_time(
-        router_full,
-        env,
-        t0,
-        t_start=_resolve_warm_start_time(router_full, t0, online_start_t),
-    )
-    if router_factorial_partial is not None:
+    if not skip_router_warm_start:
+        # Warm-start routers to time t0 under their feedback modes.
         warm_start_router_to_time(
-            router_factorial_partial,
+            router_partial,
             env,
             t0,
-            t_start=_resolve_warm_start_time(
-                router_factorial_partial, t0, online_start_t
-            ),
+            t_start=_resolve_warm_start_time(router_partial, t0, online_start_t),
         )
-    if router_factorial_full is not None:
         warm_start_router_to_time(
-            router_factorial_full,
+            router_full,
             env,
             t0,
-            t_start=_resolve_warm_start_time(
-                router_factorial_full, t0, online_start_t
-            ),
+            t_start=_resolve_warm_start_time(router_full, t0, online_start_t),
         )
-    if router_factorial_partial_linear is not None:
-        warm_start_router_to_time(
-            router_factorial_partial_linear,
-            env,
-            t0,
-            t_start=_resolve_warm_start_time(
-                router_factorial_partial_linear, t0, online_start_t
-            ),
-        )
-    if router_factorial_full_linear is not None:
-        warm_start_router_to_time(
-            router_factorial_full_linear,
-            env,
-            t0,
-            t_start=_resolve_warm_start_time(
-                router_factorial_full_linear, t0, online_start_t
-            ),
-        )
-    if router_partial_corr is not None:
-        warm_start_router_to_time(
-            router_partial_corr,
-            env,
-            t0,
-            t_start=_resolve_warm_start_time(
-                router_partial_corr, t0, online_start_t
-            ),
-        )
-    if router_full_corr is not None:
-        warm_start_router_to_time(
-            router_full_corr,
-            env,
-            t0,
-            t_start=_resolve_warm_start_time(
-                router_full_corr, t0, online_start_t
-            ),
-        )
-    if router_partial_corr_em is not None:
-        warm_start_router_to_time(
-            router_partial_corr_em,
-            env,
-            t0,
-            t_start=_resolve_warm_start_time(
-                router_partial_corr_em, t0, online_start_t
-            ),
-        )
-    if router_full_corr_em is not None:
-        warm_start_router_to_time(
-            router_full_corr_em,
-            env,
-            t0,
-            t_start=_resolve_warm_start_time(
-                router_full_corr_em, t0, online_start_t
-            ),
-        )
-    if router_partial_neural is not None:
-        warm_start_router_to_time(
-            router_partial_neural,
-            env,
-            t0,
-            t_start=_resolve_warm_start_time(
-                router_partial_neural, t0, online_start_t
-            ),
-        )
-    if router_full_neural is not None:
-        warm_start_router_to_time(
-            router_full_neural,
-            env,
-            t0,
-            t_start=_resolve_warm_start_time(
-                router_full_neural, t0, online_start_t
-            ),
-        )
+        if router_factorial_partial is not None:
+            warm_start_router_to_time(
+                router_factorial_partial,
+                env,
+                t0,
+                t_start=_resolve_warm_start_time(
+                    router_factorial_partial, t0, online_start_t
+                ),
+            )
+        if router_factorial_full is not None:
+            warm_start_router_to_time(
+                router_factorial_full,
+                env,
+                t0,
+                t_start=_resolve_warm_start_time(
+                    router_factorial_full, t0, online_start_t
+                ),
+            )
+        if router_factorial_partial_linear is not None:
+            warm_start_router_to_time(
+                router_factorial_partial_linear,
+                env,
+                t0,
+                t_start=_resolve_warm_start_time(
+                    router_factorial_partial_linear, t0, online_start_t
+                ),
+            )
+        if router_factorial_full_linear is not None:
+            warm_start_router_to_time(
+                router_factorial_full_linear,
+                env,
+                t0,
+                t_start=_resolve_warm_start_time(
+                    router_factorial_full_linear, t0, online_start_t
+                ),
+            )
+        if router_partial_corr is not None:
+            warm_start_router_to_time(
+                router_partial_corr,
+                env,
+                t0,
+                t_start=_resolve_warm_start_time(
+                    router_partial_corr, t0, online_start_t
+                ),
+            )
+        if router_full_corr is not None:
+            warm_start_router_to_time(
+                router_full_corr,
+                env,
+                t0,
+                t_start=_resolve_warm_start_time(
+                    router_full_corr, t0, online_start_t
+                ),
+            )
+        if router_partial_corr_em is not None:
+            warm_start_router_to_time(
+                router_partial_corr_em,
+                env,
+                t0,
+                t_start=_resolve_warm_start_time(
+                    router_partial_corr_em, t0, online_start_t
+                ),
+            )
+        if router_full_corr_em is not None:
+            warm_start_router_to_time(
+                router_full_corr_em,
+                env,
+                t0,
+                t_start=_resolve_warm_start_time(
+                    router_full_corr_em, t0, online_start_t
+                ),
+            )
+        if router_partial_neural is not None:
+            warm_start_router_to_time(
+                router_partial_neural,
+                env,
+                t0,
+                t_start=_resolve_warm_start_time(
+                    router_partial_neural, t0, online_start_t
+                ),
+            )
+        if router_full_neural is not None:
+            warm_start_router_to_time(
+                router_full_neural,
+                env,
+                t0,
+                t_start=_resolve_warm_start_time(
+                    router_full_neural, t0, online_start_t
+                ),
+            )
 
-    # Warm-start L2D baseline to time t0 if provided.
-    if l2d_baseline is not None:
-        warm_start_l2d_to_time(l2d_baseline, env, t0)
-    if l2d_sw_baseline is not None:
-        warm_start_l2d_to_time(l2d_sw_baseline, env, t0)
-    if linucb_partial is not None:
-        warm_start_linucb_to_time(linucb_partial, env, t0)
-    if linucb_full is not None:
-        warm_start_linucb_to_time(linucb_full, env, t0)
-    if neuralucb_partial is not None:
-        warm_start_neuralucb_to_time(neuralucb_partial, env, t0)
-    if neuralucb_full is not None:
-        warm_start_neuralucb_to_time(neuralucb_full, env, t0)
+    if not skip_baseline_warm_start:
+        # Warm-start L2D baseline to time t0 if provided.
+        if l2d_baseline is not None:
+            warm_start_l2d_to_time(l2d_baseline, env, t0)
+        if l2d_sw_baseline is not None:
+            warm_start_l2d_to_time(l2d_sw_baseline, env, t0)
+        if linucb_partial is not None:
+            warm_start_linucb_to_time(linucb_partial, env, t0)
+        if linucb_full is not None:
+            warm_start_linucb_to_time(linucb_full, env, t0)
+        if neuralucb_partial is not None:
+            warm_start_neuralucb_to_time(neuralucb_partial, env, t0)
+        if neuralucb_full is not None:
+            warm_start_neuralucb_to_time(neuralucb_full, env, t0)
 
     # Compute oracle and baseline schedules and effective horizon.
     times, H_eff, avail_per_h, sched_oracle, sched_baseline, j_baseline = (
@@ -1749,13 +1768,19 @@ def evaluate_horizon_planning(
                 if not static_set_factorial_partial:
                     sched_factorial_partial_static.append(-1)
                     continue
+                avail_h = set(map(int, avail_per_h[h]))
+                feas_static = [k for k in static_set_factorial_partial if k in avail_h]
+                if not feas_static:
+                    sched_factorial_partial_static.append(-1)
+                    continue
                 best_k = min(
-                    static_set_factorial_partial,
+                    feas_static,
                     key=lambda k: (float(expected_costs[h, k]), int(k)),
                 )
                 sched_factorial_partial_static.append(int(best_k))
             active_sets_factorial_partial_static = [
-                list(static_set_factorial_partial) for _ in range(H_eff)
+                [k for k in static_set_factorial_partial if k in set(map(int, avail_per_h[h]))]
+                for h in range(H_eff)
             ]
 
     # Evaluate oracle and all other schedules on the true environment

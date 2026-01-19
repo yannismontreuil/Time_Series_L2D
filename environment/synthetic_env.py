@@ -1,5 +1,11 @@
 import numpy as np
 
+# Fixed seed for data generation to ensure reproducibility of time series and
+# expert behavior across experiments. The configurable seed in the config file
+# should only affect learning processes (EM, filtering, neural networks, etc.),
+# not the underlying data.
+DATA_GENERATION_SEED = 42
+
 
 class SyntheticTimeSeriesEnv:
     """
@@ -33,7 +39,9 @@ class SyntheticTimeSeriesEnv:
         noise_scale: float | None = None,
         tri_cycle_cfg: dict | None = None,
     ):
-        rng = np.random.default_rng(seed)
+        # Use fixed seed for data generation so that time series and expert
+        # behavior are reproducible regardless of the configurable seed.
+        rng = np.random.default_rng(DATA_GENERATION_SEED)
         self.num_experts = num_experts
         self.num_regimes = num_regimes
         self.T = T
@@ -197,7 +205,7 @@ class SyntheticTimeSeriesEnv:
         self._tri_cycle_shared_loadings: np.ndarray | None = None
         self._tri_cycle_residuals: np.ndarray | None = None
         if setting == "theoretical_trap":
-            rng_noise = np.random.default_rng(int(seed) + 12345)
+            rng_noise = np.random.default_rng(DATA_GENERATION_SEED + 12345)
             base_noise = rng_noise.normal(size=(T, num_experts))
             noise_scale_expert = np.full((T, num_experts), 0.05, dtype=float)
             for t_idx in range(T):
@@ -209,7 +217,7 @@ class SyntheticTimeSeriesEnv:
             if shared_mode == "model_match":
                 self._tri_cycle_model_match = True
             else:
-                rng_noise = np.random.default_rng(int(seed) + 23456)
+                rng_noise = np.random.default_rng(DATA_GENERATION_SEED + 23456)
                 shared_scale = float(tri_cycle_cfg.get("shared_noise_scale", 0.2))
                 indiv_scale = float(tri_cycle_cfg.get("indiv_noise_scale", 0.05))
                 base_noise = rng_noise.normal(scale=indiv_scale, size=(T, num_experts))

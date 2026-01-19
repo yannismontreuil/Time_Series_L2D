@@ -23,7 +23,7 @@ environment:
   data_source: synthetic
   setting: tri_cycle_corr
   T: 3000
-  seed: 11
+  seed: 10
 
   # Dimensions
   num_experts: 4
@@ -75,7 +75,7 @@ routers:
     num_regimes: 2
     shared_dim: 2
     idiosyncratic_dim: 1
-    delta_max: 10000
+    delta_max: 250
     R_scalar: 0.0009
     A_g:
       - [[0.95, 0.0], [0.0, 0.95]]
@@ -143,18 +143,19 @@ baselines:
     beta: null
 
   linucb:
-    alpha_ucb: 0.5
+    alpha_ucb: 5
     l2_reg: 1.0
     feedback_mode: "partial"
 
   neural_ucb:
-    alpha_ucb: 0.5
+    alpha_ucb: 5
     lambda_reg: 1.0
     hidden_dim: 16
     nn_learning_rate: 0.001
     feedback_mode: "partial"
 
 analysis:
+  baselines_train_from_start: true
   tri_cycle_corr:
     enabled: true
     router: "factorized_full"
@@ -173,6 +174,16 @@ analysis:
       show_truth: true
     expert_structure_baselines: true
 
+  pruning:
+    enabled: true
+    expert_idx: 1
+    rolling_window: 100
+    out_dir: "out/pruning"
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true
+
 
 horizon_planning:
   # Start horizon planning after EM warm-start.
@@ -182,7 +193,7 @@ horizon_planning:
   method: "100_monte_carlo"
 
   # Coverage tolerance for active-set scheduling.
-  delta: 0.5
+  delta: 0.05
 
   scenario_generator:
     type: "oracle_ar1"

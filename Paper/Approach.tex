@@ -22,7 +22,7 @@ The process unfolds in discrete rounds. At each time \(t\):
     \item \textbf{Feedback:} querying expert \(I_t\) returns a prediction \(\widehat{y}_{t,I_t}\);
     the environment then reveals the target \(y_t \in \mathcal{Y}\). The observation is
     \(O_t\coloneqq (I_t,\widehat{y}_{t,I_t},y_t)\), which lets the router compute the signed residual
-    \(e_t=y_t-\widehat{y}_{t,I_t}\) and cost for the queried expert.
+    \(e_t=\widehat{y}_{t,I_t}-y_t\) and cost for the queried expert.
 \end{enumerate}
 
 \paragraph{Expert registry and potential outcomes.}
@@ -43,9 +43,10 @@ counterfactual.
 Define the (potential) realized residual of expert \(k\) at time \(t\) as
 \begin{equation}
 \label{eq:realized_residual}
-    e_{t,k} \coloneqq y_t-\widehat{y}_{t,k} ,
+    e_{t,k} \coloneqq \widehat{y}_{t,k}-y_t ,
 \end{equation}
 which is observed only for the queried expert \(k=I_t\).
+We use this sign convention (prediction minus target) throughout.
 The corresponding (potential) realized cost is
 \begin{equation}
 \label{eq:realized_cost}
@@ -113,7 +114,7 @@ latent-state model that yields a tractable one-step-ahead predictive belief.
 \label{sec:generative_model}
 
 To obtain a tractable predictive model under non-stationarity and bandit feedback, we model the
-\emph{potential residuals} \(e_{t,k}=y_t-\widehat{y}_{t,k}\) from Section~\ref{sec:preliminaries}
+\emph{potential residuals} \(e_{t,k}=\widehat{y}_{t,k}-y_t\) from Section~\ref{sec:preliminaries}
 with a \textbf{factorized switching linear dynamical system (SLDS)}. The central bottleneck is
 censoring: at round \(t\) we observe only the queried residual
 \(
