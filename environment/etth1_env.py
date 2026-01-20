@@ -166,8 +166,8 @@ class ETTh1TimeSeriesEnv:
         # is the least-squares optimum, these perturbations make
         # experts 0 and 1 progressively worse in terms of average MSE
         # while keeping them highly correlated.
-        w0 = w_lin * 0.98
-        w1 = w_lin * 1.05
+        w0 = w_lin * 0.80
+        w1 = w_lin * 1.15
         base_weights = np.array([w0, w1], dtype=float)
         base_biases = np.array([b_lin, b_lin], dtype=float)
 
@@ -259,7 +259,7 @@ class ETTh1TimeSeriesEnv:
             # share some training data and become indirectly correlated:
             #   - Expert 2: early + middle history (0 .. two_third)
             #   - Expert 3: middle + late history (third .. end)
-            seg_early = slice(0, two_third)
+            seg_early = slice(0, third)
             seg_late = slice(third, n_all)
 
             def _train_nn_expert(
