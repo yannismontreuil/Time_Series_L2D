@@ -14,6 +14,9 @@ import numpy as np
 
 from environment.etth1_env_fixed import ETTh1TimeSeriesEnv
 
+import warnings
+warnings.filterwarnings('ignore', message='findfont: Generic family.*')
+
 from models.router_model import SLDSIMMRouter, feature_phi
 from models.router_model_corr import SLDSIMMRouter_Corr, RecurrentSLDSIMMRouter_Corr
 from models.router_model_corr_em import SLDSIMMRouter_Corr_EM
