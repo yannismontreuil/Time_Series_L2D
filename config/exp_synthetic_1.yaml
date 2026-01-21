@@ -23,7 +23,7 @@ environment:
   data_source: synthetic
   setting: tri_cycle_corr
   T: 3000
-  seed: 10
+  seed: 12
 
   # Dimensions
   num_experts: 4
@@ -173,6 +173,7 @@ analysis:
       compare_no_g: true
       show_truth: true
     expert_structure_baselines: true
+    debug_env_fingerprint: true
 
   pruning:
     enabled: true

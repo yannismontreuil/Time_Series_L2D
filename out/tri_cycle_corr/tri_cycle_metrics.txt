@@ -1,15 +1,15 @@
 Tri-cycle diagnostics summary
 Label: L2D SLDS w/ $g_t$ attention (g_z)
 Window: t=1..2999
-Regime accuracy: 0.7526
+Regime accuracy: 0.7853
 Switch delay (mean): 0.579
 Switch delay (median): 0.000
-Corr MAE regime 0: 0.0751
-Corr MAE regime 1: 0.2465
+Corr MAE regime 0: 0.0754
+Corr MAE regime 1: 0.2439
 Pair 0-1 corr:
-  Regime 0: true=0.9132, est=0.8110
-  Regime 1: true=0.6322, est=0.8392
+  Regime 0: true=0.9132, est=0.8103
+  Regime 1: true=0.6322, est=0.8322
 Pair 2-3 corr:
-  Regime 0: true=0.8106, est=0.8221
-  Regime 1: true=0.9351, est=0.8097
-G recovery mean |corr|: 0.8835
+  Regime 0: true=0.8106, est=0.8229
+  Regime 1: true=0.9351, est=0.8181
+G recovery mean |corr|: 0.8844

@@ -485,6 +485,10 @@ def evaluate_routers_and_baselines(
         baseline_start_t = 1
     else:
         baseline_start_t = int(em_tk_anchor) + 1
+    if analysis_cfg is not None and bool(analysis_cfg.get("debug_env_fingerprint", False)):
+        if hasattr(env, "fingerprint"):
+            data_seed = getattr(env, "data_seed", None)
+            print(f"[env] data_seed={data_seed} fingerprint={env.fingerprint()}")
     if baselines_train_from_start:
         em_anchor_str = "none" if em_tk_anchor is None else str(int(em_tk_anchor))
         print(
