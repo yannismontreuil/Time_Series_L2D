@@ -7,7 +7,12 @@ try:  # optional dependency for PyTorch-based experts
     import torch  # type: ignore
     import torch.nn as nn  # type: ignore
     import torch.optim as optim  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
+    print(f"PyTorch successfully imported in etth1_env_fixed.py: {torch.__version__}")
+except ImportError as e:  # More specific exception handling
+    print(f"PyTorch import failed in etth1_env_fixed.py: {e}")
+    torch = None
+except Exception as e:  # Catch other exceptions
+    print(f"Unexpected error importing PyTorch in etth1_env_fixed.py: {e}")
     torch = None
 
 
