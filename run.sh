@@ -11,23 +11,31 @@
 #SBATCH --mail-user=yuletian@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
 
-# Method 1: Direct activation (try this first)
-conda activate /mnt/scratch/y/yuletian/adv_l2d/envs/h100
+# Initialize conda in non-interactive Slurm shell
+source /home/y/yuletian/miniconda3/etc/profile.d/conda.sh
 
-# Method 2: If Method 1 fails, try conda (uncomment these lines)
-# eval "$(/mnt/scratch/y/yuletian/miniconda3/bin/conda shell.bash hook)"
-# conda activate /mnt/scratch/y/yuletian/adv_l2d/envs/h100
+# Activate the environment
+conda activate Time_Series_L2D
 
 # Verify setup
 echo "Python location: $(which python)"
 echo "Python version: $(python --version)"
 
-# Test PyTorch
-python -c "import torch; print('PyTorch version:', torch.__version__)" || echo "PyTorch not found!"
+# Test PyTorch & CUDA
+python - << 'EOF'
+import torch
+print("PyTorch version:", torch.__version__)
+print("CUDA available:", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("CUDA device:", torch.cuda.get_device_name(0))
+EOF
 
 # Navigate to your code directory
 cd /home/y/yuletian/Time_Series_L2D
 
 # Run your code
-python -u slds_imm_router.py -c config/config_etth1.yaml > stdout_${SLURM_JOB_ID}.log 2> stderr_${SLURM_JOB_ID}.log
+python -u slds_imm_router.py -c config/config_etth1.yaml \
+  > stdout_${SLURM_JOB_ID}.log \
+  2> stderr_${SLURM_JOB_ID}.log
+
 echo "Job completed."
