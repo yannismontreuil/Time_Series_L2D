@@ -338,7 +338,7 @@ class SLDSIMMRouter:
         # Effective risk aversion at decision time t
         lambda_vec = getattr(self, "lambda_risk_vec", None)
         lambda_eff = (
-            float(lambda_vec @ self.b)
+            float(lambda_vec @ b_pred)
             if lambda_vec is not None
             else self.lambda_risk
         )
@@ -416,7 +416,10 @@ class SLDSIMMRouter:
                 m_pred[k, j_sel] = (m_pred[k, j_sel].reshape(d, 1) + K_k * e_k).reshape(
                     d
                 )
-                P_update = (I_d - K_k @ phi_col.T) @ P_kj
+                R_val = max(float(self.R[k, j_sel]), self.eps)
+                KH = K_k @ phi_col.T
+                tmp = I_d - KH
+                P_update = tmp @ P_kj @ tmp.T + (K_k * R_val) @ K_k.T
                 P_pred[k, j_sel] = (
                     0.5 * (P_update + P_update.T) + self.eps * I_d
                 )
@@ -437,7 +440,10 @@ class SLDSIMMRouter:
                     P_kj = P_pred[k, j]
                     K_k = (P_kj @ phi_col) / S_k
                     m_pred[k, j] = (m_pred[k, j].reshape(d, 1) + K_k * e_k).reshape(d)
-                    P_update = (I_d - K_k @ phi_col.T) @ P_kj
+                    R_val = max(float(self.R[k, j]), self.eps)
+                    KH = K_k @ phi_col.T
+                    tmp = I_d - KH
+                    P_update = tmp @ P_kj @ tmp.T + (K_k * R_val) @ K_k.T
                     P_pred[k, j] = (
                         0.5 * (P_update + P_update.T) + self.eps * I_d
                     )

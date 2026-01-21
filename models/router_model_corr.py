@@ -941,6 +941,12 @@ class SLDSIMMRouter_Corr:
         # Precompute open-loop latent states (no observation updates).
         b_list, m_list, P_list = self.precompute_horizon_states(H)
 
+        # Local copy of which experts have joined so far. This allows
+        # planning to apply the birth prior for experts that first
+        # appear in future availability sets without mutating the
+        # router's live registry.
+        seen_future = self._has_joined.copy()
+
         x_curr = x_t
         schedule: List[int] = []
         contexts: List[np.ndarray] = []
@@ -952,6 +958,23 @@ class SLDSIMMRouter_Corr:
             P_h = P_list[h - 1]
 
             avail = np.asarray(list(available_experts_per_h[h - 1]), dtype=int)
+
+            # Apply birth prior for experts that appear for the first time
+            # in the planning horizon.
+            if avail.size > 0:
+                mask_new = ~seen_future[avail]
+                if np.any(mask_new):
+                    new_indices = avail[mask_new]
+                    I_state = np.eye(self.d_state, dtype=float)
+                    for j in new_indices:
+                        u_slice = self._u_slice(j)
+                        for k in range(self.M):
+                            m_h[k, u_slice] = self.u_mean0
+                            P_h[k, u_slice, :] = 0.0
+                            P_h[k, :, u_slice] = 0.0
+                            P_h[k, u_slice, u_slice] = self.u_cov0
+                            P_h[k] = 0.5 * (P_h[k] + P_h[k].T) + self.eps * I_state
+                    seen_future[new_indices] = True
 
             # Planning-time risk parameter: use risk-neutral planning
             # (λ_plan = 0) to minimize expected cost, independently of

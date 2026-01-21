@@ -770,6 +770,25 @@ class SyntheticTimeSeriesEnv:
             self._losses_cache[t_idx] = (preds - self.y[t_idx]) ** 2
         self._last_t = last_t
 
+        # Override cached losses for special synthetic settings when
+        # explicit loss tables are provided.
+        trap_losses = getattr(self, "_trap_losses", None)
+        theoretical_losses = getattr(self, "_theoretical_losses", None)
+        if trap_losses is not None:
+            trap_losses = np.asarray(trap_losses, dtype=float)
+            if trap_losses.shape != (self.T, self.num_experts):
+                raise ValueError(
+                    "trap losses must have shape (T, num_experts)."
+                )
+            self._losses_cache = trap_losses.copy()
+        elif theoretical_losses is not None:
+            theoretical_losses = np.asarray(theoretical_losses, dtype=float)
+            if theoretical_losses.shape != (self.T, self.num_experts):
+                raise ValueError(
+                    "theoretical losses must have shape (T, num_experts)."
+                )
+            self._losses_cache = theoretical_losses.copy()
+
     def get_context(self, t: int) -> np.ndarray:
         # Remember the time index of this context query so that
         # expert_predict can optionally condition on the current regime
@@ -824,7 +843,7 @@ class SyntheticTimeSeriesEnv:
             if not (0 <= t < self.T):
                 t = max(0, min(t, self.T - 1))
             if self._tri_cycle_model_match and self._tri_cycle_residuals is not None:
-                return float(self.y[t] - self._tri_cycle_residuals[t, int(j)])
+                return float(self.y[t] + self._tri_cycle_residuals[t, int(j)])
             reg = int(self.z[t])
             x_val = float(x_t[0])
             slopes = getattr(self, "_tri_cycle_slopes", None)

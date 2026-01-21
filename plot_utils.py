@@ -5,9 +5,17 @@ import os
 from typing import Optional, Sequence
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.axes import Axes
-from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+try:  # pragma: no cover - optional plotting dependency
+    import matplotlib.pyplot as plt
+    from matplotlib.axes import Axes
+    from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+    _HAS_MPL = True
+except Exception:  # pragma: no cover - optional plotting dependency
+    plt = None  # type: ignore[assignment]
+    Axes = object  # type: ignore[assignment]
+    GridSpec = object  # type: ignore[assignment]
+    GridSpecFromSubplotSpec = object  # type: ignore[assignment]
+    _HAS_MPL = False
 
 from environment.etth1_env import ETTh1TimeSeriesEnv
 from models.router_model import SLDSIMMRouter
@@ -31,23 +39,30 @@ from router_eval import (
 # ---------------------------------------------------------------------
 # Global plotting style (scienceplots + IEEE, Times New Roman, etc.)
 # ---------------------------------------------------------------------
-try:
-    import scienceplots  # type: ignore  # noqa: F401
+if _HAS_MPL:
+    try:
+        import scienceplots  # type: ignore  # noqa: F401
 
-    plt.style.use(["science", "ieee"])
-except Exception:
-    # If scienceplots is not installed, fall back silently; font settings
-    # below still apply.
-    pass
+        plt.style.use(["science", "ieee"])
+    except Exception:
+        # If scienceplots is not installed, fall back silently; font settings
+        # below still apply.
+        pass
 
-plt.rcParams.update(
-    {
-        "font.family": "serif",
-        "font.serif": ["Times New Roman"],
-        "font.size": 13,
-        "figure.dpi": 100,
-    }
-)
+    plt.rcParams.update(
+        {
+            "font.family": "serif",
+            "font.serif": ["Times New Roman"],
+            "font.size": 13,
+            "figure.dpi": 100,
+        }
+    )
+
+
+def _plots_available() -> bool:
+    if not _HAS_MPL:
+        return False
+    return not bool(os.environ.get("FACTOR_DISABLE_PLOT_SHOW"))
 
 
 def get_expert_color(j: int) -> str:
@@ -122,6 +137,9 @@ def plot_transition_matrices(
     log_store: dict[str, list[tuple[int, Optional[np.ndarray]]]],
     cfg: dict,
 ) -> None:
+    if not _plots_available():
+        print("[plot_utils] plotting disabled or matplotlib missing; skip transition matrices.")
+        return
     if not log_store:
         return
     show_plots = bool(cfg.get("plot_show", True))
@@ -330,6 +348,9 @@ def plot_time_series(
     Plot the true time series y_t together with each expert's prediction,
     and the underlying regime z_t and expert availability.
     """
+    if not _plots_available():
+        print("[plot_utils] plotting disabled or matplotlib missing; skip time series plot.")
+        return
     T = env.T if num_points is None else min(num_points, env.T)
     t_grid = np.arange(T)
 
@@ -1272,6 +1293,9 @@ def evaluate_routers_and_baselines(
 
     # Plot true series vs router-based prediction series (top)
     # and cumulative costs over time for each baseline (bottom).
+    if not _plots_available():
+        print("[plot_utils] plotting disabled or matplotlib missing; skipping plots.")
+        return
     fig, (ax_pred, ax_cost) = plt.subplots(2, 1, sharex=True, figsize=(10, 7))
 
     # Visualization-only shift; positive values advance predictions (shift left).
@@ -2367,6 +2391,9 @@ def plot_pruning_dynamics(
     label_full: str = "L2D SLDS w/ $g_t$",
     label_no_g: str = "L2D SLDS w/t $g_t$",
 ) -> None:
+    if not _plots_available():
+        print("[plot_utils] plotting disabled or matplotlib missing; skip pruning dynamics.")
+        return
     if not isinstance(router_full, FactorizedSLDS) or not isinstance(router_no_g, FactorizedSLDS):
         raise ValueError("plot_pruning_dynamics expects FactorizedSLDS routers.")
     if rolling_window <= 0:
@@ -2909,7 +2936,7 @@ def _collect_transfer_probe(
 
 
 def _save_fig(
-    fig: plt.Figure,
+    fig: object,
     out_dir: str,
     name: str,
     save_png: bool,
@@ -3097,6 +3124,9 @@ def run_tri_cycle_corr_diagnostics(
     corr_smooth_window: int = 1,
     transfer_probe: Optional[dict] = None,
 ) -> None:
+    if not _plots_available():
+        print("[plot_utils] plotting disabled or matplotlib missing; skip tri-cycle diagnostics.")
+        return
     if getattr(env, "setting", None) != "tri_cycle_corr":
         print("[tri-cycle] Diagnostics skipped: env.setting != tri_cycle_corr.")
         return

@@ -109,7 +109,7 @@ def _collect_factorized_em_data(
                 raise ValueError(f"EM warmup: no available experts at t={t}.")
             # Use router's policy for action selection to avoid biasing EM
             # estimates under partial feedback.
-            r_t = int(router.select_action(x_t, available))
+            r_t, cache = router.select_expert(x_t, available)
 
             preds = env.all_expert_predictions(x_t)
             residuals_all = preds - float(env.y[t])
@@ -126,6 +126,25 @@ def _collect_factorized_em_data(
             residuals.append(residual)
             if force_full_feedback:
                 residuals_full.append(residuals_masked)
+
+            # Update beliefs so action selection reflects the router's
+            # evolving posterior during the warmup trajectory.
+            if force_full_feedback:
+                router.update_beliefs(
+                    r_t=int(r_t),
+                    loss_obs=residual,
+                    losses_full=residuals_masked,
+                    available_experts=available,
+                    cache=cache,
+                )
+            else:
+                router.update_beliefs(
+                    r_t=int(r_t),
+                    loss_obs=residual,
+                    losses_full=None,
+                    available_experts=available,
+                    cache=cache,
+                )
     finally:
         router.feedback_mode = prev_feedback_mode
         router.exploration = prev_exploration
