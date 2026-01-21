@@ -1,5 +1,6 @@
 name: Time_Series_L2D
 channels:
+  - conda-forge
   - defaults
   - https://repo.anaconda.com/pkgs/main
   - https://repo.anaconda.com/pkgs/r
