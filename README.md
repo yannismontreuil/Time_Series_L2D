@@ -21,7 +21,7 @@ models/
 To evaluate a router model, run the following command:
 
 ```bash
-python slds_imm_router.py
+python slds_imm_router.py -c config/config_synth_paper.yaml
 ```
 
 The parameters are stored in `configs/` folder.
