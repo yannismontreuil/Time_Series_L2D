@@ -18,7 +18,7 @@ import warnings
 warnings.filterwarnings('ignore', message='findfont: Generic family.*')
 
 from models.router_model import SLDSIMMRouter, feature_phi
-from models.router_model_corr import SLDSIMMRouter_Corr, RecurrentSLDSIMMRouter_Corr
+from models.router_model_corr import SLDSIMMRouter_Corr
 from models.router_model_corr_em import SLDSIMMRouter_Corr_EM
 from environment.synthetic_env import SyntheticTimeSeriesEnv
 from models.l2d_baseline import L2D, L2D_SW
@@ -26,11 +26,10 @@ from models.linucb_baseline import LinUCB
 from models.neuralucb_baseline import NeuralUCB
 from models.factorized_slds import FactorizedSLDS
 
-from router_eval import set_transition_log_config, register_transition_log_label
+from router_eval import set_transition_log_config, register_transition_log_label, get_transition_log_config
 
 from plot_utils import (
     evaluate_routers_and_baselines,
-    analysis_late_arrival,
     plot_time_series,
     run_tri_cycle_corr_diagnostics,
     plot_pruning_dynamics,
@@ -213,8 +212,10 @@ def _run_pipeline_subprocess(payload: dict) -> None:
     config_path = payload["config_path"]
     exploration_mode = payload["exploration_mode"]
     disable_show = payload.get("disable_show", True)
+    device = payload.get("device", "cpu")  # Get device from payload
     env = os.environ.copy()
     env["FACTOR_EXPLORATION_MODE"] = exploration_mode
+    env["TORCH_DEVICE"] = device  # Pass device to subprocess
     if disable_show:
         env["FACTOR_DISABLE_PLOT_SHOW"] = "1"
     cmd = [sys.executable, os.path.abspath(__file__), "--config", config_path]
@@ -274,14 +275,29 @@ if __name__ == "__main__":
     seed = int(seed_cfg) if seed_cfg is not None else 0
     np.random.seed(seed)
     random.seed(seed)
+
+    # GPU device setup for neural networks
+    device = "cpu"  # Default to CPU
     try:  # pragma: no cover - torch is optional
         import torch  # type: ignore
 
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
+            device = "cuda"
+            print(f"GPU detected: {torch.cuda.get_device_name()}")
+            print(f"Using device: {device}")
+        else:
+            print("CUDA not available, using CPU")
     except Exception:
+        print("PyTorch not available, using CPU for all computations")
         pass
+
+    # Add device to configuration for neural network models
+    # Currently supports FactorizedSLDS (transition_device parameter)
+    # L2D, L2D_SW, NeuralUCB will be updated in future to support device parameter
+    cfg.setdefault("device", device)
+    os.environ["TORCH_DEVICE"] = device
 
     routers_cfg = cfg.get("routers", {})
     analysis_cfg = cfg.get("analysis", {}) or {}
@@ -326,6 +342,7 @@ if __name__ == "__main__":
                         "config_path": args.config,
                         "exploration_mode": mode,
                         "disable_show": disable_show,
+                        "device": device,  # Pass device to subprocess
                     }
                     for mode in exploration_modes
                 ]
@@ -1030,6 +1047,7 @@ if __name__ == "__main__":
         hidden_dim=hidden_dim_l2d,
         window_size=int(l2d_cfg.get("window_size", 1)),
         seed=seed,
+        # Note: device parameter will be added when L2D model supports it
     )
 
     l2d_sw_baseline = None
@@ -1054,6 +1072,7 @@ if __name__ == "__main__":
             hidden_dim=hidden_dim_l2d_sw,
             window_size=window_size_sw,
             seed=seed,
+            # Note: device parameter will be added when L2D_SW model supports it
         )
 
     # --------------------------------------------------------
@@ -1102,6 +1121,7 @@ if __name__ == "__main__":
             nn_learning_rate=nn_lr,
             feedback_mode="partial",
             seed=seed,
+            # Note: device parameter will be added when NeuralUCB model supports it
         )
         neuralucb_full = NeuralUCB(
             num_experts=N,
@@ -1113,6 +1133,7 @@ if __name__ == "__main__":
             nn_learning_rate=nn_lr,
             feedback_mode="full",
             seed=seed,
+            # Note: device parameter will be added when NeuralUCB model supports it
         )
 
     # Copies for horizon planning (avoid contamination from full-run evaluation).
@@ -1148,6 +1169,11 @@ if __name__ == "__main__":
     factorized_linear_label = "L2D SLDS"
     base_transition_mode = None
     extra_transition_mode = None
+
+    # Default values for parallel execution variables
+    parallel_exploration = False
+    parallel_workers = None
+
     if factorized_slds_enabled:
         M_fact = int(factorized_slds_cfg.get("num_regimes", M))
         # Use shared dim from config or same logic as correlated router
@@ -1186,7 +1212,7 @@ if __name__ == "__main__":
         transition_activation = str(
             factorized_slds_cfg.get("transition_activation", "tanh")
         )
-        transition_device = factorized_slds_cfg.get("transition_device", None)
+        transition_device = factorized_slds_cfg.get("transition_device", device)  # Use detected device as default
         transition_mode_cfg = str(
             factorized_slds_cfg.get("transition_mode", "attention")
         ).lower()
