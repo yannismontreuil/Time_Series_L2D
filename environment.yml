@@ -5,7 +5,7 @@ channels:
   - https://repo.anaconda.com/pkgs/main
   - https://repo.anaconda.com/pkgs/r
 dependencies:
-  - aom=3.12.1=ha237518_0
+  - aom>=3.12
   - blas=1.0=openblas
   - bzip2=1.0.8=h80987f9_6
   - ca-certificates=2025.12.2=hca03da5_0
