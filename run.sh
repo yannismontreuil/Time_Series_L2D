@@ -4,10 +4,9 @@
 #SBATCH --error=time-series-l2d-%A.err
 
 #SBATCH --time=24:00:00
-#SBATCH --cpus-per-task=32
-#SBATCH --gres=gpu:h100:1
+#SBATCH --gres=gpu:a100-40:1 #h100-47:1
 #SBATCH --mem=32G
-#SBATCH --time=16:00:00
+
 
 #SBATCH --mail-user=yuletian@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
