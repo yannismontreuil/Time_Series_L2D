@@ -2698,7 +2698,20 @@ class FactorizedSLDS(SLDSIMMRouter):
                 K = (P_pred[t] @ H_t.T) / S
                 # Compute innovation: y - H @ m, ensuring scalar result
                 pred_val = H_t @ m_pred[t]
-                innovation = float(y_seq[t] - (pred_val.item() if hasattr(pred_val, 'item') else pred_val[0]))
+                # Handle different possible shapes of pred_val
+                try:
+                    if hasattr(pred_val, 'item'):
+                        pred_scalar = pred_val.item()
+                    elif pred_val.ndim == 0:
+                        pred_scalar = float(pred_val)
+                    elif pred_val.ndim == 1:
+                        pred_scalar = float(pred_val[0])
+                    else:  # matrix case
+                        pred_scalar = float(pred_val.flat[0])
+                except (ValueError, IndexError) as e:
+                    # Fallback: try to extract any scalar value
+                    pred_scalar = float(np.asarray(pred_val).flatten()[0])
+                innovation = float(y_seq[t] - pred_scalar)
                 m_filt[t] = m_pred[t] + (K.flatten() * innovation)
                 P_filt[t] = P_pred[t] - K @ H_t @ P_pred[t]
                 P_filt[t] = 0.5 * (P_filt[t] + P_filt[t].T) + self.eps * np.eye(d)
@@ -2769,7 +2782,20 @@ class FactorizedSLDS(SLDSIMMRouter):
                     K = (P_t @ H_row.T) / S
                     # Compute innovation: y - H @ m, ensuring scalar result
                     pred_val = H_row @ m_t
-                    innovation = float(y_t[i] - (pred_val.item() if hasattr(pred_val, 'item') else pred_val[0]))
+                    # Handle different possible shapes of pred_val
+                    try:
+                        if hasattr(pred_val, 'item'):
+                            pred_scalar = pred_val.item()
+                        elif pred_val.ndim == 0:
+                            pred_scalar = float(pred_val)
+                        elif pred_val.ndim == 1:
+                            pred_scalar = float(pred_val[0])
+                        else:  # matrix case
+                            pred_scalar = float(pred_val.flat[0])
+                    except (ValueError, IndexError) as e:
+                        # Fallback: try to extract any scalar value
+                        pred_scalar = float(np.asarray(pred_val).flatten()[0])
+                    innovation = float(y_t[i] - pred_scalar)
                     m_t = m_t + (K.flatten() * innovation)
                     P_t = P_t - K @ H_row @ P_t
                     P_t = 0.5 * (P_t + P_t.T) + self.eps * np.eye(d)
