@@ -14,4 +14,4 @@
 # Change to the directory from which the job was submitted
 cd "${SLURM_SUBMIT_DIR}"
 
-python python3 slds_imm_router.py -c config/config_etth1.yaml
+python3 slds_imm_router.py -c config/config_etth1.yaml > output_${SLURM_ARRAY_TASK_ID}.log 2>&1
