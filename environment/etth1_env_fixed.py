@@ -97,9 +97,15 @@ class ETTh1TimeSeriesEnv:
         if T is None:
             T_eff = y_arr.shape[0]
         else:
-            T_eff = int(T)
-            T_eff = max(2, min(T_eff, y_arr.shape[0]))
-            y_arr = y_arr[:T_eff]
+            T_start = T[0]
+            T_end = T[1]
+            if T_start < 0 or T_end > y_arr.shape[0] or T_start >= T_end:
+                raise ValueError(
+                    f"Invalid T range {T} for ETTh1 data of length "
+                    f"{y_arr.shape[0]}"
+                )
+            y_arr = y_arr[T_start:T_end]
+            T_eff = T_end - T_start
 
         self.T = T_eff
         self.target_column = str(target_column)

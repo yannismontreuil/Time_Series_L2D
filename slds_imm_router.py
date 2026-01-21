@@ -1486,7 +1486,7 @@ if __name__ == "__main__":
     if data_source == "etth1":
         # Real-world ETTh1 experiment (oil temperature as target).
         T_raw = env_cfg.get("T", None)
-        T_env = None if T_raw is None else int(T_raw)
+        T_env = None if T_raw is None else T_raw
         csv_path = env_cfg.get("csv_path", "data/ETTh1.csv")
         target_column = env_cfg.get("target_column", "OT")
         enabled_experts = env_cfg.get("enabled_experts", None)
