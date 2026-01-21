@@ -12,7 +12,7 @@
 #SBATCH --mail-type=START,END,FAIL
 
 # Method 1: Direct activation (try this first)
-source /mnt/scratch/y/yuletian/adv_l2d/envs/h100/bin/activate
+conda activate /mnt/scratch/y/yuletian/adv_l2d/envs/h100
 
 # Method 2: If Method 1 fails, try conda (uncomment these lines)
 # eval "$(/mnt/scratch/y/yuletian/miniconda3/bin/conda shell.bash hook)"
@@ -29,5 +29,5 @@ python -c "import torch; print('PyTorch version:', torch.__version__)" || echo "
 cd /home/y/yuletian/Time_Series_L2D
 
 # Run your code
-python3 -u slds_imm_router.py -c config/config_etth1.yaml > stdout_${SLURM_JOB_ID}.log 2> stderr_${SLURM_JOB_ID}.log
+python -u slds_imm_router.py -c config/config_etth1.yaml > stdout_${SLURM_JOB_ID}.log 2> stderr_${SLURM_JOB_ID}.log
 echo "Job completed."
