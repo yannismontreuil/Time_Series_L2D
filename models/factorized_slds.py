@@ -2690,10 +2690,15 @@ class FactorizedSLDS(SLDSIMMRouter):
             if obs_mask[t]:
                 H_t = H_seq[t]
                 R_t = float(R_seq[t])
-                S = float(H_t @ P_pred[t] @ H_t.T + R_t)
+                # Compute innovation covariance: H @ P @ H.T + R
+                # This results in a (1, 1) matrix, so we need to extract the scalar value
+                S_matrix = H_t @ P_pred[t] @ H_t.T + R_t
+                S = float(S_matrix.item() if hasattr(S_matrix, 'item') else S_matrix[0, 0])
                 S = max(S, self.eps)
                 K = (P_pred[t] @ H_t.T) / S
-                innovation = float(y_seq[t] - H_t @ m_pred[t])
+                # Compute innovation: y - H @ m, ensuring scalar result
+                pred_val = H_t @ m_pred[t]
+                innovation = float(y_seq[t] - (pred_val.item() if hasattr(pred_val, 'item') else pred_val[0]))
                 m_filt[t] = m_pred[t] + (K.flatten() * innovation)
                 P_filt[t] = P_pred[t] - K @ H_t @ P_pred[t]
                 P_filt[t] = 0.5 * (P_filt[t] + P_filt[t].T) + self.eps * np.eye(d)
@@ -2756,10 +2761,15 @@ class FactorizedSLDS(SLDSIMMRouter):
                 for i in range(len(y_t)):
                     H_row = np.asarray(H_t[i], dtype=float).reshape(1, d)
                     R_val = float(R_t[i])
-                    S = float(H_row @ P_t @ H_row.T + R_val)
+                    # Compute innovation covariance: H @ P @ H.T + R
+                    # This results in a (1, 1) matrix, so we need to extract the scalar value
+                    S_matrix = H_row @ P_t @ H_row.T + R_val
+                    S = float(S_matrix.item() if hasattr(S_matrix, 'item') else S_matrix[0, 0])
                     S = max(S, self.eps)
                     K = (P_t @ H_row.T) / S
-                    innovation = float(y_t[i] - H_row @ m_t)
+                    # Compute innovation: y - H @ m, ensuring scalar result
+                    pred_val = H_row @ m_t
+                    innovation = float(y_t[i] - (pred_val.item() if hasattr(pred_val, 'item') else pred_val[0]))
                     m_t = m_t + (K.flatten() * innovation)
                     P_t = P_t - K @ H_row @ P_t
                     P_t = 0.5 * (P_t + P_t.T) + self.eps * np.eye(d)
