@@ -1,10 +1,6 @@
-# Synthetic SLDS-style experiment with two alternating regimes and
-# regime-dependent expert correlation.
-
 plot_shift: 1
-plot_target: "y"
+plot_target: y
 plot_synth_preview: true
-
 transition_log:
   enabled: true
   print: false
@@ -18,58 +14,68 @@ transition_log:
   online_only: true
   plot_only_ours: true
   plot_entropy: true
-
 environment:
   data_source: synthetic
   setting: tri_cycle_corr
   T: 3000
-  seed: 11
-
-  # Dimensions
+  seed: 3
   num_experts: 4
   num_regimes: 2
   state_dim: 1
-
-  # Lower target noise; residuals dominated by shared expert noise.
   noise_scale: 0.08
-
-  # Regime cycle and expert behavior configuration.
   tri_cycle:
-    regime_pattern: [0, 1]
+    regime_pattern:
+    - 0
+    - 1
     regime_block_len: 150
-    drift_levels: [0.2, 0.8]
-    # Strong shared correlation, low idiosyncratic noise.
+    drift_levels:
+    - 0.2
+    - 0.8
     shared_noise_scale: 0.7
     indiv_noise_scale: 0.03
-    shared_noise_mode: "model_match"
+    shared_noise_mode: model_match
     shared_dim: 2
     g_ar: 0.95
     u_ar: 0.95
     g_covs:
-      - [[0.2, 0.0], [0.0, 0.01]]
-      - [[0.01, 0.0], [0.0, 0.2]]
-    u_covs: [0.015, 0.015]
+    - - - 0.2
+        - 0.0
+      - - 0.0
+        - 0.01
+    - - - 0.01
+        - 0.0
+      - - 0.0
+        - 0.2
+    u_covs:
+    - 0.015
+    - 0.015
     eps_noise_scale: 0.03
     shared_loadings:
-      - [1.0, 0.0]
-      - [1.0, 0.0]
-      - [0.0, 1.0]
-      - [0.0, 1.0]
+    - - 1.0
+      - 0.0
+    - - 1.0
+      - 0.0
+    - - 0.0
+      - 1.0
+    - - 0.0
+      - 1.0
     base_slope: 0.8
-    # Regime 0: experts 0,1 best. Regime 1: experts 2,3 best.
     biases_by_regime:
-      - [0.2, 0.3, 1.6, 1.7]
-      - [1.6, 1.7, 0.8, 0.9]
-
-  # Force expert 1 (index 1) to be unavailable for a window.
+    - - 0.2
+      - 0.3
+      - 1.6
+      - 1.7
+    - - 1.6
+      - 1.7
+      - 0.8
+      - 0.9
   unavailable_expert_idx: 1
   unavailable_intervals:
-    - [2000, 2500]
-
+  - - 2000
+    - 2500
 routers:
   beta: 0.0
   staleness_threshold: null
-
   factorized_slds:
     enabled: true
     num_regimes: 2
@@ -78,21 +84,35 @@ routers:
     delta_max: 250
     R_scalar: 0.0009
     A_g:
-      - [[0.95, 0.0], [0.0, 0.95]]
-      - [[0.95, 0.0], [0.0, 0.95]]
+    - - - 0.95
+        - 0.0
+      - - 0.0
+        - 0.95
+    - - - 0.95
+        - 0.0
+      - - 0.0
+        - 0.95
     A_u:
-      - [[0.95]]
-      - [[0.95]]
+    - - - 0.95
+    - - - 0.95
     Q_g:
-      - [[0.2, 0.0], [0.0, 0.01]]
-      - [[0.01, 0.0], [0.0, 0.2]]
-    Q_u_scales: [0.015, 0.015]
-    exploration: ["g_z"]
+    - - - 0.2
+        - 0.0
+      - - 0.0
+        - 0.01
+    - - - 0.01
+        - 0.0
+      - - 0.0
+        - 0.2
+    Q_u_scales:
+    - 0.015
+    - 0.015
+    exploration:
+    - g_z
     exploration_diag_enabled: true
     exploration_diag_stride: 200
     exploration_diag_samples: 50
     exploration_diag_print: true
-
     em_enabled: false
     em_offline_full_feedback: true
     em_tk: 400
@@ -100,7 +120,7 @@ routers:
     em_samples: 10
     em_burn_in: 100
     em_use_validation: true
-    em_val_strategy: "rolling"
+    em_val_strategy: rolling
     em_val_fraction: 0.4
     em_val_roll_len: 100
     em_val_roll_splits: 2
@@ -109,8 +129,7 @@ routers:
     em_theta_lr: 0.01
     em_theta_steps: 10
     em_print_val_loss: true
-    em_eps_n: 1.0e-3
-
+    em_eps_n: 0.001
     em_online_enabled: false
     em_online_window: 400
     em_online_period: 300
@@ -119,52 +138,50 @@ routers:
     em_online_burn_in: 3
     em_online_theta_lr: 0.001
     em_online_theta_steps: 1
-    em_online_eps_n: 1.0e-3
+    em_online_eps_n: 0.001
     em_online_print_val_loss: true
     em_online_start_t: null
-
-    transition_mode: "attention"
-
+    transition_mode: attention
 baselines:
   l2d:
-    arch: "mlp"
+    arch: mlp
     learning_rate: 0.001
     hidden_dim: 4
     window_size: 1
     alpha: 1.0
     beta: null
-
   l2d_sw:
-    arch: "rnn"
+    arch: rnn
     learning_rate: 0.001
     hidden_dim: 4
     window_size: 200
     alpha: 1.0
     beta: null
-
   linucb:
     alpha_ucb: 5
     l2_reg: 1.0
-    feedback_mode: "partial"
-
+    feedback_mode: partial
   neural_ucb:
     alpha_ucb: 5
     lambda_reg: 1.0
     hidden_dim: 16
     nn_learning_rate: 0.001
-    feedback_mode: "partial"
-
+    feedback_mode: partial
 analysis:
   baselines_train_from_start: true
   tri_cycle_corr:
     enabled: true
-    router: "factorized_full"
-    out_dir: "out/tri_cycle_corr"
+    router: factorized_full
+    out_dir: out/tri_cycle_corr
     show_plots: false
     save_plots: true
     save_png: true
     save_pdf: true
-    pairs: [[0, 1], [2, 3]]
+    pairs:
+    - - 0
+      - 1
+    - - 2
+      - 3
     corr_smooth_window: 25
     transfer_probe:
       enabled: true
@@ -174,30 +191,22 @@ analysis:
       show_truth: true
     expert_structure_baselines: true
     debug_env_fingerprint: true
-
   pruning:
     enabled: true
     expert_idx: 1
     rolling_window: 100
-    out_dir: "out/pruning"
+    out_dir: out/pruning
     show_plots: false
     save_plots: true
     save_png: true
     save_pdf: true
-
-
 horizon_planning:
-  # Start horizon planning after EM warm-start.
   t0: 1650
-
   H: 50
-  method: "100_monte_carlo"
-
-  # Coverage tolerance for active-set scheduling.
+  method: 100_monte_carlo
   delta: 0.05
-
   scenario_generator:
-    type: "oracle_ar1"
+    type: oracle_ar1
     ar_coef: 0.8
     use_true_regime: true
     sigma0: 1

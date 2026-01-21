@@ -37,7 +37,7 @@ environment:
   # For example, to use only the first 2000 points, set T: 2000.
   # T: 2000
 
-  seed: 42
+  seed: 84
 
   # Expert availability controls. In this ETTh1 experiment we introduce
   # multiple experts whose availability switches over time:
@@ -99,7 +99,7 @@ routers:
 
     em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 400
+    em_tk: 1000
     em_n: 5
     em_samples: 10
     em_burn_in: 100
@@ -121,7 +121,7 @@ routers:
     em_online_n: 1
     em_online_samples: 20
     em_online_burn_in: 3
-    em_online_theta_lr: 0.001
+    em_online_theta_lr: 0.1
     em_online_theta_steps: 1
     em_online_eps_n: 1.0e-3
     em_online_print_val_loss: true

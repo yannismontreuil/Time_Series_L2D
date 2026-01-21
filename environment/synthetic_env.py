@@ -3,7 +3,8 @@ import numpy as np
 # Fixed seed for data generation to ensure reproducibility of time series and
 # expert behavior across experiments. The configurable seed in the config file
 # should only affect learning processes (EM, filtering, neural networks, etc.),
-# not the underlying data.
+# not the underlying data. A separate data_seed can be supplied explicitly,
+# but it is intentionally decoupled from the environment/learning seed.
 DATA_GENERATION_SEED = 42
 
 
@@ -30,6 +31,7 @@ class SyntheticTimeSeriesEnv:
         num_regimes: int = 2,
         T: int = 200,
         seed: int = 0,
+        data_seed: int | None = None,
         unavailable_expert_idx: int | None = 1,
         unavailable_start_t: int | None = None,
         unavailable_intervals: list[tuple[int, int]] | None = None,
@@ -41,7 +43,11 @@ class SyntheticTimeSeriesEnv:
     ):
         # Use fixed seed for data generation so that time series and expert
         # behavior are reproducible regardless of the configurable seed.
-        rng = np.random.default_rng(DATA_GENERATION_SEED)
+        # The `seed` argument is reserved for learning processes and does
+        # not affect data generation here.
+        data_seed = DATA_GENERATION_SEED if data_seed is None else int(data_seed)
+        self.data_seed = int(data_seed)
+        rng = np.random.default_rng(data_seed)
         self.num_experts = num_experts
         self.num_regimes = num_regimes
         self.T = T
@@ -205,7 +211,7 @@ class SyntheticTimeSeriesEnv:
         self._tri_cycle_shared_loadings: np.ndarray | None = None
         self._tri_cycle_residuals: np.ndarray | None = None
         if setting == "theoretical_trap":
-            rng_noise = np.random.default_rng(DATA_GENERATION_SEED + 12345)
+            rng_noise = np.random.default_rng(data_seed + 12345)
             base_noise = rng_noise.normal(size=(T, num_experts))
             noise_scale_expert = np.full((T, num_experts), 0.05, dtype=float)
             for t_idx in range(T):
@@ -217,7 +223,7 @@ class SyntheticTimeSeriesEnv:
             if shared_mode == "model_match":
                 self._tri_cycle_model_match = True
             else:
-                rng_noise = np.random.default_rng(DATA_GENERATION_SEED + 23456)
+                rng_noise = np.random.default_rng(data_seed + 23456)
                 shared_scale = float(tri_cycle_cfg.get("shared_noise_scale", 0.2))
                 indiv_scale = float(tri_cycle_cfg.get("indiv_noise_scale", 0.05))
                 base_noise = rng_noise.normal(scale=indiv_scale, size=(T, num_experts))
@@ -748,6 +754,41 @@ class SyntheticTimeSeriesEnv:
                         if t_start < t_end:
                             self.availability[t_start:t_end, arrival_expert_idx] = 1
 
+        # Precompute deterministic expert predictions/losses so later calls
+        # cannot be influenced by any incidental state changes.
+        self._preds_cache = np.zeros((self.T, self.num_experts), dtype=float)
+        self._losses_cache = np.zeros((self.T, self.num_experts), dtype=float)
+        last_t = self._last_t
+        for t_idx in range(self.T):
+            self._last_t = int(t_idx)
+            x_val = np.array([self.x[t_idx]], dtype=float)
+            preds = np.array(
+                [self.expert_predict(j, x_val) for j in range(self.num_experts)],
+                dtype=float,
+            )
+            self._preds_cache[t_idx] = preds
+            self._losses_cache[t_idx] = (preds - self.y[t_idx]) ** 2
+        self._last_t = last_t
+
+        # Override cached losses for special synthetic settings when
+        # explicit loss tables are provided.
+        trap_losses = getattr(self, "_trap_losses", None)
+        theoretical_losses = getattr(self, "_theoretical_losses", None)
+        if trap_losses is not None:
+            trap_losses = np.asarray(trap_losses, dtype=float)
+            if trap_losses.shape != (self.T, self.num_experts):
+                raise ValueError(
+                    "trap losses must have shape (T, num_experts)."
+                )
+            self._losses_cache = trap_losses.copy()
+        elif theoretical_losses is not None:
+            theoretical_losses = np.asarray(theoretical_losses, dtype=float)
+            if theoretical_losses.shape != (self.T, self.num_experts):
+                raise ValueError(
+                    "theoretical losses must have shape (T, num_experts)."
+                )
+            self._losses_cache = theoretical_losses.copy()
+
     def get_context(self, t: int) -> np.ndarray:
         # Remember the time index of this context query so that
         # expert_predict can optionally condition on the current regime
@@ -802,7 +843,7 @@ class SyntheticTimeSeriesEnv:
             if not (0 <= t < self.T):
                 t = max(0, min(t, self.T - 1))
             if self._tri_cycle_model_match and self._tri_cycle_residuals is not None:
-                return float(self.y[t] - self._tri_cycle_residuals[t, int(j)])
+                return float(self.y[t] + self._tri_cycle_residuals[t, int(j)])
             reg = int(self.z[t])
             x_val = float(x_t[0])
             slopes = getattr(self, "_tri_cycle_slopes", None)
@@ -834,10 +875,25 @@ class SyntheticTimeSeriesEnv:
         β_j, is the evaluation cost of querying expert j and is used
         consistently for all routers, baselines, and the oracle.
         """
+        if self._losses_cache is not None:
+            return self._losses_cache[int(t)].copy()
         x_t = self.get_context(t)
         y_t = self.y[t]
         preds = self.all_expert_predictions(x_t)
         return (preds - y_t) ** 2
+
+    def fingerprint(self) -> str:
+        """
+        Deterministic fingerprint of the generated data + experts.
+        Useful for verifying seed invariance.
+        """
+        import hashlib
+
+        h = hashlib.md5()
+        h.update(self.y.tobytes())
+        h.update(self.expert_weights.tobytes())
+        h.update(self.expert_biases.tobytes())
+        return h.hexdigest()[:12]
 
     def get_available_experts(self, t: int) -> np.ndarray:
         """

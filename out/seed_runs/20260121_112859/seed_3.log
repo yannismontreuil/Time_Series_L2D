@@ -1,0 +1,109 @@
+Loaded configuration from out/seed_runs/20260121_112859/exp_synthetic_1_seed_3.yaml using YAML parser.
+Using num_regimes = 2.
+Warning: using default transition matrix Pi.
+
+--- Running L2D SLDS Router (partial, attention, g_z) ---
+
+--- Running L2D SLDS Router (full, attention, g_z) ---
+[plot_utils] plotting disabled or matplotlib missing; skip time series plot.
+[baselines] training from t=1 (full history); evaluation masked after em_tk=none.
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=201 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=401 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=601 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=801 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1001 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1201 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1401 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1601 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1801 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2001 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2201 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2401 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2601 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2801 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=201 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=401 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=601 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=801 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1001 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1201 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1401 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1601 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1801 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2001 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2201 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2401 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2601 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2801 iz_avg=0.000000 iz_max=0.000000 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1 iz_avg=0.002702 iz_max=0.008667 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=201 iz_avg=0.057411 iz_max=0.169644 iz_sel=0.049260
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=401 iz_avg=0.022896 iz_max=0.039891 iz_sel=0.039891
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=601 iz_avg=0.005004 iz_max=0.015479 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=801 iz_avg=0.044599 iz_max=0.099441 iz_sel=0.099441
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1001 iz_avg=0.034565 iz_max=0.111691 iz_sel=0.026571
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1201 iz_avg=0.033810 iz_max=0.056500 iz_sel=0.056500
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1401 iz_avg=0.048870 iz_max=0.116697 iz_sel=0.116697
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1601 iz_avg=0.031614 iz_max=0.070769 iz_sel=0.053074
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1801 iz_avg=0.026923 iz_max=0.059262 iz_sel=0.059262
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2001 iz_avg=0.029550 iz_max=0.054679 iz_sel=0.017479
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2201 iz_avg=0.036714 iz_max=0.075966 iz_sel=0.075966
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2401 iz_avg=0.018795 iz_max=0.055169 iz_sel=0.055169
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2601 iz_avg=0.036419 iz_max=0.092665 iz_sel=0.092665
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2801 iz_avg=0.011349 iz_max=0.025610 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1 iz_avg=0.002702 iz_max=0.008667 iz_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=201 iz_avg=0.163922 iz_max=0.221157 iz_sel=0.221157
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=401 iz_avg=0.128401 iz_max=0.155758 iz_sel=0.130233
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=601 iz_avg=0.092964 iz_max=0.126973 iz_sel=0.044248
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=801 iz_avg=0.159386 iz_max=0.202799 iz_sel=0.153485
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1001 iz_avg=0.124674 iz_max=0.156268 iz_sel=0.156268
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1201 iz_avg=0.147132 iz_max=0.170581 iz_sel=0.128598
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1401 iz_avg=0.149264 iz_max=0.172723 iz_sel=0.172723
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1601 iz_avg=0.124153 iz_max=0.155781 iz_sel=0.139116
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1801 iz_avg=0.128723 iz_max=0.159347 iz_sel=0.108098
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2001 iz_avg=0.127535 iz_max=0.173137 iz_sel=0.091944
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2201 iz_avg=0.105498 iz_max=0.141679 iz_sel=0.141679
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2401 iz_avg=0.104207 iz_max=0.124582 iz_sel=0.063939
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2601 iz_avg=0.143699 iz_max=0.164606 iz_sel=0.150908
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2801 iz_avg=0.087805 iz_max=0.113393 iz_sel=0.082597
+=== Average costs ===
+L2D SLDS w/t $g_t$ (partial fb): 14.6868
+L2D SLDS w/t $g_t$ (full fb):    10.1739
+L2D SLDS w/ $g_t$ attention (g_z) (partial fb):   13.3453
+L2D SLDS w/ $g_t$ attention (g_z) (full fb):      10.1569
+L2D (full feedback):           15.8002
+L2D_SW (full feedback):        13.6797
+LinUCB (partial feedback):     22.9436
+LinUCB (full feedback):        23.2491
+NeuralUCB (partial feedback):  23.0827
+NeuralUCB (full feedback):     23.2346
+Random baseline:               25.2737
+Oracle baseline:               9.0459
+Always using expert 0:       23.0774
+Always using expert 1:       28.6693
+Always using expert 2:       23.0567
+Always using expert 3:       29.3638
+
+=== Mean costs (last 20% of horizon, t >= 2400) ===
+L2D SLDS w/t $g_t$ (partial fb): 11.2135
+L2D SLDS w/t $g_t$ (full fb):    7.8999
+L2D SLDS w/ $g_t$ attention (g_z) (partial fb):   10.5251
+L2D SLDS w/ $g_t$ attention (g_z) (full fb):      7.8983
+L2D (full feedback):           12.8391
+L2D_SW (full feedback):        10.8348
+LinUCB (partial feedback):     26.4726
+LinUCB (full feedback):        26.5497
+NeuralUCB (partial feedback):  26.4726
+NeuralUCB (full feedback):     26.4726
+Random baseline:               24.8102
+Oracle baseline:               6.7422
+Always using expert 0:       26.4726
+Always using expert 1:       38.7694
+Always using expert 2:       15.4234
+Always using expert 3:       18.9320
+[plot_utils] plotting disabled or matplotlib missing; skipping plots.
+[plot_utils] plotting disabled or matplotlib missing; skip tri-cycle diagnostics.
+[plot_utils] plotting disabled or matplotlib missing; skip pruning dynamics.
+[Horizon planning] Using stored router snapshots at t=1650 to avoid re-fitting.
+[horizon_planning] plotting disabled or matplotlib missing; skipping horizon planning.

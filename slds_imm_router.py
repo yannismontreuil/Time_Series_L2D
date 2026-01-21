@@ -109,7 +109,7 @@ def _collect_factorized_em_data(
                 raise ValueError(f"EM warmup: no available experts at t={t}.")
             # Use router's policy for action selection to avoid biasing EM
             # estimates under partial feedback.
-            r_t = int(router.select_action(x_t, available))
+            r_t, cache = router.select_expert(x_t, available)
 
             preds = env.all_expert_predictions(x_t)
             residuals_all = preds - float(env.y[t])
@@ -126,6 +126,25 @@ def _collect_factorized_em_data(
             residuals.append(residual)
             if force_full_feedback:
                 residuals_full.append(residuals_masked)
+
+            # Update beliefs so action selection reflects the router's
+            # evolving posterior during the warmup trajectory.
+            if force_full_feedback:
+                router.update_beliefs(
+                    r_t=int(r_t),
+                    loss_obs=residual,
+                    losses_full=residuals_masked,
+                    available_experts=available,
+                    cache=cache,
+                )
+            else:
+                router.update_beliefs(
+                    r_t=int(r_t),
+                    loss_obs=residual,
+                    losses_full=None,
+                    available_experts=available,
+                    cache=cache,
+                )
     finally:
         router.feedback_mode = prev_feedback_mode
         router.exploration = prev_exploration
@@ -1488,6 +1507,11 @@ if __name__ == "__main__":
         # - Expert 1: unavailable on [10, 50] and [200, 250] (inclusive).
         # - Expert 4: arrives after t=100 and leaves at t=150, i.e.
         #   available on [101, 150] and unavailable outside that window.
+        data_seed_cfg = env_cfg.get("data_seed", None)
+        if data_seed_cfg is not None:
+            data_seed_tmp = int(data_seed_cfg)
+            np.random.seed(data_seed_tmp)
+            random.seed(data_seed_tmp)
         env = SyntheticTimeSeriesEnv(
             num_experts=N,
             num_regimes=M,
@@ -1501,6 +1525,9 @@ if __name__ == "__main__":
             noise_scale=env_cfg.get("noise_scale", None),
             tri_cycle_cfg=env_cfg.get("tri_cycle", None),
         )
+        if data_seed_cfg is not None:
+            np.random.seed(seed)
+            random.seed(seed)
     # Visualization-only settings for plots.
     env.plot_shift = int(cfg.get("plot_shift", 1))
     env.plot_target = str(cfg.get("plot_target", "y")).lower()
