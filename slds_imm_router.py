@@ -12,7 +12,7 @@ import sys
 from typing import Optional
 import numpy as np
 
-from environment.etth1_env import ETTh1TimeSeriesEnv
+from environment.etth1_env_fixed import ETTh1TimeSeriesEnv
 
 from models.router_model import SLDSIMMRouter, feature_phi
 from models.router_model_corr import SLDSIMMRouter_Corr, RecurrentSLDSIMMRouter_Corr
@@ -342,7 +342,7 @@ if __name__ == "__main__":
     setting = env_cfg.get("setting", "easy_setting")
     data_source = env_cfg.get("data_source", "synthetic")
     # Default: universe of 5 experts indexed j=0,...,4.
-    N = int(env_cfg.get("num_experts"))   # experts
+    N = int(len(env_cfg.get("enabled_experts")))   # experts
     # State dimension (= dim φ(x)); feature map in router_model.py currently
     # returns a 2D feature, so d must be compatible with that.
     d = int(env_cfg.get("state_dim"))
@@ -1489,12 +1489,12 @@ if __name__ == "__main__":
         T_env = None if T_raw is None else int(T_raw)
         csv_path = env_cfg.get("csv_path", "data/ETTh1.csv")
         target_column = env_cfg.get("target_column", "OT")
+        enabled_experts = env_cfg.get("enabled_experts", None)
 
         env = ETTh1TimeSeriesEnv(
             csv_path=csv_path,
             target_column=target_column,
-            num_experts=N,
-            num_regimes=M,
+            enabled_experts=enabled_experts,
             T=T_env,
             seed=int(env_cfg.get("seed", 42)),
             unavailable_expert_idx=env_cfg.get("unavailable_expert_idx", None),

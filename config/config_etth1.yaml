@@ -25,33 +25,46 @@ environment:
   csv_path: data/ETTh1.csv
   target_column: OT
 
-#  # Number of experts and regimes.
-  num_experts: 5
-#  num_regimes: 2
+  # Expert configuration: flexible enable/disable system
+  # Available expert types:
+  # - ar1_low_var: AR(1) with low variance (base model)
+  # - ar1_high_var: AR(1) with higher variance
+  # - nn_early: NN trained on early portion of data
+  # - nn_late: NN trained on late portion of data
+  # - ar2_segment1: AR(2) trained on first data segment
+  # - ar2_segment2: AR(2) trained on second data segment
 
-  # State dimension d = dim φ(x). The current feature map returns 2D features.
+  # Method 1: Enable specific expert types by name
+  enabled_experts:
+    - ar1_low_var
+    - ar1_high_var
+    - nn_early
+    - nn_late
+    - ar2_segment1
+    - ar2_segment2
+
+  # State dimension d = dim φ(x). The current feature map returns 1D features.
   state_dim: 1
 
-  # Optional: limit the number of time steps T used from the dataset.
-  # If omitted or null, the full ETTh1 series is used.
-  # For example, to use only the first 2000 points, set T: 2000.
-  # T: 2000
-
-  seed: 84
+  seed: 42
 
   # Expert availability controls. In this ETTh1 experiment we introduce
   # multiple experts whose availability switches over time:
-  #   - Expert 3 (index 2) is unavailable on several disjoint intervals.
-  #   - Expert 5 (index 4) arrives late and is only available on
+  #   - Expert at index 0 is unavailable on several disjoint intervals.
+  #   - Experts at indices 3 and 2 arrive late and are only available on
   #     specified arrival intervals.
-  unavailable_expert_idx: 0
+
+  # At most 2 unavailable experts and at most 2 arriving experts can be specified.
+  unavailable_expert_idx: [0, 1]
   unavailable_intervals:
-    - [1000, 2000]
-    - [4000, 5000]
-  arrival_expert_idx: 4
+    - [[1000, 2000], [3000, 4000]]
+    - [[5000, 6000]]
+  arrival_expert_idx: [3, 2]
   arrival_intervals:
     # Expert 5 becomes available only later in the series.
-    - [2000, 2500]
+    - [[0, 4000], [5500, 6000]]
+    - [[0, 2500], [3500, 4000], [5500, 6000]]
+
   analysis_window: 500
   analysis_adoption_threshold: 0.5
 
@@ -121,7 +134,7 @@ routers:
     em_online_n: 1
     em_online_samples: 20
     em_online_burn_in: 3
-    em_online_theta_lr: 0.1
+    em_online_theta_lr: 0.001
     em_online_theta_steps: 1
     em_online_eps_n: 1.0e-3
     em_online_print_val_loss: true

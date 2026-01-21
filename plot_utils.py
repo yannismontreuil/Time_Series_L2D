@@ -17,7 +17,7 @@ except Exception:  # pragma: no cover - optional plotting dependency
     GridSpecFromSubplotSpec = object  # type: ignore[assignment]
     _HAS_MPL = False
 
-from environment.etth1_env import ETTh1TimeSeriesEnv
+from environment.etth1_env_fixed import ETTh1TimeSeriesEnv
 from models.router_model import SLDSIMMRouter
 from models.factorized_slds import FactorizedSLDS
 from environment.synthetic_env import SyntheticTimeSeriesEnv

@@ -5,7 +5,7 @@ from typing import Optional, Sequence, Tuple
 from models.factorized_slds import FactorizedSLDS
 from models.router_model import SLDSIMMRouter
 from environment.synthetic_env import SyntheticTimeSeriesEnv
-from environment.etth1_env import ETTh1TimeSeriesEnv
+from environment.etth1_env_fixed import ETTh1TimeSeriesEnv
 from models.l2d_baseline import L2D
 from models.linucb_baseline import LinUCB
 from models.neuralucb_baseline import NeuralUCB
