@@ -1116,11 +1116,26 @@ def evaluate_horizon_planning(
     )
     os.makedirs(out_dir, exist_ok=True)
 
+    def _strip_titles(fig: plt.Figure) -> None:
+        for ax in getattr(fig, "axes", []):
+            try:
+                ax.set_title("")
+            except Exception:
+                continue
+        suptitle = getattr(fig, "_suptitle", None)
+        if suptitle is not None:
+            try:
+                suptitle.set_text("")
+                suptitle.set_visible(False)
+            except Exception:
+                pass
+
     def _save_planning_fig(fig: plt.Figure, name: str) -> None:
-        fig.savefig(os.path.join(out_dir, f"{name}.pdf"), bbox_inches="tight")
         fig.savefig(
             os.path.join(out_dir, f"{name}.png"), dpi=300, bbox_inches="tight"
         )
+        _strip_titles(fig)
+        fig.savefig(os.path.join(out_dir, f"{name}.pdf"), bbox_inches="tight")
         plt.close(fig)
 
     shared_scenarios = None
