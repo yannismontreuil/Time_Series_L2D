@@ -251,12 +251,12 @@ class ETTh1TimeSeriesEnv:
         if expert_type == "ar1_low_var":
             # AR(1) with low variance (close to optimal)
             self.expert_weights[expert_idx] = w_base * 0.95
-            self.expert_biases[expert_idx] = b_base + rng.normal(0, 0.05)
+            self.expert_biases[expert_idx] = b_base + rng.normal(0, 0.5)
 
         elif expert_type == "ar1_high_var":
             # AR(1) with higher variance (more misspecified)
             self.expert_weights[expert_idx] = w_base * 1.20
-            self.expert_biases[expert_idx] = b_base + rng.normal(0, 0.15)
+            self.expert_biases[expert_idx] = b_base + rng.normal(0, 0.9)
 
         elif expert_type in ["nn_early", "nn_late"]:
             # Neural network experts
@@ -277,32 +277,33 @@ class ETTh1TimeSeriesEnv:
         y_all = self.y[idx_all]
         n_all = len(x_all)
 
-        if n_all < 10:
+        if n_all < 20:  # Increased minimum data requirement
             # Fallback for short series
             self.expert_weights[expert_idx] = 0.9
             self.expert_biases[expert_idx] = 0.0
             return
 
-        # Define training segments
+        # Define training segments - use more data for each expert
         if expert_type == "nn_early":
-            # Train on first 40% of data
-            end_idx = max(1, int(0.4 * n_all))
+            # Train on first 70% of data
+            end_idx = max(1, int(0.7 * n_all))
             x_train = x_all[:end_idx]
             y_train = y_all[:end_idx]
         else:  # nn_late
-            # Train on next 40% of data
-            start_idx = max(1, int(0.4 * n_all))
-            end_idx = max(1, int(0.8 * n_all))
+            # Train on last 70% of data
+            start_idx = max(1, int(0.3 * n_all))
+            end_idx = n_all
             x_train = x_all[start_idx:end_idx]
             y_train = y_all[start_idx:end_idx]
 
-        # Validation set: last 20% of full data
-        n_val = max(1, int(0.2 * n_all))
-        x_val = x_all[-n_val:]
-        y_val = y_all[-n_val:]
+        # Validation set: middle 20% of full data for better representation
+        val_start = max(1, int(0.4 * n_all))
+        val_end = max(val_start + 1, int(0.6 * n_all))
+        x_val = x_all[val_start:val_end]
+        y_val = y_all[val_start:val_end]
 
-        # Train neural network
-        params = self._train_nn_expert([x_train], [y_train], x_val, y_val, 8, rng)
+        # Train neural network with improved architecture
+        params = self._train_nn_expert([x_train], [y_train], x_val, y_val, 32, rng)  # Increased hidden dim
         self._nn_params[expert_idx] = params
 
     def _initialize_ar2_expert(self, expert_idx: int, expert_type: str, w_base: float, b_base: float, rng: np.random.Generator):
@@ -373,10 +374,10 @@ class ETTh1TimeSeriesEnv:
         y_val_global: np.ndarray,
         hidden_dim: int,
         rng_local: np.random.Generator,
-        num_epochs: int = 100,  # Reduced for faster training
-        learning_rate: float = 1e-2,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-        """Train neural network expert."""
+        num_epochs: int = 300,  # Increased epochs
+        learning_rate: float = 1e-3,  # Lower initial learning rate
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, float, float]:  # Added normalization params
+        """Train neural network expert with improved architecture and training."""
         # Concatenate all segments for training
         x_train_list = []
         y_train_list = []
@@ -391,7 +392,7 @@ class ETTh1TimeSeriesEnv:
             b1 = np.zeros(hidden_dim, dtype=float)
             W2 = np.zeros((hidden_dim, 1), dtype=float)
             b2 = 0.0
-            return W1, b1, W2, b2
+            return W1, b1, W2, b2, 0.0, 1.0  # x_mean, x_std
 
         x_train = np.concatenate(x_train_list)
         y_train = np.concatenate(y_train_list)
@@ -403,14 +404,27 @@ class ETTh1TimeSeriesEnv:
 
         N_total = x_train.shape[0]
         if N_total == 0:
-            # Fallback: degenerate zero network
             W1 = np.zeros((hidden_dim, 1), dtype=float)
             b1 = np.zeros(hidden_dim, dtype=float)
             W2 = np.zeros((hidden_dim, 1), dtype=float)
             b2 = 0.0
-            return W1, b1, W2, b2
+            return W1, b1, W2, b2, 0.0, 1.0
 
-        # Validation data
+        # Normalize inputs for better training stability
+        x_mean = float(x_train.mean())
+        x_std = float(x_train.std())
+        if x_std < 1e-8:
+            x_std = 1.0
+        x_train_norm = (x_train - x_mean) / x_std
+
+        # Normalize outputs
+        y_mean = float(y_train.mean())
+        y_std = float(y_train.std())
+        if y_std < 1e-8:
+            y_std = 1.0
+        y_train_norm = (y_train - y_mean) / y_std
+
+        # Validation data normalization
         if x_val_global.ndim == 1:
             x_val = x_val_global.reshape(-1, 1)
         else:
@@ -420,56 +434,86 @@ class ETTh1TimeSeriesEnv:
         else:
             y_val = y_val_global.reshape(-1, 1)
 
-        # Simple NumPy-based training
-        W1 = rng_local.normal(loc=0.0, scale=0.1, size=(hidden_dim, 1))
-        b1 = np.zeros(hidden_dim, dtype=float)
-        W2 = rng_local.normal(loc=0.0, scale=0.1, size=(hidden_dim, 1))
-        b2 = 0.0
-        best_W1 = W1.copy()
-        best_b1 = b1.copy()
-        best_W2 = W2.copy()
-        best_b2 = b2
-        best_val_rmse = np.inf
+        x_val_norm = (x_val - x_mean) / x_std
+        y_val_norm = (y_val - y_mean) / y_std
 
-        for _ in range(num_epochs):
+        # Initialize network with Xavier initialization
+        scale = np.sqrt(2.0 / (1 + hidden_dim))
+        W1 = rng_local.normal(loc=0.0, scale=scale, size=(hidden_dim, 1))
+        b1 = np.zeros(hidden_dim, dtype=float)
+        W2 = rng_local.normal(loc=0.0, scale=scale/hidden_dim, size=(hidden_dim, 1))
+        b2 = 0.0
+
+        # Best parameters tracking
+        best_W1, best_b1, best_W2, best_b2 = W1.copy(), b1.copy(), W2.copy(), b2
+        best_val_rmse = np.inf
+        patience = 50
+        no_improve_count = 0
+
+        # Learning rate schedule
+        lr = learning_rate
+        lr_decay = 0.95
+
+        for epoch in range(num_epochs):
             # Forward pass
-            z1 = x_train @ W1.T + b1  # (N_total, hidden_dim)
+            z1 = x_train_norm @ W1.T + b1  # (N_total, hidden_dim)
             h = np.tanh(z1)
             y_hat = h @ W2 + b2  # (N_total, 1)
 
-            diff = y_hat - y_train
-            d_yhat = (2.0 / max(N_total, 1)) * diff
+            # Loss with L2 regularization
+            mse_loss = float(np.mean((y_hat - y_train_norm) ** 2))
+            l2_reg = 1e-4 * (np.sum(W1**2) + np.sum(W2**2))
+            total_loss = mse_loss + l2_reg
 
-            # Backprop
-            d_W2 = h.T @ d_yhat  # (hidden_dim, 1)
+            # Gradients
+            diff = y_hat - y_train_norm
+            d_yhat = (2.0 / N_total) * diff
+
+            # Backprop with regularization
+            d_W2 = h.T @ d_yhat + 2e-4 * W2  # L2 regularization
             d_b2 = float(d_yhat.sum())
 
             d_h = d_yhat @ W2.T  # (N_total, hidden_dim)
             d_z1 = d_h * (1.0 - np.tanh(z1) ** 2)
-            d_W1 = d_z1.T @ x_train  # (hidden_dim, 1)
+            d_W1 = d_z1.T @ x_train_norm + 2e-4 * W1  # L2 regularization
             d_b1 = d_z1.sum(axis=0)  # (hidden_dim,)
 
-            # Gradient step
-            W1 -= learning_rate * d_W1
-            W2 -= learning_rate * d_W2
-            b1 -= learning_rate * d_b1
-            b2 -= learning_rate * d_b2
+            # Gradient step with clipping
+            grad_clip = 1.0
+            d_W1 = np.clip(d_W1, -grad_clip, grad_clip)
+            d_W2 = np.clip(d_W2, -grad_clip, grad_clip)
+            d_b1 = np.clip(d_b1, -grad_clip, grad_clip)
+            d_b2 = np.clip(d_b2, -grad_clip, grad_clip)
 
-            # Validation RMSE for checkpoint selection
-            if x_val.shape[0] > 0:
-                z1_val = x_val @ W1.T + b1
+            W1 -= lr * d_W1
+            W2 -= lr * d_W2
+            b1 -= lr * d_b1
+            b2 -= lr * d_b2
+
+            # Validation and early stopping
+            if x_val.shape[0] > 0 and epoch % 10 == 0:
+                z1_val = x_val_norm @ W1.T + b1
                 h_val = np.tanh(z1_val)
                 y_hat_val = h_val @ W2 + b2
-                mse_val = float(np.mean((y_hat_val - y_val) ** 2))
+                mse_val = float(np.mean((y_hat_val - y_val_norm) ** 2))
                 rmse_val = float(np.sqrt(mse_val))
+
                 if rmse_val < best_val_rmse:
                     best_val_rmse = rmse_val
-                    best_W1 = W1.copy()
-                    best_b1 = b1.copy()
-                    best_W2 = W2.copy()
-                    best_b2 = b2
+                    best_W1, best_b1, best_W2, best_b2 = W1.copy(), b1.copy(), W2.copy(), b2
+                    no_improve_count = 0
+                else:
+                    no_improve_count += 1
 
-        return best_W1, best_b1, best_W2, best_b2
+                if no_improve_count >= patience:
+                    break
+
+            # Learning rate decay
+            if epoch > 0 and epoch % 50 == 0:
+                lr *= lr_decay
+
+        # Store normalization parameters with the model
+        return best_W1, best_b1, best_W2, best_b2, x_mean, x_std, y_mean, y_std
 
     # ------------------------------------------------------------------
     # Interface methods (matching SyntheticTimeSeriesEnv)
@@ -502,22 +546,28 @@ class ETTh1TimeSeriesEnv:
 
             return float(w1 * y_lag1 + w2 * y_lag2 + b)
 
-        # Neural network experts
+        # Neural network experts with normalization
         if j_int in self._nn_expert_ids:
             params = self._nn_params[j_int]
-            if params is None:
+            if params is None or len(params) < 6:
                 # Fallback: linear prediction if NN params missing
                 w = self.expert_weights[j_int]
                 b = self.expert_biases[j_int]
                 return float(w * float(x_t[0]) + b)
 
-            W1, b1, W2, b2 = params
-            # Single-sample forward pass
+            W1, b1, W2, b2, x_mean, x_std, y_mean, y_std = params
+            # Normalize input
             x_val = float(x_t[0])
-            x_arr = np.array([[x_val]], dtype=float)  # shape (1, 1)
+            x_norm = (x_val - x_mean) / max(x_std, 1e-8)
+
+            # Forward pass
+            x_arr = np.array([[x_norm]], dtype=float)  # shape (1, 1)
             z1 = x_arr @ W1.T + b1  # shape (1, hidden_dim)
             h = np.tanh(z1)[0]      # shape (hidden_dim,)
-            y_hat = float(h @ W2.reshape(-1) + b2)
+            y_hat_norm = float(h @ W2.reshape(-1) + b2)
+
+            # Denormalize output
+            y_hat = y_hat_norm * y_std + y_mean
             return y_hat
 
         # Default AR(1) experts (ar1_low_var, ar1_high_var)

@@ -20,7 +20,7 @@ environment:
   # Main experiment environment for ETTh1 (oil temperature as target).
   # We reuse the same router code as for the synthetic environment, but
   # the data now comes from a real-world dataset.
-  T: [0, 500] # total 17536 time steps
+  T: 3000 # total 17536 time steps
   data_source: etth1
   csv_path: data/ETTh1.csv
   target_column: OT
@@ -62,8 +62,8 @@ environment:
   arrival_expert_idx: [4, 5]
   arrival_intervals:
     # Expert 5 becomes available only later in the series.
-    - [[0, 4000], [5500, 6000], [9000, 15000]]
-    - [[0, 2500], [3500, 4000], [5500, 6000], [12000, 14000]]
+    - [[5500, 6000], [9000, 15000]]
+    - [[200, 400], [3500, 4000], [5500, 6000], [12000, 14000]]
 
   analysis_window: 500
   analysis_adoption_threshold: 0.5
