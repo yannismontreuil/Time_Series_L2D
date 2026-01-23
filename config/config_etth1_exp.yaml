@@ -155,7 +155,7 @@ routers:
 
   factorized_slds:
     enabled: true
-    num_regimes: 5
+    num_regimes: 3
     shared_dim: 2
     idiosyncratic_dim: 1
     delta_max: 250
@@ -164,11 +164,7 @@ routers:
       - [[0.95, 0.0], [0.0, 0.95]]
       - [[0.95, 0.0], [0.0, 0.95]]
       - [[0.95, 0.0], [0.0, 0.95]]
-      - [[0.95, 0.0], [0.0, 0.95]]
-      - [[0.95, 0.0], [0.0, 0.95]]
     A_u:
-      - [[0.95]]
-      - [[0.95]]
       - [[0.95]]
       - [[0.95]]
       - [[0.95]]
@@ -176,14 +172,10 @@ routers:
       - [[0.2, 0.0], [0.0, 0.01]]
       - [[0.01, 0.0], [0.0, 0.2]]
       - [[0.1, 0.0], [0.0, 0.05]]
-      - [[0.05, 0.0], [0.0, 0.1]]
-      - [[0.15, 0.0], [0.0, 0.15]]
     Q_u:
       - [[0.015]]
       - [[0.015]]
       - [[0.02]]
-      - [[0.02]]
-      - [[0.01]]
     Q_u_scales: [0.015, 0.015, 0.02, 0.02, 0.01]
     exploration: ["g_z"]
     exploration_mc_samples: 100  # Increased from default 25 to encourage more exploration
@@ -194,8 +186,8 @@ routers:
 
     em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 800
-    em_n: 5
+    em_tk: 400
+    em_n: 10
     em_samples: 20
     em_burn_in: 100
     em_use_validation: true
