@@ -3,10 +3,11 @@
 #SBATCH --partition=long
 #SBATCH --output=logs/etth1_%j.out
 #SBATCH --error=logs/etth1_%j.err
+#SBATCH --nodes=1
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=16
 #SBATCH --time=24:00:00
-#SBATCH --exclude=xcna[0-15],xcnb[0-19],xcnc[0-49],xcnd[0-59]
+#SBATCH --nodelist=xcnf[6-25]
 #SBATCH --mail-user=yuletian@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
 
