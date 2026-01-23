@@ -492,7 +492,7 @@ class ETTh1TimeSeriesEnv:
             y_train = y_all[start_idx:end_idx]
 
         # Validation set: middle 20% of full data for better representation
-        val_start = max(1, int(0.4 * n_all))
+        val_start = max(1, int(0.2 * n_all))
         val_end = max(val_start + 1, int(0.6 * n_all))
         x_val = x_all[val_start:val_end]
         y_val = y_all[val_start:val_end]
