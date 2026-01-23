@@ -4,6 +4,8 @@ import numpy as np
 from typing import Callable, List, Sequence, Tuple, Optional
 
 try:  # pragma: no cover - optional plotting dependency
+    import matplotlib
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib import lines as mlines, patches as mpatches
     _HAS_MPL = True

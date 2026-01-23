@@ -1,6 +1,9 @@
 # %%
 # %matplotlib widget
 
+import matplotlib
+matplotlib.use("Agg")
+
 import argparse
 import copy
 import json
