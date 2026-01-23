@@ -574,8 +574,8 @@ class FactorizedSLDS(SLDSIMMRouter):
     def configure_online_em(
         self,
         enabled: bool,
-        window: int, # of time steps to use in EM window
-        period: int, # EM update period (in time steps)
+        window: int,
+        period: int,
         n_em: int,
         n_samples: int,
         burn_in: int,
@@ -2689,28 +2689,10 @@ class FactorizedSLDS(SLDSIMMRouter):
             if obs_mask[t]:
                 H_t = H_seq[t]
                 R_t = float(R_seq[t])
-                # Compute innovation covariance: H @ P @ H.T + R
-                # This results in a (1, 1) matrix, so we need to extract the scalar value
-                S_matrix = H_t @ P_pred[t] @ H_t.T + R_t
-                S = float(S_matrix.item() if hasattr(S_matrix, 'item') else S_matrix[0, 0])
+                S = float(H_t @ P_pred[t] @ H_t.T + R_t)
                 S = max(S, self.eps)
                 K = (P_pred[t] @ H_t.T) / S
-                # Compute innovation: y - H @ m, ensuring scalar result
-                pred_val = H_t @ m_pred[t]
-                # Handle different possible shapes of pred_val
-                try:
-                    if hasattr(pred_val, 'item'):
-                        pred_scalar = pred_val.item()
-                    elif pred_val.ndim == 0:
-                        pred_scalar = float(pred_val)
-                    elif pred_val.ndim == 1:
-                        pred_scalar = float(pred_val[0])
-                    else:  # matrix case
-                        pred_scalar = float(pred_val.flat[0])
-                except (ValueError, IndexError) as e:
-                    # Fallback: try to extract any scalar value
-                    pred_scalar = float(np.asarray(pred_val).flatten()[0])
-                innovation = float(y_seq[t] - pred_scalar)
+                innovation = float(y_seq[t] - H_t @ m_pred[t])
                 m_filt[t] = m_pred[t] + (K.flatten() * innovation)
                 P_filt[t] = P_pred[t] - K @ H_t @ P_pred[t]
                 P_filt[t] = 0.5 * (P_filt[t] + P_filt[t].T) + self.eps * np.eye(d)
@@ -2773,28 +2755,10 @@ class FactorizedSLDS(SLDSIMMRouter):
                 for i in range(len(y_t)):
                     H_row = np.asarray(H_t[i], dtype=float).reshape(1, d)
                     R_val = float(R_t[i])
-                    # Compute innovation covariance: H @ P @ H.T + R
-                    # This results in a (1, 1) matrix, so we need to extract the scalar value
-                    S_matrix = H_row @ P_t @ H_row.T + R_val
-                    S = float(S_matrix.item() if hasattr(S_matrix, 'item') else S_matrix[0, 0])
+                    S = float(H_row @ P_t @ H_row.T + R_val)
                     S = max(S, self.eps)
                     K = (P_t @ H_row.T) / S
-                    # Compute innovation: y - H @ m, ensuring scalar result
-                    pred_val = H_row @ m_t
-                    # Handle different possible shapes of pred_val
-                    try:
-                        if hasattr(pred_val, 'item'):
-                            pred_scalar = pred_val.item()
-                        elif pred_val.ndim == 0:
-                            pred_scalar = float(pred_val)
-                        elif pred_val.ndim == 1:
-                            pred_scalar = float(pred_val[0])
-                        else:  # matrix case
-                            pred_scalar = float(pred_val.flat[0])
-                    except (ValueError, IndexError) as e:
-                        # Fallback: try to extract any scalar value
-                        pred_scalar = float(np.asarray(pred_val).flatten()[0])
-                    innovation = float(y_t[i] - pred_scalar)
+                    innovation = float(y_t[i] - H_row @ m_t)
                     m_t = m_t + (K.flatten() * innovation)
                     P_t = P_t - K @ H_row @ P_t
                     P_t = 0.5 * (P_t + P_t.T) + self.eps * np.eye(d)
