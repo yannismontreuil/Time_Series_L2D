@@ -519,6 +519,7 @@ if __name__ == "__main__":
         hidden_dim=hidden_dim_l2d,
         window_size=int(l2d_cfg.get("window_size", 1)),
         seed=seed,
+        context_dim=d,
         # Note: device parameter will be added when L2D model supports it
     )
 
@@ -550,6 +551,13 @@ if __name__ == "__main__":
     # --------------------------------------------------------
     # Four UCB-style baselines routers
     # --------------------------------------------------------
+    def _resolve_feedback_mode(cfg: dict, default: str = "both") -> str:
+        mode = str(cfg.get("feedback_mode", default)).lower()
+        if mode in ("partial", "full", "both"):
+            return mode
+        if mode in ("all", "pf", "fp"):
+            return "both"
+        return default
 
     # LinUCB baselines (partial and full feedback)
     linucb_partial = None
@@ -557,25 +565,30 @@ if __name__ == "__main__":
     if linucb_cfg:
         alpha_ucb = float(linucb_cfg.get("alpha_ucb", 1.0))
         lambda_reg = float(linucb_cfg.get("lambda_reg", 1.0))
+        lin_mode = _resolve_feedback_mode(linucb_cfg)
 
-        linucb_partial = LinUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb,
-            lambda_reg=lambda_reg,
-            beta=beta,
-            feedback_mode="partial",
-        )
-        linucb_full = LinUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb,
-            lambda_reg=lambda_reg,
-            beta=beta,
-            feedback_mode="full",
-        )
+        if lin_mode in ("partial", "both"):
+            linucb_partial = LinUCB(
+                num_experts=N,
+                feature_fn=feature_phi,
+                alpha_ucb=alpha_ucb,
+                lambda_reg=lambda_reg,
+                beta=beta,
+                feedback_mode="partial",
+                context_dim=d,
+            )
+        if lin_mode in ("full", "both"):
+            linucb_full = LinUCB(
+                num_experts=N,
+                feature_fn=feature_phi,
+                alpha_ucb=alpha_ucb,
+                lambda_reg=lambda_reg,
+                beta=beta,
+                feedback_mode="full",
+                context_dim=d,
+            )
 
-    # NeuralUCB baseline (single policy; partial feedback by default)
+    # NeuralUCB baseline (partial/full, configurable)
     neuralucb_partial = None
     neuralucb_full = None
     if neuralucb_cfg:
@@ -583,30 +596,33 @@ if __name__ == "__main__":
         lambda_reg_nn = float(neuralucb_cfg.get("lambda_reg", 1.0))
         hidden_dim_nn = int(neuralucb_cfg.get("hidden_dim", 16))
         nn_lr = float(neuralucb_cfg.get("nn_learning_rate", 1e-3))
-        neuralucb_partial = NeuralUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb_nn,
-            lambda_reg=lambda_reg_nn,
-            beta=beta,
-            hidden_dim=hidden_dim_nn,
-            nn_learning_rate=nn_lr,
-            feedback_mode="partial",
-            seed=seed,
-            # Note: device parameter will be added when NeuralUCB model supports it
-        )
-        neuralucb_full = NeuralUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb_nn,
-            lambda_reg=lambda_reg_nn,
-            beta=beta,
-            hidden_dim=hidden_dim_nn,
-            nn_learning_rate=nn_lr,
-            feedback_mode="full",
-            seed=seed,
-            # Note: device parameter will be added when NeuralUCB model supports it
-        )
+        neu_mode = _resolve_feedback_mode(neuralucb_cfg)
+        if neu_mode in ("partial", "both"):
+            neuralucb_partial = NeuralUCB(
+                num_experts=N,
+                feature_fn=feature_phi,
+                alpha_ucb=alpha_ucb_nn,
+                lambda_reg=lambda_reg_nn,
+                beta=beta,
+                hidden_dim=hidden_dim_nn,
+                nn_learning_rate=nn_lr,
+                feedback_mode="partial",
+                seed=seed,
+                context_dim=d,
+            )
+        if neu_mode in ("full", "both"):
+            neuralucb_full = NeuralUCB(
+                num_experts=N,
+                feature_fn=feature_phi,
+                alpha_ucb=alpha_ucb_nn,
+                lambda_reg=lambda_reg_nn,
+                beta=beta,
+                hidden_dim=hidden_dim_nn,
+                nn_learning_rate=nn_lr,
+                feedback_mode="full",
+                seed=seed,
+                context_dim=d,
+            )
 
     # Copies for horizon planning (avoid contamination from full-run evaluation).
     l2d_baseline_horizon = copy.deepcopy(l2d_baseline)
@@ -643,8 +659,8 @@ if __name__ == "__main__":
     extra_transition_mode = None
 
     # Default values for parallel execution variables
-    parallel_exploration = False
-    parallel_workers = None
+    # parallel_exploration = False
+    # parallel_workers = None
 
     if factorized_slds_enabled:
         M_fact = int(factorized_slds_cfg.get("num_regimes", M))
@@ -756,6 +772,28 @@ if __name__ == "__main__":
         A_u_fact = factorized_slds_cfg.get("A_u", None)
         Q_g_fact = factorized_slds_cfg.get("Q_g", None)
         Q_u_fact = factorized_slds_cfg.get("Q_u", None)
+        if A_u_fact is None:
+            a_u_scale_cfg = factorized_slds_cfg.get("A_u_scale", None)
+            if a_u_scale_cfg is not None:
+                a_u_arr = np.asarray(a_u_scale_cfg, dtype=float)
+                if a_u_arr.shape == ():
+                    a_u_arr = np.full(M_fact, float(a_u_arr), dtype=float)
+                elif a_u_arr.shape == (M_fact,):
+                    pass
+                elif a_u_arr.size == 2 and M_fact > 2:
+                    au_broadcast = np.empty(M_fact, dtype=float)
+                    au_broadcast[0] = float(a_u_arr[0])
+                    au_broadcast[1:] = float(a_u_arr[1])
+                    a_u_arr = au_broadcast
+                else:
+                    raise ValueError(
+                        "routers.factorized_slds.A_u_scale must be a scalar, a list "
+                        "of length num_regimes, or a length-2 list [au_0, au_other] "
+                        "when num_regimes > 2."
+                    )
+                A_u_fact = np.zeros((M_fact, d_phi_fact, d_phi_fact), dtype=float)
+                for k in range(M_fact):
+                    A_u_fact[k] = a_u_arr[k] * np.eye(d_phi_fact, dtype=float)
         if Q_g_fact is None:
             q_g_scales_cfg = factorized_slds_cfg.get("Q_g_scales", None)
             if q_g_scales_cfg is not None:
@@ -1151,6 +1189,31 @@ if __name__ == "__main__":
         router.em_tk = int(em_tk)
         router.reset_beliefs()
 
+    def _copy_factorized_params(
+        src: Optional[FactorizedSLDS],
+        dst: Optional[FactorizedSLDS],
+    ) -> None:
+        if src is None or dst is None:
+            return
+        try:
+            params = src._snapshot_params()
+            dst._restore_params(params)
+        except Exception:
+            dst.A_g = np.asarray(src.A_g, dtype=float).copy()
+            dst.Q_g = np.asarray(src.Q_g, dtype=float).copy()
+            dst.A_u = np.asarray(src.A_u, dtype=float).copy()
+            dst.Q_u = np.asarray(src.Q_u, dtype=float).copy()
+            if np.ndim(src.R) == 0:
+                dst.R = float(src.R)
+            else:
+                dst.R = np.asarray(src.R, dtype=float).copy()
+            dst.B_dict = {k: v.copy() for k, v in src.B_dict.items()}
+        em_tk = getattr(src, "em_tk", None)
+        if em_tk is not None:
+            dst.em_tk = int(em_tk)
+
+
+
     def _configure_factorized_online_em(
         router: Optional[FactorizedSLDS],
     ) -> None:
@@ -1289,9 +1352,37 @@ if __name__ == "__main__":
         if neuralucb_full is not None:
             _register_transition_logger(neuralucb_full, "NeuralUCB full")
 
+    em_force_full_feedback = bool(
+        factorized_slds_cfg.get("em_offline_full_feedback", True)
+    )
+
     if base_transition_mode is not None:
-        for run in factorized_runs:
-            label = run.get("factorized_label", factorized_label)
+        if em_force_full_feedback:
+            fact_full = run.get("fact_router_full")
+            fact_partial = run.get("fact_router_partial")
+            if fact_full is not None or fact_partial is not None:
+                canonical = fact_full or fact_partial
+                canonical_label = (
+                    f"{label} full" if fact_full is not None else f"{label} partial"
+                )
+                _run_factorized_em(canonical, canonical_label)
+                if canonical is not fact_partial and fact_partial is not None:
+                    _copy_factorized_params(canonical, fact_partial)
+                    fact_partial.reset_beliefs()
+            no_g_full = run.get("router_full_no_g")
+            no_g_partial = run.get("router_partial_no_g")
+            if no_g_full is not None or no_g_partial is not None:
+                canonical = no_g_full or no_g_partial
+                canonical_label = (
+                    f"{label} no-g full"
+                    if no_g_full is not None
+                    else f"{label} no-g partial"
+                )
+                _run_factorized_em(canonical, canonical_label)
+                if canonical is not no_g_partial and no_g_partial is not None:
+                    _copy_factorized_params(canonical, no_g_partial)
+                    no_g_partial.reset_beliefs()
+        else:
             _run_factorized_em(
                 run.get("fact_router_partial"), f"{label} partial"
             )
@@ -1307,12 +1398,30 @@ if __name__ == "__main__":
     if extra_transition_mode is not None:
         for run in factorized_runs:
             linear_label = run.get("factorized_linear_label", factorized_linear_label)
-            _run_factorized_em(
-                run.get("fact_router_partial_linear"), f"{linear_label} partial"
-            )
-            _run_factorized_em(
-                run.get("fact_router_full_linear"), f"{linear_label} full"
-            )
+            if em_force_full_feedback:
+                fact_full_linear = run.get("fact_router_full_linear")
+                fact_partial_linear = run.get("fact_router_partial_linear")
+                if fact_full_linear is not None or fact_partial_linear is not None:
+                    canonical = fact_full_linear or fact_partial_linear
+                    canonical_label = (
+                        f"{linear_label} full"
+                        if fact_full_linear is not None
+                        else f"{linear_label} partial"
+                    )
+                    _run_factorized_em(canonical, canonical_label)
+                    if (
+                        canonical is not fact_partial_linear
+                        and fact_partial_linear is not None
+                    ):
+                        _copy_factorized_params(canonical, fact_partial_linear)
+                        fact_partial_linear.reset_beliefs()
+            else:
+                _run_factorized_em(
+                    run.get("fact_router_partial_linear"), f"{linear_label} partial"
+                )
+                _run_factorized_em(
+                    run.get("fact_router_full_linear"), f"{linear_label} full"
+                )
 
     for run in factorized_runs:
         _configure_factorized_online_em(run.get("fact_router_partial"))
@@ -1670,30 +1779,30 @@ if __name__ == "__main__":
             f"to avoid re-fitting."
         )
 
-    evaluate_horizon_planning(
-        env=env,
-        router_partial=router_partial,
-        router_full=router_full,
-        router_factorial_partial=fact_router_partial,
-        router_factorial_full=fact_router_full,
-        router_factorial_partial_linear=fact_router_partial_linear,
-        router_factorial_full_linear=fact_router_full_linear,
-        beta=beta,
-        t0=t0,
-        H=H,
-        experts_predict=experts_predict,
-        context_update=context_update,
-        l2d_baseline=l2d_baseline_horizon,
-        l2d_sw_baseline=l2d_sw_baseline_horizon,
-        linucb_partial=linucb_partial_horizon,
-        linucb_full=linucb_full_horizon,
-        neuralucb_partial=neuralucb_partial_horizon,
-        neuralucb_full=neuralucb_full_horizon,
-        planning_method=planning_method,
-        scenario_generator_cfg=scenario_generator_cfg,
-        delta=delta,
-        online_start_t=online_start_t,
-        skip_router_warm_start=use_snapshots,
-        factorized_label=factorized_label,
-        factorized_linear_label=factorized_linear_label,
-    )
+    # evaluate_horizon_planning(
+    #     env=env,
+    #     router_partial=router_partial,
+    #     router_full=router_full,
+    #     router_factorial_partial=fact_router_partial,
+    #     router_factorial_full=fact_router_full,
+    #     router_factorial_partial_linear=fact_router_partial_linear,
+    #     router_factorial_full_linear=fact_router_full_linear,
+    #     beta=beta,
+    #     t0=t0,
+    #     H=H,
+    #     experts_predict=experts_predict,
+    #     context_update=context_update,
+    #     l2d_baseline=l2d_baseline_horizon,
+    #     l2d_sw_baseline=l2d_sw_baseline_horizon,
+    #     linucb_partial=linucb_partial_horizon,
+    #     linucb_full=linucb_full_horizon,
+    #     neuralucb_partial=neuralucb_partial_horizon,
+    #     neuralucb_full=neuralucb_full_horizon,
+    #     planning_method=planning_method,
+    #     scenario_generator_cfg=scenario_generator_cfg,
+    #     delta=delta,
+    #     online_start_t=online_start_t,
+    #     skip_router_warm_start=use_snapshots,
+    #     factorized_label=factorized_label,
+    #     factorized_linear_label=factorized_linear_label,
+    # )
