@@ -186,7 +186,7 @@ routers:
 
     em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 400
+    em_tk: 5000
     em_n: 10
     em_samples: 20
     em_burn_in: 100
@@ -210,7 +210,7 @@ routers:
     em_online_burn_in: 3
     em_online_theta_lr: 0.001
     em_online_theta_steps: 1
-    em_online_eps_n: 5.0e-3
+    em_online_eps_n: 1.0e-3
     em_online_print_val_loss: true
     em_online_start_t: null
 
