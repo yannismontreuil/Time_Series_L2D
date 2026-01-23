@@ -768,7 +768,11 @@ class ETTh1TimeSeriesEnv:
 
             # Denormalize output
             y_hat = y_hat_norm * y_std + y_mean
-            return y_hat
+            rng = np.random.default_rng()
+            if expert_type == "nn_early":
+                return y_hat + rng.normal(0, 6)
+            else:  # nn_late
+                return y_hat + rng.normal(0, 6)
 
         # Default linear experts (ar1_low_var, ar1_high_var)
         w = np.asarray(self.expert_weights[j_int], dtype=float).reshape(-1)
