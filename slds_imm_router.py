@@ -494,36 +494,10 @@ if __name__ == "__main__":
     )
 
 
-
-    # --------------------------------------------------------
-    # Correlated-expert SLDS-IMM routers (shared factor model)
-    # --------------------------------------------------------
-
     staleness_threshold_cfg = routers_cfg.get("staleness_threshold", None)
     staleness_threshold = (
         int(staleness_threshold_cfg) if staleness_threshold_cfg is not None else None
     )
-    # Allow mode-specific overrides for the correlated router:
-    # routers.slds_imm_corr.partial_overrides and
-    # routers.slds_imm_corr.full_overrides.
-    # If these keys are absent, both partial and full routers share the same hyperparameters as
-    # in the original implementation.
-    slds_corr_partial_overrides = slds_corr_cfg.get("partial_overrides", {}) or {}
-    slds_corr_full_overrides = slds_corr_cfg.get("full_overrides", {}) or {}
-
-    '''
-    See Section 5: Parameter Optimization with Expectation-Maximization (EM)
-    E-step: Compute the expected sufficient statistics of the latent variables given the current parameters.
-    M-step: Maximize the expected complete-data log-likelihood with respect to the parameters 
-            using the statistics from the E-step.
-    '''
-    # Optional EM-capable correlated router configuration. If present,
-    # we build an additional pair of correlated routers that perform an
-    # EM-style update of dynamics/noise over an initial window.
-    slds_corr_em_cfg = routers_cfg.get("slds_imm_corr_em", {}) or {}
-    slds_corr_em_enabled = bool(slds_corr_em_cfg.get("enabled", True))
-    slds_corr_em_partial_overrides = slds_corr_em_cfg.get("partial_overrides", {}) or {}
-    slds_corr_em_full_overrides = slds_corr_em_cfg.get("full_overrides", {}) or {}
 
     # L2D baselines (configurable MLP/RNN, with and without sliding window)
     alpha_l2d = _resolve_vector(l2d_cfg.get("alpha", 1.0), 1.0, N)
