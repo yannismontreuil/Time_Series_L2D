@@ -1,6 +1,7 @@
 # %%
 # %matplotlib widget
 
+print("Starting imports...")
 import argparse
 import copy
 import json
@@ -12,6 +13,11 @@ import sys
 from typing import Optional
 import numpy as np
 
+print("Setting matplotlib backend to Agg (non-interactive)...")
+import matplotlib
+matplotlib.use("Agg")
+
+print("Importing environment modules...")
 from environment.etth1_env import ETTh1TimeSeriesEnv
 
 from models.router_model import feature_phi
@@ -22,11 +28,14 @@ from models.linucb_baseline import LinUCB
 from models.neuralucb_baseline import NeuralUCB
 from models.factorized_slds import FactorizedSLDS
 
+print("Importing router_eval...")
 from router_eval import set_transition_log_config, register_transition_log_label, get_transition_log_config
 
+print("Importing plot_utils...")
 from plot_utils import (
     evaluate_routers_and_baselines,
 )
+print("All imports completed successfully.")
 
 try:
     import yaml  # type: ignore
