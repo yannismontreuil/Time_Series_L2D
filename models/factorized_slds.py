@@ -2756,7 +2756,7 @@ class FactorizedSLDS(SLDSIMMRouter):
                 for i in range(len(y_t)):
                     H_row = np.asarray(H_t[i], dtype=float).reshape(1, d)
                     R_val = float(R_t[i])
-                    S = float(H_row @ P_t @ H_row.T + R_val)
+                    S = float(np.squeeze(H_row @ P_t @ H_row.T)) + R_val
                     S = max(S, self.eps)
                     K = (P_t @ H_row.T) / S
                     innovation = float(y_t[i] - H_row @ m_t)
