@@ -257,8 +257,10 @@ def _parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    print("Parsing arguments...")
     args = _parse_args()
     cfg = _load_config(args.config)
+    print("Configuring transition logging...")
     transition_log_cfg = cfg.get("transition_log", None)
     if transition_log_cfg is None:
         transition_log_cfg = cfg.get("debug", {}).get("transition_log", None)
@@ -271,12 +273,14 @@ if __name__ == "__main__":
         set_transition_log_config(transition_log_cfg)
     else:
         transition_log_cfg = None
+    print("Setting random seeds...")
     env_cfg = cfg.get("environment", {})
     seed_cfg = env_cfg.get("seed", 0)
     seed = int(seed_cfg) if seed_cfg is not None else 0
     np.random.seed(seed)
     random.seed(seed)
 
+    print("Configuring device (CPU/GPU)...")
     # GPU device setup for neural networks
     device = "cpu"  # Default to CPU
     try:  # pragma: no cover - torch is optional

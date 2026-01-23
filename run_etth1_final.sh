@@ -2,9 +2,10 @@
 #SBATCH --job-name=l2d_etth1
 #SBATCH --output=logs/etth1_%j.out
 #SBATCH --error=logs/etth1_%j.err
-#SBATCH --mem=32G
-#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --cpus-per-task=16
 #SBATCH --time=24:00:00
+#SBATCH --nodelist=xcnf[0-25]
 #SBATCH --mail-user=yuletian@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
 
