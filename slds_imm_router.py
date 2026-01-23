@@ -1725,76 +1725,76 @@ if __name__ == "__main__":
     # Horizon-H planning from a given time t
     # --------------------------------------------------------
 
-    # Build expert prediction functions for planning
-    def experts_predict_factory(env_):
-        def f(j: int):
-            return lambda x: env_.expert_predict(j, x)
-        return [f(j) for j in range(env_.num_experts)]
-
-    experts_predict = experts_predict_factory(env)
-
-    # Simple context update: x_{t+1} := y_hat (recursive forecasting)
-    def context_update(x: np.ndarray, y_hat: float) -> np.ndarray:
-        return np.array([y_hat], dtype=float)
-
-    # Take current context at t0 and plan H steps ahead, and evaluate.
-    t0_cfg = int(horizon_cfg.get("t0", 175))
-    H = int(horizon_cfg.get("H", 5))
-    planning_method = str(horizon_cfg.get("method", "regressive"))
-    scenario_generator_cfg = horizon_cfg.get("scenario_generator", {}) or {}
-    if "seed" not in scenario_generator_cfg:
-        scenario_generator_cfg = dict(scenario_generator_cfg)
-        scenario_generator_cfg["seed"] = seed
-    delta = float(horizon_cfg.get("delta", 0.1))
-    online_start_t = (
-        planning_online_start_t
-        if planning_online_start_t is not None
-        else horizon_cfg.get("online_start_t", None)
-    )
-    t0 = int(planning_snapshot_t) if planning_snapshot_t is not None else int(t0_cfg)
-    if t0 != int(t0_cfg):
-        print(
-            f"[Horizon planning] Adjusted t0 from {t0_cfg} to {t0} "
-            f"to start after EM."
-        )
-
-    snapshot_keys = []
-    if router_partial is not None:
-        snapshot_keys.append("router_partial")
-    if router_full is not None:
-        snapshot_keys.append("router_full")
-    if fact_router_partial is not None:
-        snapshot_keys.append("fact_router_partial")
-    if fact_router_full is not None:
-        snapshot_keys.append("fact_router_full")
-    if fact_router_partial_linear is not None:
-        snapshot_keys.append("fact_router_partial_linear")
-    if fact_router_full_linear is not None:
-        snapshot_keys.append("fact_router_full_linear")
-    use_snapshots = (
-        planning_snapshots is not None
-        and snapshot_keys
-        and all(key in planning_snapshots for key in snapshot_keys)
-    )
-    if use_snapshots:
-        router_partial = planning_snapshots.get("router_partial", router_partial)
-        router_full = planning_snapshots.get("router_full", router_full)
-        fact_router_partial = planning_snapshots.get(
-            "fact_router_partial", fact_router_partial
-        )
-        fact_router_full = planning_snapshots.get(
-            "fact_router_full", fact_router_full
-        )
-        fact_router_partial_linear = planning_snapshots.get(
-            "fact_router_partial_linear", fact_router_partial_linear
-        )
-        fact_router_full_linear = planning_snapshots.get(
-            "fact_router_full_linear", fact_router_full_linear
-        )
-        print(
-            f"[Horizon planning] Using stored router snapshots at t={t0} "
-            f"to avoid re-fitting."
-        )
+    # # Build expert prediction functions for planning
+    # def experts_predict_factory(env_):
+    #     def f(j: int):
+    #         return lambda x: env_.expert_predict(j, x)
+    #     return [f(j) for j in range(env_.num_experts)]
+    #
+    # experts_predict = experts_predict_factory(env)
+    #
+    # # Simple context update: x_{t+1} := y_hat (recursive forecasting)
+    # def context_update(x: np.ndarray, y_hat: float) -> np.ndarray:
+    #     return np.array([y_hat], dtype=float)
+    #
+    # # Take current context at t0 and plan H steps ahead, and evaluate.
+    # t0_cfg = int(horizon_cfg.get("t0", 175))
+    # H = int(horizon_cfg.get("H", 5))
+    # planning_method = str(horizon_cfg.get("method", "regressive"))
+    # scenario_generator_cfg = horizon_cfg.get("scenario_generator", {}) or {}
+    # if "seed" not in scenario_generator_cfg:
+    #     scenario_generator_cfg = dict(scenario_generator_cfg)
+    #     scenario_generator_cfg["seed"] = seed
+    # delta = float(horizon_cfg.get("delta", 0.1))
+    # online_start_t = (
+    #     planning_online_start_t
+    #     if planning_online_start_t is not None
+    #     else horizon_cfg.get("online_start_t", None)
+    # )
+    # t0 = int(planning_snapshot_t) if planning_snapshot_t is not None else int(t0_cfg)
+    # if t0 != int(t0_cfg):
+    #     print(
+    #         f"[Horizon planning] Adjusted t0 from {t0_cfg} to {t0} "
+    #         f"to start after EM."
+    #     )
+    #
+    # snapshot_keys = []
+    # if router_partial is not None:
+    #     snapshot_keys.append("router_partial")
+    # if router_full is not None:
+    #     snapshot_keys.append("router_full")
+    # if fact_router_partial is not None:
+    #     snapshot_keys.append("fact_router_partial")
+    # if fact_router_full is not None:
+    #     snapshot_keys.append("fact_router_full")
+    # if fact_router_partial_linear is not None:
+    #     snapshot_keys.append("fact_router_partial_linear")
+    # if fact_router_full_linear is not None:
+    #     snapshot_keys.append("fact_router_full_linear")
+    # use_snapshots = (
+    #     planning_snapshots is not None
+    #     and snapshot_keys
+    #     and all(key in planning_snapshots for key in snapshot_keys)
+    # )
+    # if use_snapshots:
+    #     router_partial = planning_snapshots.get("router_partial", router_partial)
+    #     router_full = planning_snapshots.get("router_full", router_full)
+    #     fact_router_partial = planning_snapshots.get(
+    #         "fact_router_partial", fact_router_partial
+    #     )
+    #     fact_router_full = planning_snapshots.get(
+    #         "fact_router_full", fact_router_full
+    #     )
+    #     fact_router_partial_linear = planning_snapshots.get(
+    #         "fact_router_partial_linear", fact_router_partial_linear
+    #     )
+    #     fact_router_full_linear = planning_snapshots.get(
+    #         "fact_router_full_linear", fact_router_full_linear
+    #     )
+    #     print(
+    #         f"[Horizon planning] Using stored router snapshots at t={t0} "
+    #         f"to avoid re-fitting."
+    #     )
 
     # evaluate_horizon_planning(
     #     env=env,

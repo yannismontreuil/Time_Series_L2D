@@ -2193,6 +2193,7 @@ def evaluate_horizon_planning(
             fig.colorbar(im, ax=ax, label="Selection probability")
             plt.tight_layout()
             plt.show()
+            plt.close(fig)
 
         prob_tables = [
             (p_all_partial, base_partial_label),
@@ -2626,6 +2627,7 @@ def evaluate_horizon_planning(
             ax_mc.legend(loc="upper left")
             plt.tight_layout()
             plt.show()
+            plt.close(fig_mc)
 
         # --------------------------------------------------------------
         # New: number of planned experts per time step
@@ -2692,6 +2694,7 @@ def evaluate_horizon_planning(
         ax_counts.legend(loc="upper left")
         plt.tight_layout()
         plt.show()
+        plt.close(fig_counts)
 
         # ------------------------------------------------------------------
         # New: truth y_t and correlated-router forecasts with MC value bands
@@ -2793,6 +2796,7 @@ def evaluate_horizon_planning(
             ax_y.legend(loc="upper left")
             plt.tight_layout()
             plt.show()
+            plt.close(fig_corr)
 
         # ------------------------------------------------------------------
         # New: expert selection sets for correlated routers
@@ -2891,6 +2895,7 @@ def evaluate_horizon_planning(
             ax_sel.legend(loc="upper left")
             plt.tight_layout()
             plt.show()
+            plt.close(fig_sel)
 
             # Separate figure: number of experts possible per time.
             fig_count, ax_count = plt.subplots(1, 1, figsize=(10, 3))
@@ -2924,6 +2929,7 @@ def evaluate_horizon_planning(
             ax_count.legend(loc="upper left")
             plt.tight_layout()
             plt.show()
+            plt.close(fig_count)
 
     # Plot forecasts vs truth and zoomed horizon window + scheduling
     fig_h, (ax_h_full, ax_h_zoom, ax_h_sched) = plt.subplots(
@@ -3557,6 +3563,7 @@ def evaluate_horizon_planning(
 
     plt.tight_layout()
     plt.show()
+    plt.close(fig_h)
 
     # --------------------------------------------------------
     # New plot: horizon forecasts with expert-colored points
@@ -3877,3 +3884,4 @@ def evaluate_horizon_planning(
     )
     plt.tight_layout()
     plt.show()
+    plt.close(fig_forecast)
