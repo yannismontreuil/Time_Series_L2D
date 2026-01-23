@@ -574,8 +574,8 @@ class FactorizedSLDS(SLDSIMMRouter):
     def configure_online_em(
         self,
         enabled: bool,
-        window: int,
-        period: int,
+        window: int, # of time steps to use in EM window
+        period: int, # EM update period (in time steps)
         n_em: int,
         n_samples: int,
         burn_in: int,

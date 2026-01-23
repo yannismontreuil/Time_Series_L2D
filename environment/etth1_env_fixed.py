@@ -250,13 +250,13 @@ class ETTh1TimeSeriesEnv:
         """Initialize a specific expert based on its type."""
         if expert_type == "ar1_low_var":
             # AR(1) with low variance (close to optimal)
-            self.expert_weights[expert_idx] = w_base * 0.95
+            self.expert_weights[expert_idx] = w_base * 0.70
             self.expert_biases[expert_idx] = b_base + rng.normal(0, 0.5)
 
         elif expert_type == "ar1_high_var":
             # AR(1) with higher variance (more misspecified)
-            self.expert_weights[expert_idx] = w_base * 1.20
-            self.expert_biases[expert_idx] = b_base + rng.normal(0, 0.9)
+            self.expert_weights[expert_idx] = w_base * 1.10
+            self.expert_biases[expert_idx] = b_base + rng.normal(0, 6)
 
         elif expert_type in ["nn_early", "nn_late"]:
             # Neural network experts

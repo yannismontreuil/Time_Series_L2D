@@ -20,7 +20,7 @@ environment:
   # Main experiment environment for ETTh1 (oil temperature as target).
   # We reuse the same router code as for the synthetic environment, but
   # the data now comes from a real-world dataset.
-  T: 3000 # total 17536 time steps
+  T: 8000 # total 17536 time steps
   data_source: etth1
   csv_path: data/ETTh1.csv
   target_column: OT
@@ -57,13 +57,13 @@ environment:
   # At most 2 unavailable experts and at most 2 arriving experts can be specified.
   unavailable_expert_idx: [0, 1]
   unavailable_intervals:
-    - [[1000, 3000], [6000, 13000]]
-    - [[4000, 8000], [12000, 14000]]
+    - []
+    - []
   arrival_expert_idx: [4, 5]
   arrival_intervals:
     # Expert 5 becomes available only later in the series.
-    - [[5500, 6000], [9000, 15000]]
-    - [[200, 400], [3500, 4000], [5500, 6000], [12000, 14000]]
+    - []
+    - []
 
   analysis_window: 500
   analysis_adoption_threshold: 0.5
@@ -112,8 +112,8 @@ routers:
 
     em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 200
-    em_n: 1
+    em_tk: 800
+    em_n: 3
     em_samples: 10
     em_burn_in: 100
     em_use_validation: true
@@ -129,9 +129,9 @@ routers:
     em_eps_n: 1.0e-3
 
     em_online_enabled: true
-    em_online_window: 400
+    em_online_window: 500
     em_online_period: 300
-    em_online_n: 1
+    em_online_n: 3
     em_online_samples: 20
     em_online_burn_in: 3
     em_online_theta_lr: 0.001
