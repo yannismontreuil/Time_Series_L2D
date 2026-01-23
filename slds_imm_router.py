@@ -545,6 +545,7 @@ if __name__ == "__main__":
             hidden_dim=hidden_dim_l2d_sw,
             window_size=window_size_sw,
             seed=seed,
+            context_dim=d,
             # Note: device parameter will be added when L2D_SW model supports it
         )
 
