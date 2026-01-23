@@ -1,9 +1,6 @@
 # %%
 # %matplotlib widget
 
-import matplotlib
-matplotlib.use("Agg")
-
 import argparse
 import copy
 import json
@@ -29,11 +26,7 @@ from router_eval import set_transition_log_config, register_transition_log_label
 
 from plot_utils import (
     evaluate_routers_and_baselines,
-    plot_time_series,
-    run_tri_cycle_corr_diagnostics,
-    plot_pruning_dynamics,
 )
-from horizon_planning import evaluate_horizon_planning
 
 try:
     import yaml  # type: ignore
@@ -1088,8 +1081,9 @@ if __name__ == "__main__":
     # Visualization-only settings for plots.
     env.plot_shift = int(cfg.get("plot_shift", 1))
     env.plot_target = str(cfg.get("plot_target", "y")).lower()
-    if bool(cfg.get("plot_synth_preview", False)):
-        plot_time_series(env)
+    # Plotting disabled
+    # if bool(cfg.get("plot_synth_preview", False)):
+    #     plot_time_series(env)
 
     em_data_cache = {}
 
@@ -1565,88 +1559,8 @@ if __name__ == "__main__":
                     planning_snapshot_t=snap_t,
                     planning_snapshots=snap_dict,
                 )
-                tri_cfg = analysis_cfg.get("tri_cycle_corr", {}) or {}
-                if (
-                    tri_cfg.get("enabled", False)
-                    and getattr(env, "setting", None) == "tri_cycle_corr"
-                ):
-                    run_idx_cfg = tri_cfg.get("run_index", None)
-                    run_mode_cfg = tri_cfg.get("exploration_mode", None)
-                    if run_idx_cfg is not None and int(run_idx_cfg) != run_idx:
-                        continue
-                    if run_mode_cfg is not None and str(run_mode_cfg) != str(
-                        run.get("exploration_mode")
-                    ):
-                        continue
-                    router_key = str(tri_cfg.get("router", "factorized_full")).lower()
-                    router_map = {
-                        "factorized_full": run.get("fact_router_full"),
-                        "factorized_partial": run.get("fact_router_partial"),
-                        "no_g_full": run.get("router_full_no_g"),
-                        "no_g_partial": run.get("router_partial_no_g"),
-                        "factorized_full_linear": run.get("fact_router_full_linear"),
-                        "factorized_partial_linear": run.get("fact_router_partial_linear"),
-                    }
-                    tri_router = router_map.get(router_key)
-                    if tri_router is None:
-                        print(
-                            f"[tri-cycle] Router '{router_key}' unavailable for analysis."
-                        )
-                        continue
-                    out_dir = str(
-                        tri_cfg.get("out_dir", "out/tri_cycle_corr")
-                    )
-                    run_tri_cycle_corr_diagnostics(
-                        env=env,
-                        router=tri_router,
-                        router_no_g=run.get("router_full_no_g"),
-                        label=str(tri_cfg.get("label", run.get("factorized_label", "L2D SLDS w/ $g_t$"))),
-                        out_dir=out_dir,
-                        show_plots=bool(tri_cfg.get("show_plots", False)),
-                        save_plots=bool(tri_cfg.get("save_plots", True)),
-                        save_png=bool(tri_cfg.get("save_png", True)),
-                        save_pdf=bool(tri_cfg.get("save_pdf", True)),
-                        pairs=tri_cfg.get("pairs", None),
-                        t_start=int(tri_cfg.get("t_start", 1)),
-                        t_end=tri_cfg.get("t_end", None),
-                        corr_smooth_window=int(tri_cfg.get("corr_smooth_window", 1)),
-                        transfer_probe=tri_cfg.get("transfer_probe", None),
-                    )
-                prune_cfg = analysis_cfg.get("pruning", {}) or {}
-                if prune_cfg.get("enabled", False):
-                    run_idx_cfg = prune_cfg.get("run_index", None)
-                    run_mode_cfg = prune_cfg.get("exploration_mode", None)
-                    if run_idx_cfg is not None and int(run_idx_cfg) != run_idx:
-                        continue
-                    if run_mode_cfg is not None and str(run_mode_cfg) != str(
-                        run.get("exploration_mode")
-                    ):
-                        continue
-                    router_full = run.get("fact_router_full")
-                    router_no_g = run.get("router_full_no_g")
-                    if router_full is None or router_no_g is None:
-                        print("[pruning] Required routers unavailable; skipping.")
-                        continue
-                    expert_idx_cfg = prune_cfg.get("expert_idx", None)
-                    if expert_idx_cfg is None:
-                        print("[pruning] expert_idx not configured; skipping.")
-                        continue
-                    out_dir = str(prune_cfg.get("out_dir", "out/pruning"))
-                    rolling_window = int(prune_cfg.get("rolling_window", 100))
-                    plot_pruning_dynamics(
-                        env=env,
-                        router_full=router_full,
-                        router_no_g=router_no_g,
-                        expert_idx=int(expert_idx_cfg),
-                        rolling_window=rolling_window,
-                        out_dir=out_dir,
-                        show_plots=bool(prune_cfg.get("show_plots", False)),
-                        save_plots=bool(prune_cfg.get("save_plots", True)),
-                        save_png=bool(prune_cfg.get("save_png", True)),
-                        save_pdf=bool(prune_cfg.get("save_pdf", True)),
-                        label_full=str(prune_cfg.get("label_full", run.get("factorized_label", "L2D SLDS w/ $g_t$"))),
-                        label_no_g=str(prune_cfg.get("label_no_g", "L2D SLDS w/t $g_t$")),
-                    )
+                # Plotting disabled - all tri-cycle and pruning diagnostics removed
+                pass
     else:
         evaluate_routers_and_baselines(
             env,

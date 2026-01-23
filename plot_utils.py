@@ -6,8 +6,6 @@ from typing import Optional, Sequence
 
 import numpy as np
 try:  # pragma: no cover - optional plotting dependency
-    import matplotlib
-    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.axes import Axes
     from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
