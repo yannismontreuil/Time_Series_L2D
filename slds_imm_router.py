@@ -1040,6 +1040,17 @@ if __name__ == "__main__":
             unavailable_intervals=env_cfg.get("unavailable_intervals", None),
             arrival_expert_idx=env_cfg.get("arrival_expert_idx", None),
             arrival_intervals=env_cfg.get("arrival_intervals", None),
+            use_rich_context=env_cfg.get("use_rich_context", False),
+            context_columns=env_cfg.get("context_columns", None),
+            context_lags=env_cfg.get("context_lags", None),
+            include_time_features=env_cfg.get("include_time_features", False),
+            time_features=env_cfg.get("time_features", None),
+            normalize_context=env_cfg.get("normalize_context", False),
+            normalization_window=env_cfg.get("normalization_window", None),
+            normalization_eps=env_cfg.get("normalization_eps", 1e-6),
+            normalization_mode=env_cfg.get("normalization_mode", "zscore"),
+            feature_expansions=env_cfg.get("feature_expansions", None),
+            lag_diff_pairs=env_cfg.get("lag_diff_pairs", None),
         )
     else:
         # Synthetic environment with dynamic expert availability.

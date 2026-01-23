@@ -44,9 +44,91 @@ environment:
     - ar2_segment2
 
   # State dimension d = dim φ(x). The current feature map returns 1D features.
+  # When using advanced context features below, update this to match the total
+  # context dimension.
   state_dim: 1
 
   seed: 42
+
+  # Advanced context features control
+  # Set use_rich_context: true to enable multi-dimensional context features.
+  # When false, uses simple lag-1 context (x_t = y_{t-1}, state_dim=1).
+  # When true, you can configure the features below and update state_dim accordingly.
+  use_rich_context: false
+
+  # Advanced context features (only used when use_rich_context: true)
+  # These features allow building rich multi-dimensional context for experts.
+  # When enabled, update state_dim to match the total dimension.
+
+  # Example: Use additional columns from the CSV as context features
+  # context_columns in ETTh1: [HUFL, HULL, MUFL, MULL, LUFL, LULL]
+
+  # Example: Include multiple lagged values of the target
+  # ETTh1 is hourly data, so lag 24 = 1 day, lag 168 = 1 week
+  # context_lags: [1, 24, 168]
+
+  # Example: Include time features (hour, day of week, month)
+  # These are encoded as sin/cos pairs for cyclical representation
+  # include_time_features: false
+  # time_features: [hour, dayofweek, month]
+
+  # Example: Apply feature expansions to create derived features
+  # - squared: x^2 for each base feature
+  # - diff1: first-order differences x_t - x_{t-1}
+  # - lag_diff: differences between specific lag pairs
+  # feature_expansions: [squared, diff1, lag_diff]
+  # lag_diff_pairs: [[1, 24], [1, 168], [24, 168]]
+
+  # Example: Normalize context features to zero mean and unit variance
+  # This is useful when mixing features with different scales
+  # normalize_context: false
+  # normalization_window: 12000  # Use first N points for statistics
+  # normalization_mode: zscore
+
+  # ============================================================================
+  # Example 1: Moderate rich context configuration
+  # ============================================================================
+  # Use multiple lags and time features for better temporal modeling
+  # Uncomment to enable:
+
+#  context_lags: [1, 24, 168]  # 3 features (1hr, 1day, 1week)
+#  include_time_features: true
+#  time_features: [hour, dayofweek]  # 4 features (2 sin/cos pairs)
+#  normalize_context: true
+#  normalization_window: 6000
+#  state_dim: 7  # 3 lags + 4 time features = 7
+
+  # Expected performance: Better capture of daily and weekly patterns
+
+  # ============================================================================
+  # Example 2: Full rich context configuration with all features
+  # ============================================================================
+  # Maximum context richness with covariates, lags, time, and expansions
+  # Uncomment to enable:
+  #
+
+  # context_columns: [HUFL, HULL, MUFL, MULL, LUFL, LULL]  # 6 covariate features
+  # context_lags: [1, 24, 168]  # 3 lag features
+  # include_time_features: true
+  # time_features: [hour, dayofweek, month]  # 6 time features (3 sin/cos pairs)
+  # feature_expansions: [squared, diff1, lag_diff]  # Derived features
+  # lag_diff_pairs: [[1, 24], [1, 168], [24, 168]]  # 3 lag difference features
+  # normalize_context: true
+  # normalization_window: 12000
+  # state_dim: 48  # Total: 6 + 3 + 6 + (6+3+6)*2 (squared+diff1) + 3 = 48
+
+  # Expected performance: Maximum expressiveness but requires more data
+
+  # ============================================================================
+  # Example 3: Minimal rich context with just additional lags
+  # ============================================================================
+  # Simple extension of lag-1 context with multi-lag features
+  # Uncomment to enable:
+
+  # context_lags: [1, 24]  # Just 2 lags
+  # state_dim: 2
+
+  # Expected performance: Better than lag-1, captures daily patterns
 
   # Expert availability controls. In this ETTh1 experiment we introduce
   # multiple experts whose availability switches over time:
@@ -61,7 +143,7 @@ environment:
     - []
   arrival_expert_idx: [4, 5]
   arrival_intervals:
-    # Expert 5 becomes available only later in the series.
+    # We banned both expert 4 and 5 since they dominate others.
     - []
     - []
 
