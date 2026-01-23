@@ -1,8 +1,17 @@
 import copy
 import os
 import numpy as np
-import matplotlib.pyplot as plt
 from typing import Callable, List, Sequence, Tuple, Optional
+
+try:  # pragma: no cover - optional plotting dependency
+    import matplotlib.pyplot as plt
+    from matplotlib import lines as mlines, patches as mpatches
+    _HAS_MPL = True
+except Exception:  # pragma: no cover - optional plotting dependency
+    plt = None  # type: ignore[assignment]
+    mlines = None  # type: ignore[assignment]
+    mpatches = None  # type: ignore[assignment]
+    _HAS_MPL = False
 
 from models.router_model import SLDSIMMRouter
 from models.router_model_corr import SLDSIMMRouter_Corr
@@ -12,7 +21,12 @@ from models.l2d_baseline import L2D
 from models.linucb_baseline import LinUCB
 from models.neuralucb_baseline import NeuralUCB
 from plot_utils import get_expert_color, get_model_color
-from matplotlib import lines as mlines, patches as mpatches
+
+
+def _plots_available() -> bool:
+    if not _HAS_MPL:
+        return False
+    return not bool(os.environ.get("FACTOR_DISABLE_PLOT_SHOW"))
 
 
 def _router_observes_residual(router) -> bool:
@@ -932,6 +946,9 @@ def evaluate_horizon_planning(
     online_start_t (if provided) overrides any router.em_tk warm start.
     Set skip_router_warm_start to use precomputed router states at t0.
     """
+    if not _plots_available():
+        print("[horizon_planning] plotting disabled or matplotlib missing; skipping horizon planning.")
+        return
     raw_method = str(planning_method)
     method = raw_method.lower()
 
@@ -1099,11 +1116,26 @@ def evaluate_horizon_planning(
     )
     os.makedirs(out_dir, exist_ok=True)
 
+    def _strip_titles(fig: plt.Figure) -> None:
+        for ax in getattr(fig, "axes", []):
+            try:
+                ax.set_title("")
+            except Exception:
+                continue
+        suptitle = getattr(fig, "_suptitle", None)
+        if suptitle is not None:
+            try:
+                suptitle.set_text("")
+                suptitle.set_visible(False)
+            except Exception:
+                pass
+
     def _save_planning_fig(fig: plt.Figure, name: str) -> None:
-        fig.savefig(os.path.join(out_dir, f"{name}.pdf"), bbox_inches="tight")
         fig.savefig(
             os.path.join(out_dir, f"{name}.png"), dpi=300, bbox_inches="tight"
         )
+        _strip_titles(fig)
+        fig.savefig(os.path.join(out_dir, f"{name}.pdf"), bbox_inches="tight")
         plt.close(fig)
 
     shared_scenarios = None

@@ -23,6 +23,7 @@ class L2D:
         hidden_dim: int = 8,
         window_size: int = 1,
         seed: Optional[int] = 0,
+        context_dim: Optional[int] = None,
     ):
         """
         Parameters
@@ -68,7 +69,10 @@ class L2D:
 
         self.window_size = max(1, int(window_size))
 
-        dummy_x = np.zeros(1, dtype=float)
+        if context_dim is None:
+            dummy_x = np.zeros(1, dtype=float)
+        else:
+            dummy_x = np.zeros(int(context_dim), dtype=float)
         base_phi = np.asarray(self.feature_fn(dummy_x), dtype=float).reshape(-1)
         self.base_d = int(base_phi.shape[0])
         self.d = self.base_d * self.window_size
@@ -377,6 +381,7 @@ class L2D_SW(L2D):
         hidden_dim: int = 8,
         window_size: int = 5,
         seed: Optional[int] = 0,
+        context_dim: Optional[int] = None,
     ):
         super().__init__(
             num_experts=num_experts,
@@ -388,4 +393,5 @@ class L2D_SW(L2D):
             hidden_dim=hidden_dim,
             window_size=window_size,
             seed=seed,
+            context_dim=context_dim,
         )

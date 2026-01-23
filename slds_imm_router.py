@@ -109,7 +109,7 @@ def _collect_factorized_em_data(
                 raise ValueError(f"EM warmup: no available experts at t={t}.")
             # Use router's policy for action selection to avoid biasing EM
             # estimates under partial feedback.
-            r_t = int(router.select_action(x_t, available))
+            r_t, cache = router.select_expert(x_t, available)
 
             preds = env.all_expert_predictions(x_t)
             residuals_all = preds - float(env.y[t])
@@ -126,6 +126,25 @@ def _collect_factorized_em_data(
             residuals.append(residual)
             if force_full_feedback:
                 residuals_full.append(residuals_masked)
+
+            # Update beliefs so action selection reflects the router's
+            # evolving posterior during the warmup trajectory.
+            if force_full_feedback:
+                router.update_beliefs(
+                    r_t=int(r_t),
+                    loss_obs=residual,
+                    losses_full=residuals_masked,
+                    available_experts=available,
+                    cache=cache,
+                )
+            else:
+                router.update_beliefs(
+                    r_t=int(r_t),
+                    loss_obs=residual,
+                    losses_full=None,
+                    available_experts=available,
+                    cache=cache,
+                )
     finally:
         router.feedback_mode = prev_feedback_mode
         router.exploration = prev_exploration
@@ -717,6 +736,7 @@ if __name__ == "__main__":
             feature_hidden_dim=corr_feature_hidden_dim_local,
             feature_activation=corr_feature_activation_local,
             seed=seed,
+            context_dim=d,
         )
     
     # --------------------------------------------------------
@@ -953,6 +973,7 @@ if __name__ == "__main__":
             feature_lr_phase0=feature_lr_phase0_local,
             feature_lr_phase1=feature_lr_phase1_local,
             feature_lr_phase2=feature_lr_phase2_local,
+            context_dim=d,
         )
         # Enable EM accumulation from the start of the run; for
         # expanding-window protocols, router_eval will toggle this flag.
@@ -1008,6 +1029,7 @@ if __name__ == "__main__":
         hidden_dim=hidden_dim_l2d,
         window_size=int(l2d_cfg.get("window_size", 1)),
         seed=seed,
+        context_dim=d,
     )
 
     l2d_sw_baseline = None
@@ -1032,37 +1054,51 @@ if __name__ == "__main__":
             hidden_dim=hidden_dim_l2d_sw,
             window_size=window_size_sw,
             seed=seed,
+            context_dim=d,
         )
 
     # --------------------------------------------------------
     # Four UCB-style baselines routers
     # --------------------------------------------------------
 
-    # LinUCB baselines (partial and full feedback)
+    def _resolve_feedback_mode(cfg: dict, default: str = "both") -> str:
+        mode = str(cfg.get("feedback_mode", default)).lower()
+        if mode in ("partial", "full", "both"):
+            return mode
+        if mode in ("all", "pf", "fp"):
+            return "both"
+        return default
+
+    # LinUCB baselines (partial/full, configurable)
     linucb_partial = None
     linucb_full = None
     if linucb_cfg:
         alpha_ucb = float(linucb_cfg.get("alpha_ucb", 1.0))
         lambda_reg = float(linucb_cfg.get("lambda_reg", 1.0))
+        lin_mode = _resolve_feedback_mode(linucb_cfg)
 
-        linucb_partial = LinUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb,
-            lambda_reg=lambda_reg,
-            beta=beta,
-            feedback_mode="partial",
-        )
-        linucb_full = LinUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb,
-            lambda_reg=lambda_reg,
-            beta=beta,
-            feedback_mode="full",
-        )
+        if lin_mode in ("partial", "both"):
+            linucb_partial = LinUCB(
+                num_experts=N,
+                feature_fn=feature_phi,
+                alpha_ucb=alpha_ucb,
+                lambda_reg=lambda_reg,
+                beta=beta,
+                feedback_mode="partial",
+                context_dim=d,
+            )
+        if lin_mode in ("full", "both"):
+            linucb_full = LinUCB(
+                num_experts=N,
+                feature_fn=feature_phi,
+                alpha_ucb=alpha_ucb,
+                lambda_reg=lambda_reg,
+                beta=beta,
+                feedback_mode="full",
+                context_dim=d,
+            )
 
-    # NeuralUCB baseline (single policy; partial feedback by default)
+    # NeuralUCB baseline (partial/full, configurable)
     neuralucb_partial = None
     neuralucb_full = None
     if neuralucb_cfg:
@@ -1070,28 +1106,33 @@ if __name__ == "__main__":
         lambda_reg_nn = float(neuralucb_cfg.get("lambda_reg", 1.0))
         hidden_dim_nn = int(neuralucb_cfg.get("hidden_dim", 16))
         nn_lr = float(neuralucb_cfg.get("nn_learning_rate", 1e-3))
-        neuralucb_partial = NeuralUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb_nn,
-            lambda_reg=lambda_reg_nn,
-            beta=beta,
-            hidden_dim=hidden_dim_nn,
-            nn_learning_rate=nn_lr,
-            feedback_mode="partial",
-            seed=seed,
-        )
-        neuralucb_full = NeuralUCB(
-            num_experts=N,
-            feature_fn=feature_phi,
-            alpha_ucb=alpha_ucb_nn,
-            lambda_reg=lambda_reg_nn,
-            beta=beta,
-            hidden_dim=hidden_dim_nn,
-            nn_learning_rate=nn_lr,
-            feedback_mode="full",
-            seed=seed,
-        )
+        neu_mode = _resolve_feedback_mode(neuralucb_cfg)
+        if neu_mode in ("partial", "both"):
+            neuralucb_partial = NeuralUCB(
+                num_experts=N,
+                feature_fn=feature_phi,
+                alpha_ucb=alpha_ucb_nn,
+                lambda_reg=lambda_reg_nn,
+                beta=beta,
+                hidden_dim=hidden_dim_nn,
+                nn_learning_rate=nn_lr,
+                feedback_mode="partial",
+                seed=seed,
+                context_dim=d,
+            )
+        if neu_mode in ("full", "both"):
+            neuralucb_full = NeuralUCB(
+                num_experts=N,
+                feature_fn=feature_phi,
+                alpha_ucb=alpha_ucb_nn,
+                lambda_reg=lambda_reg_nn,
+                beta=beta,
+                hidden_dim=hidden_dim_nn,
+                nn_learning_rate=nn_lr,
+                feedback_mode="full",
+                seed=seed,
+                context_dim=d,
+            )
 
     # Copies for horizon planning (avoid contamination from full-run evaluation).
     l2d_baseline_horizon = copy.deepcopy(l2d_baseline)
@@ -1236,6 +1277,28 @@ if __name__ == "__main__":
         A_u_fact = factorized_slds_cfg.get("A_u", None)
         Q_g_fact = factorized_slds_cfg.get("Q_g", None)
         Q_u_fact = factorized_slds_cfg.get("Q_u", None)
+        if A_u_fact is None:
+            a_u_scale_cfg = factorized_slds_cfg.get("A_u_scale", None)
+            if a_u_scale_cfg is not None:
+                a_u_arr = np.asarray(a_u_scale_cfg, dtype=float)
+                if a_u_arr.shape == ():
+                    a_u_arr = np.full(M_fact, float(a_u_arr), dtype=float)
+                elif a_u_arr.shape == (M_fact,):
+                    pass
+                elif a_u_arr.size == 2 and M_fact > 2:
+                    au_broadcast = np.empty(M_fact, dtype=float)
+                    au_broadcast[0] = float(a_u_arr[0])
+                    au_broadcast[1:] = float(a_u_arr[1])
+                    a_u_arr = au_broadcast
+                else:
+                    raise ValueError(
+                        "routers.factorized_slds.A_u_scale must be a scalar, a list "
+                        "of length num_regimes, or a length-2 list [au_0, au_other] "
+                        "when num_regimes > 2."
+                    )
+                A_u_fact = np.zeros((M_fact, d_phi_fact, d_phi_fact), dtype=float)
+                for k in range(M_fact):
+                    A_u_fact[k] = a_u_arr[k] * np.eye(d_phi_fact, dtype=float)
         if Q_g_fact is None:
             q_g_scales_cfg = factorized_slds_cfg.get("Q_g_scales", None)
             if q_g_scales_cfg is not None:
@@ -1482,12 +1545,36 @@ if __name__ == "__main__":
             unavailable_intervals=env_cfg.get("unavailable_intervals", None),
             arrival_expert_idx=env_cfg.get("arrival_expert_idx", None),
             arrival_intervals=env_cfg.get("arrival_intervals", None),
+            context_columns=env_cfg.get("context_columns", None),
+            context_lags=env_cfg.get("context_lags", None),
+            include_time_features=env_cfg.get("include_time_features", False),
+            time_features=env_cfg.get("time_features", None),
+            normalize_context=env_cfg.get("normalize_context", False),
+            normalization_window=env_cfg.get("normalization_window", None),
+            normalization_eps=env_cfg.get("normalization_eps", 1e-6),
+            normalization_mode=env_cfg.get("normalization_mode", "zscore"),
+            feature_expansions=env_cfg.get("feature_expansions", None),
+            lag_diff_pairs=env_cfg.get("lag_diff_pairs", None),
+            expert_archs=env_cfg.get("expert_archs", None),
+            nn_expert_type=env_cfg.get("nn_expert_type", None),
+            rnn_hidden_dim=env_cfg.get("rnn_hidden_dim", 8),
+            rnn_spectral_radius=env_cfg.get("rnn_spectral_radius", 0.9),
+            rnn_ridge=env_cfg.get("rnn_ridge", 1e-3),
+            rnn_washout=env_cfg.get("rnn_washout", 5),
+            rnn_input_scale=env_cfg.get("rnn_input_scale", 0.5),
+            rnn_share_reservoir=env_cfg.get("rnn_share_reservoir", True),
+            expert_pred_noise_std=env_cfg.get("expert_pred_noise_std", None),
         )
     else:
         # Synthetic environment with dynamic expert availability.
         # - Expert 1: unavailable on [10, 50] and [200, 250] (inclusive).
         # - Expert 4: arrives after t=100 and leaves at t=150, i.e.
         #   available on [101, 150] and unavailable outside that window.
+        data_seed_cfg = env_cfg.get("data_seed", None)
+        if data_seed_cfg is not None:
+            data_seed_tmp = int(data_seed_cfg)
+            np.random.seed(data_seed_tmp)
+            random.seed(data_seed_tmp)
         env = SyntheticTimeSeriesEnv(
             num_experts=N,
             num_regimes=M,
@@ -1501,6 +1588,10 @@ if __name__ == "__main__":
             noise_scale=env_cfg.get("noise_scale", None),
             tri_cycle_cfg=env_cfg.get("tri_cycle", None),
         )
+        if data_seed_cfg is not None:
+            np.random.seed(seed)
+            random.seed(seed)
+    env.analysis_window = int(env_cfg.get("analysis_window", 500))
     # Visualization-only settings for plots.
     env.plot_shift = int(cfg.get("plot_shift", 1))
     env.plot_target = str(cfg.get("plot_target", "y")).lower()
@@ -1622,6 +1713,29 @@ if __name__ == "__main__":
             router.feedback_mode = prev_feedback_mode
         router.em_tk = int(em_tk)
         router.reset_beliefs()
+
+    def _copy_factorized_params(
+        src: Optional[FactorizedSLDS],
+        dst: Optional[FactorizedSLDS],
+    ) -> None:
+        if src is None or dst is None:
+            return
+        try:
+            params = src._snapshot_params()
+            dst._restore_params(params)
+        except Exception:
+            dst.A_g = np.asarray(src.A_g, dtype=float).copy()
+            dst.Q_g = np.asarray(src.Q_g, dtype=float).copy()
+            dst.A_u = np.asarray(src.A_u, dtype=float).copy()
+            dst.Q_u = np.asarray(src.Q_u, dtype=float).copy()
+            if np.ndim(src.R) == 0:
+                dst.R = float(src.R)
+            else:
+                dst.R = np.asarray(src.R, dtype=float).copy()
+            dst.B_dict = {k: v.copy() for k, v in src.B_dict.items()}
+        em_tk = getattr(src, "em_tk", None)
+        if em_tk is not None:
+            dst.em_tk = int(em_tk)
 
     def _configure_factorized_online_em(
         router: Optional[FactorizedSLDS],
@@ -1777,30 +1891,78 @@ if __name__ == "__main__":
         if neuralucb_full is not None:
             _register_transition_logger(neuralucb_full, "NeuralUCB full")
 
+    em_force_full_feedback = bool(
+        factorized_slds_cfg.get("em_offline_full_feedback", True)
+    )
+
     if base_transition_mode is not None:
         for run in factorized_runs:
             label = run.get("factorized_label", factorized_label)
-            _run_factorized_em(
-                run.get("fact_router_partial"), f"{label} partial"
-            )
-            _run_factorized_em(
-                run.get("fact_router_full"), f"{label} full"
-            )
-            _run_factorized_em(
-                run.get("router_partial_no_g"), f"{label} no-g partial"
-            )
-            _run_factorized_em(
-                run.get("router_full_no_g"), f"{label} no-g full"
-            )
+            if em_force_full_feedback:
+                fact_full = run.get("fact_router_full")
+                fact_partial = run.get("fact_router_partial")
+                if fact_full is not None or fact_partial is not None:
+                    canonical = fact_full or fact_partial
+                    canonical_label = (
+                        f"{label} full" if fact_full is not None else f"{label} partial"
+                    )
+                    _run_factorized_em(canonical, canonical_label)
+                    if canonical is not fact_partial and fact_partial is not None:
+                        _copy_factorized_params(canonical, fact_partial)
+                        fact_partial.reset_beliefs()
+                no_g_full = run.get("router_full_no_g")
+                no_g_partial = run.get("router_partial_no_g")
+                if no_g_full is not None or no_g_partial is not None:
+                    canonical = no_g_full or no_g_partial
+                    canonical_label = (
+                        f"{label} no-g full"
+                        if no_g_full is not None
+                        else f"{label} no-g partial"
+                    )
+                    _run_factorized_em(canonical, canonical_label)
+                    if canonical is not no_g_partial and no_g_partial is not None:
+                        _copy_factorized_params(canonical, no_g_partial)
+                        no_g_partial.reset_beliefs()
+            else:
+                _run_factorized_em(
+                    run.get("fact_router_partial"), f"{label} partial"
+                )
+                _run_factorized_em(
+                    run.get("fact_router_full"), f"{label} full"
+                )
+                _run_factorized_em(
+                    run.get("router_partial_no_g"), f"{label} no-g partial"
+                )
+                _run_factorized_em(
+                    run.get("router_full_no_g"), f"{label} no-g full"
+                )
     if extra_transition_mode is not None:
         for run in factorized_runs:
             linear_label = run.get("factorized_linear_label", factorized_linear_label)
-            _run_factorized_em(
-                run.get("fact_router_partial_linear"), f"{linear_label} partial"
-            )
-            _run_factorized_em(
-                run.get("fact_router_full_linear"), f"{linear_label} full"
-            )
+            if em_force_full_feedback:
+                fact_full_linear = run.get("fact_router_full_linear")
+                fact_partial_linear = run.get("fact_router_partial_linear")
+                if fact_full_linear is not None or fact_partial_linear is not None:
+                    canonical = fact_full_linear or fact_partial_linear
+                    canonical_label = (
+                        f"{linear_label} full"
+                        if fact_full_linear is not None
+                        else f"{linear_label} partial"
+                    )
+                    _run_factorized_em(canonical, canonical_label)
+                    if (
+                        canonical is not fact_partial_linear
+                        and fact_partial_linear is not None
+                    ):
+                        _copy_factorized_params(canonical, fact_partial_linear)
+                        fact_partial_linear.reset_beliefs()
+            else:
+                _run_factorized_em(
+                    run.get("fact_router_partial_linear"), f"{linear_label} partial"
+                )
+                _run_factorized_em(
+                    run.get("fact_router_full_linear"), f"{linear_label} full"
+                )
 
     for run in factorized_runs:
         _configure_factorized_online_em(run.get("fact_router_partial"))
@@ -1927,10 +2089,7 @@ if __name__ == "__main__":
                     planning_snapshots=snap_dict,
                 )
                 tri_cfg = analysis_cfg.get("tri_cycle_corr", {}) or {}
-                if (
-                    tri_cfg.get("enabled", False)
-                    and getattr(env, "setting", None) == "tri_cycle_corr"
-                ):
+                if tri_cfg.get("enabled", False):
                     run_idx_cfg = tri_cfg.get("run_index", None)
                     run_mode_cfg = tri_cfg.get("exploration_mode", None)
                     if run_idx_cfg is not None and int(run_idx_cfg) != run_idx:
@@ -1961,6 +2120,16 @@ if __name__ == "__main__":
                         env=env,
                         router=tri_router,
                         router_no_g=run.get("router_full_no_g"),
+                        router_no_g_partial=run.get("router_partial_no_g"),
+                        router_no_g_full=run.get("router_full_no_g"),
+                        router_partial=run.get("fact_router_partial"),
+                        router_full=run.get("fact_router_full"),
+                        linucb_partial=linucb_partial_run,
+                        linucb_full=linucb_full_run,
+                        neuralucb_partial=neuralucb_partial_run,
+                        neuralucb_full=neuralucb_full_run,
+                        l2d_baseline=l2d_run,
+                        l2d_sw_baseline=l2d_sw_run,
                         label=str(tri_cfg.get("label", run.get("factorized_label", "L2D SLDS w/ $g_t$"))),
                         out_dir=out_dir,
                         show_plots=bool(tri_cfg.get("show_plots", False)),
@@ -2160,30 +2329,30 @@ if __name__ == "__main__":
             f"to avoid re-fitting."
         )
 
-    evaluate_horizon_planning(
-        env=env,
-        router_partial=router_partial,
-        router_full=router_full,
-        router_factorial_partial=fact_router_partial,
-        router_factorial_full=fact_router_full,
-        router_factorial_partial_linear=fact_router_partial_linear,
-        router_factorial_full_linear=fact_router_full_linear,
-        beta=beta,
-        t0=t0,
-        H=H,
-        experts_predict=experts_predict,
-        context_update=context_update,
-        l2d_baseline=l2d_baseline_horizon,
-        l2d_sw_baseline=l2d_sw_baseline_horizon,
-        linucb_partial=linucb_partial_horizon,
-        linucb_full=linucb_full_horizon,
-        neuralucb_partial=neuralucb_partial_horizon,
-        neuralucb_full=neuralucb_full_horizon,
-        planning_method=planning_method,
-        scenario_generator_cfg=scenario_generator_cfg,
-        delta=delta,
-        online_start_t=online_start_t,
-        skip_router_warm_start=use_snapshots,
-        factorized_label=factorized_label,
-        factorized_linear_label=factorized_linear_label,
-    )
+    # evaluate_horizon_planning(
+    #     env=env,
+    #     router_partial=router_partial,
+    #     router_full=router_full,
+    #     router_factorial_partial=fact_router_partial,
+    #     router_factorial_full=fact_router_full,
+    #     router_factorial_partial_linear=fact_router_partial_linear,
+    #     router_factorial_full_linear=fact_router_full_linear,
+    #     beta=beta,
+    #     t0=t0,
+    #     H=H,
+    #     experts_predict=experts_predict,
+    #     context_update=context_update,
+    #     l2d_baseline=l2d_baseline_horizon,
+    #     l2d_sw_baseline=l2d_sw_baseline_horizon,
+    #     linucb_partial=linucb_partial_horizon,
+    #     linucb_full=linucb_full_horizon,
+    #     neuralucb_partial=neuralucb_partial_horizon,
+    #     neuralucb_full=neuralucb_full_horizon,
+    #     planning_method=planning_method,
+    #     scenario_generator_cfg=scenario_generator_cfg,
+    #     delta=delta,
+    #     online_start_t=online_start_t,
+    #     skip_router_warm_start=use_snapshots,
+    #     factorized_label=factorized_label,
+    #     factorized_linear_label=factorized_linear_label,
+    # )
