@@ -14,7 +14,7 @@ from models.router_model_corr import (
 )
 from recurrent_router_old.router_model_recurrent import RecurrentSLDSRouter
 from environment.synthetic_env import SyntheticTimeSeriesEnv
-from environment.etth1_env_fixed import ETTh1TimeSeriesEnv
+from environment.etth1_env import ETTh1TimeSeriesEnv
 from router_eval import run_router_on_env
 
 try:

@@ -12,7 +12,7 @@ import sys
 from typing import Optional
 import numpy as np
 
-from environment.etth1_env_fixed import ETTh1TimeSeriesEnv
+from environment.etth1_env import ETTh1TimeSeriesEnv
 
 import warnings
 warnings.filterwarnings('ignore', message='findfont: Generic family.*')

@@ -15,7 +15,7 @@ def test_flexible_expert_system():
     print("Testing flexible expert system implementation...")
 
     try:
-        from environment.etth1_env_fixed import ETTh1TimeSeriesEnv
+        from environment.etth1_env import ETTh1TimeSeriesEnv
 
         # Test 1: Enable specific experts by name
         print("\n=== Test 1: Enable specific experts ===")
