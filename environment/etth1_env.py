@@ -481,12 +481,12 @@ class ETTh1TimeSeriesEnv:
         # Define training segments - use more data for each expert
         if expert_type == "nn_early":
             # Train on first 70% of data
-            end_idx = max(1, int(0.7 * n_all))
+            end_idx = max(1, int(0.3 * n_all))
             x_train = x_all[:end_idx]
             y_train = y_all[:end_idx]
         else:  # nn_late
             # Train on last 70% of data
-            start_idx = max(1, int(0.4 * n_all))
+            start_idx = max(1, int(0.7 * n_all))
             end_idx = n_all
             x_train = x_all[start_idx:end_idx]
             y_train = y_all[start_idx:end_idx]
@@ -770,9 +770,9 @@ class ETTh1TimeSeriesEnv:
             y_hat = y_hat_norm * y_std + y_mean
             rng = np.random.default_rng()
             if expert_type == "nn_early":
-                return y_hat + rng.normal(0, 6)
+                return y_hat
             else:  # nn_late
-                return y_hat + rng.normal(0, 6)
+                return y_hat
 
         # Default linear experts (ar1_low_var, ar1_high_var)
         w = np.asarray(self.expert_weights[j_int], dtype=float).reshape(-1)
