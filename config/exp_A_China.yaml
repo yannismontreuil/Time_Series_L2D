@@ -20,7 +20,7 @@ transition_log:
   plot_entropy: true
 
 environment:
-  data_source: etth1
+  data_source: exp_A_China
   csv_path: data/A_china_HF_clean.csv
   target_column: y
 

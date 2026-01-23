@@ -12,14 +12,6 @@ Pred-loss corr MAE regime 0: 0.1096
 Pred-loss corr MAE regime 1: 0.0034
 Pred-loss corr MAE no-g regime 0: 0.0866
 Pred-loss corr MAE no-g regime 1: 0.0044
-Pred-loss corr MAE LinUCB P regime 0: 0.6506
-Pred-loss corr MAE LinUCB P regime 1: 0.6018
-Pred-loss corr MAE LinUCB F regime 0: 0.6495
-Pred-loss corr MAE LinUCB F regime 1: 0.5981
-Pred-loss corr MAE NeuralUCB P regime 0: 0.4729
-Pred-loss corr MAE NeuralUCB P regime 1: 0.4030
-Pred-loss corr MAE NeuralUCB F regime 0: 0.6525
-Pred-loss corr MAE NeuralUCB F regime 1: 0.6314
 Pair 0-1 corr:
   Regime 0: true=0.9132, est=0.8108
   Regime 1: true=0.6322, est=0.8442

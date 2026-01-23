@@ -8,5 +8,3 @@ L2D SLDS (full): choices_len=7999, valid=7999
 L2D SLDS w/t $g_t$ (full): choices_len=7999, valid=7999
 L2D: choices_len=7999, valid=7999
 L2D_SW: choices_len=7999, valid=7999
-LinUCB full: choices_len=7999, valid=7999
-NeuralUCB full: choices_len=7999, valid=7999

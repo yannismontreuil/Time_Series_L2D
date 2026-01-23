@@ -444,14 +444,14 @@ class ETTh1TimeSeriesEnv:
     def _initialize_expert(self, expert_idx: int, expert_type: str, w_base: np.ndarray, b_base: float, rng: np.random.Generator):
         """Initialize a specific expert based on its type."""
         if expert_type == "ar1_low_var":
-            # AR(1) with low variance (close to optimal)
-            self.expert_weights[expert_idx] = w_base * 0.70
-            self.expert_biases[expert_idx] = b_base + rng.normal(0, 0.5)
+            # AR(1) with low variance
+            self.expert_weights[expert_idx] = w_base * 0.8
+            self.expert_biases[expert_idx] = b_base + rng.normal(0, 0.5)  # Increased variance from 0.5 to 1.5
 
         elif expert_type == "ar1_high_var":
             # AR(1) with higher variance (more misspecified)
-            self.expert_weights[expert_idx] = w_base * 1.10
-            self.expert_biases[expert_idx] = b_base + rng.normal(0, 6)
+            self.expert_weights[expert_idx] = w_base * 1.30
+            self.expert_biases[expert_idx] = b_base + rng.normal(0, 1)
 
         elif expert_type in ["nn_early", "nn_late"]:
             # Neural network experts
@@ -486,7 +486,7 @@ class ETTh1TimeSeriesEnv:
             y_train = y_all[:end_idx]
         else:  # nn_late
             # Train on last 70% of data
-            start_idx = max(1, int(0.3 * n_all))
+            start_idx = max(1, int(0.4 * n_all))
             end_idx = n_all
             x_train = x_all[start_idx:end_idx]
             y_train = y_all[start_idx:end_idx]
@@ -574,7 +574,7 @@ class ETTh1TimeSeriesEnv:
         hidden_dim: int,
         rng_local: np.random.Generator,
         num_epochs: int = 300,  # Increased epochs
-        learning_rate: float = 1e-3,  # Lower initial learning rate
+        learning_rate: float = 5e-3,  # Lower initial learning rate
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, float, float]:  # Added normalization params
         """Train neural network expert with improved architecture and training."""
         # Concatenate all segments for training

@@ -328,6 +328,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         if A_arr.shape == (d, d):
             return np.stack([A_arr for _ in range(self.M)])
         if A_arr.shape != (self.M, d, d):
+            print(A_arr.shape)
             raise ValueError("A must have shape (M, d, d).")
         return A_arr
 

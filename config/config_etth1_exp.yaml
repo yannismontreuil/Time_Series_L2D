@@ -20,7 +20,7 @@ environment:
   # Main experiment environment for ETTh1 (oil temperature as target).
   # We reuse the same router code as for the synthetic environment, but
   # the data now comes from a real-world dataset.
-  T: 8000 # total 17536 time steps
+  T: 10000 # total 17536 time steps
   data_source: etth1
   csv_path: data/ETTh1.csv
   target_column: OT
@@ -61,7 +61,7 @@ environment:
   # When enabled, update state_dim to match the total dimension.
 
   # Example: Use additional columns from the CSV as context features
-  # context_columns in ETTh1: [HUFL, HULL, MUFL, MULL, LUFL, LULL]
+  context_columns in ETTh1: [HULL, MUFL, LULL]
 
   # Example: Include multiple lagged values of the target
   # ETTh1 is hourly data, so lag 24 = 1 day, lag 168 = 1 week
@@ -91,12 +91,11 @@ environment:
   # Use multiple lags and time features for better temporal modeling
   # Uncomment to enable:
 
-#  context_lags: [1, 24, 168]  # 3 features (1hr, 1day, 1week)
-#  include_time_features: true
-#  time_features: [hour, dayofweek]  # 4 features (2 sin/cos pairs)
-#  normalize_context: true
-#  normalization_window: 6000
-#  state_dim: 7  # 3 lags + 4 time features = 7
+  context_lags: [1, 24, 168]  # 3 features (1hr, 1day, 1week)
+  include_time_features: true
+  time_features: [hour, dayofweek]  # 4 features (2 sin/cos pairs)
+  normalize_context: true
+  normalization_window: 6000
 
   # Expected performance: Better capture of daily and weekly patterns
 
@@ -137,10 +136,10 @@ environment:
   #     specified arrival intervals.
 
   # At most 2 unavailable experts and at most 2 arriving experts can be specified.
-  unavailable_expert_idx: [0, 1]
+  unavailable_expert_idx: [2, 3]
   unavailable_intervals:
     - []
-    - []
+    - [[6500, 8000]]
   arrival_expert_idx: [4, 5]
   arrival_intervals:
     # We banned both expert 4 and 5 since they dominate others.
@@ -187,6 +186,7 @@ routers:
       - [[0.01]]
     Q_u_scales: [0.015, 0.015, 0.02, 0.02, 0.01]
     exploration: ["g_z"]
+    exploration_mc_samples: 100  # Increased from default 25 to encourage more exploration
     exploration_diag_enabled: true
     exploration_diag_stride: 200
     exploration_diag_samples: 50
@@ -194,8 +194,8 @@ routers:
 
     em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 800
-    em_n: 3
+    em_tk: 400
+    em_n: 2
     em_samples: 10
     em_burn_in: 100
     em_use_validation: true
