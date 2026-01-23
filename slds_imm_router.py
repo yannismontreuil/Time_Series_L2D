@@ -342,7 +342,7 @@ if __name__ == "__main__":
     setting = env_cfg.get("setting", "easy_setting")
     data_source = env_cfg.get("data_source", "synthetic")
     # Default: universe of 5 experts indexed j=0,...,4.
-    N = int(env_cfg.get("num_experts"))   # experts
+    N = int(len(env_cfg.get("enabled_experts")))   # experts
     # State dimension (= dim φ(x)); feature map in router_model.py currently
     # returns a 2D feature, so d must be compatible with that.
     d = int(env_cfg.get("state_dim"))
