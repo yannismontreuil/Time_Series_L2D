@@ -1369,44 +1369,46 @@ if __name__ == "__main__":
     )
 
     if base_transition_mode is not None:
-        if em_force_full_feedback:
-            fact_full = run.get("fact_router_full")
-            fact_partial = run.get("fact_router_partial")
-            if fact_full is not None or fact_partial is not None:
-                canonical = fact_full or fact_partial
-                canonical_label = (
-                    f"{label} full" if fact_full is not None else f"{label} partial"
+        for run in factorized_runs:
+            label = run.get("factorized_label", factorized_label)
+            if em_force_full_feedback:
+                fact_full = run.get("fact_router_full")
+                fact_partial = run.get("fact_router_partial")
+                if fact_full is not None or fact_partial is not None:
+                    canonical = fact_full or fact_partial
+                    canonical_label = (
+                        f"{label} full" if fact_full is not None else f"{label} partial"
+                    )
+                    _run_factorized_em(canonical, canonical_label)
+                    if canonical is not fact_partial and fact_partial is not None:
+                        _copy_factorized_params(canonical, fact_partial)
+                        fact_partial.reset_beliefs()
+                no_g_full = run.get("router_full_no_g")
+                no_g_partial = run.get("router_partial_no_g")
+                if no_g_full is not None or no_g_partial is not None:
+                    canonical = no_g_full or no_g_partial
+                    canonical_label = (
+                        f"{label} no-g full"
+                        if no_g_full is not None
+                        else f"{label} no-g partial"
+                    )
+                    _run_factorized_em(canonical, canonical_label)
+                    if canonical is not no_g_partial and no_g_partial is not None:
+                        _copy_factorized_params(canonical, no_g_partial)
+                        no_g_partial.reset_beliefs()
+            else:
+                _run_factorized_em(
+                    run.get("fact_router_partial"), f"{label} partial"
                 )
-                _run_factorized_em(canonical, canonical_label)
-                if canonical is not fact_partial and fact_partial is not None:
-                    _copy_factorized_params(canonical, fact_partial)
-                    fact_partial.reset_beliefs()
-            no_g_full = run.get("router_full_no_g")
-            no_g_partial = run.get("router_partial_no_g")
-            if no_g_full is not None or no_g_partial is not None:
-                canonical = no_g_full or no_g_partial
-                canonical_label = (
-                    f"{label} no-g full"
-                    if no_g_full is not None
-                    else f"{label} no-g partial"
+                _run_factorized_em(
+                    run.get("fact_router_full"), f"{label} full"
                 )
-                _run_factorized_em(canonical, canonical_label)
-                if canonical is not no_g_partial and no_g_partial is not None:
-                    _copy_factorized_params(canonical, no_g_partial)
-                    no_g_partial.reset_beliefs()
-        else:
-            _run_factorized_em(
-                run.get("fact_router_partial"), f"{label} partial"
-            )
-            _run_factorized_em(
-                run.get("fact_router_full"), f"{label} full"
-            )
-            _run_factorized_em(
-                run.get("router_partial_no_g"), f"{label} no-g partial"
-            )
-            _run_factorized_em(
-                run.get("router_full_no_g"), f"{label} no-g full"
-            )
+                _run_factorized_em(
+                    run.get("router_partial_no_g"), f"{label} no-g partial"
+                )
+                _run_factorized_em(
+                    run.get("router_full_no_g"), f"{label} no-g full"
+                )
     if extra_transition_mode is not None:
         for run in factorized_runs:
             linear_label = run.get("factorized_linear_label", factorized_linear_label)
