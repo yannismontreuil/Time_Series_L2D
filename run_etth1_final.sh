@@ -31,8 +31,18 @@ python --version
 echo "Conda environment:"
 conda info --envs | grep '*'
 
+# Set matplotlib to use non-interactive backend
+export MPLBACKEND=Agg
+
+# Disable any display-related variables
+unset DISPLAY
+
+# Disable Python output buffering for immediate log output
+export PYTHONUNBUFFERED=1
+
 # Run the ETTh1 experiment
-python slds_imm_router.py --config config/config_etth1_exp.yaml
+echo "Starting Python script..."
+python -u slds_imm_router.py --config config/config_etth1_exp.yaml
 
 echo "================================================="
 echo "End time: $(date)"
