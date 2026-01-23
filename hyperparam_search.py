@@ -189,6 +189,16 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
         unavailable_intervals = env_cfg.get("unavailable_intervals", None)
         arrival_expert_idx = env_cfg.get("arrival_expert_idx", None)
         arrival_intervals = env_cfg.get("arrival_intervals", None)
+        context_columns = env_cfg.get("context_columns", None)
+        context_lags = env_cfg.get("context_lags", None)
+        include_time_features = env_cfg.get("include_time_features", False)
+        time_features = env_cfg.get("time_features", None)
+        normalize_context = env_cfg.get("normalize_context", False)
+        normalization_window = env_cfg.get("normalization_window", None)
+        normalization_eps = env_cfg.get("normalization_eps", 1e-6)
+        normalization_mode = env_cfg.get("normalization_mode", "zscore")
+        feature_expansions = env_cfg.get("feature_expansions", None)
+        lag_diff_pairs = env_cfg.get("lag_diff_pairs", None)
 
         # Canonicalize interval lists for the cache key.
         def _canon_intervals(intv):
@@ -208,6 +218,16 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
             _canon_intervals(unavailable_intervals),
             arrival_expert_idx,
             _canon_intervals(arrival_intervals),
+            None if context_columns is None else tuple(context_columns),
+            None if context_lags is None else tuple(int(v) for v in context_lags),
+            bool(include_time_features),
+            None if time_features is None else tuple(time_features),
+            bool(normalize_context),
+            normalization_window,
+            float(normalization_eps),
+            str(normalization_mode),
+            None if feature_expansions is None else tuple(feature_expansions),
+            None if lag_diff_pairs is None else tuple(tuple(int(v) for v in pair) for pair in lag_diff_pairs),
         )
         if key in _ENV_CACHE:
             return _ENV_CACHE[key]
@@ -223,6 +243,16 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
             unavailable_intervals=unavailable_intervals,
             arrival_expert_idx=arrival_expert_idx,
             arrival_intervals=arrival_intervals,
+            context_columns=context_columns,
+            context_lags=context_lags,
+            include_time_features=include_time_features,
+            time_features=time_features,
+            normalize_context=normalize_context,
+            normalization_window=normalization_window,
+            normalization_eps=normalization_eps,
+            normalization_mode=normalization_mode,
+            feature_expansions=feature_expansions,
+            lag_diff_pairs=lag_diff_pairs,
         )
         _ENV_CACHE[key] = env
         return env
@@ -488,6 +518,7 @@ def build_correlated_routers(
         g_cov0=g_cov0,
         u_mean0=u_mean0,
         u_cov0=u_cov0,
+        context_dim=d,
     )
 
     router_full_corr = SLDSIMMRouter_Corr(
@@ -520,6 +551,7 @@ def build_correlated_routers(
         feature_arch=feature_arch_eff,
         feature_hidden_dim=feature_hidden_dim,
         feature_activation=feature_activation,
+        context_dim=d,
     )
 
     return router_partial_corr, router_full_corr
@@ -709,6 +741,7 @@ def build_correlated_recurrent_routers(
         feature_hidden_dim=feature_hidden_dim,
         feature_activation=feature_activation,
         C_u=C_u,
+        context_dim=d,
     )
 
     router_full_corr_rec = RecurrentSLDSIMMRouter_Corr(
@@ -742,6 +775,7 @@ def build_correlated_recurrent_routers(
         feature_hidden_dim=feature_hidden_dim,
         feature_activation=feature_activation,
         C_u=C_u,
+        context_dim=d,
     )
 
     return router_partial_corr_rec, router_full_corr_rec

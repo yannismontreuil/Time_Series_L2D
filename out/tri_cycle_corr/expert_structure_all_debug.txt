@@ -1,12 +1,12 @@
 Selection freq debug
-Oracle: choices_len=2999, valid=2999
-L2D SLDS (partial): choices_len=2999, valid=2999
-L2D SLDS w/t $g_t$ (partial): choices_len=2999, valid=2999
-LinUCB partial: choices_len=2999, valid=2999
-NeuralUCB partial: choices_len=2999, valid=2999
-L2D SLDS (full): choices_len=2999, valid=2999
-L2D SLDS w/t $g_t$ (full): choices_len=2999, valid=2999
-L2D: choices_len=2999, valid=2999
-L2D_SW: choices_len=2999, valid=2999
-LinUCB full: choices_len=2999, valid=2999
-NeuralUCB full: choices_len=2999, valid=2999
+Oracle: choices_len=7999, valid=7999
+L2D SLDS (partial): choices_len=7999, valid=7999
+L2D SLDS w/t $g_t$ (partial): choices_len=7999, valid=7999
+LinUCB partial: choices_len=7999, valid=7999
+NeuralUCB partial: choices_len=7999, valid=7999
+L2D SLDS (full): choices_len=7999, valid=7999
+L2D SLDS w/t $g_t$ (full): choices_len=7999, valid=7999
+L2D: choices_len=7999, valid=7999
+L2D_SW: choices_len=7999, valid=7999
+LinUCB full: choices_len=7999, valid=7999
+NeuralUCB full: choices_len=7999, valid=7999

@@ -2339,13 +2339,13 @@ class FactorizedSLDS(SLDSIMMRouter):
         val_window_len: int,
         n_splits: int,
         stride: Optional[int] = None,
-    ) -> Tuple[float, float, int]:
+    ) -> Tuple[float, float, int, list[tuple[int, int]]]:
         T = len(contexts)
         train_end = max(1, min(int(train_end), T))
         val_window_len = max(1, int(val_window_len))
         val_tail_len = max(0, T - train_end)
         if val_tail_len <= 0:
-            return float("inf"), 0.0, 0
+            return float("inf"), 0.0, 0, []
         if val_window_len > val_tail_len:
             val_window_len = val_tail_len
         max_offset = max(0, val_tail_len - val_window_len)
@@ -2371,6 +2371,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             offsets = sorted(set(offsets))
 
         scores = []
+        split_sizes: list[tuple[int, int]] = []
         for offset in offsets:
             offset = int(offset)
             prefix_len = train_end + offset
@@ -2378,6 +2379,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             val_end = min(T, val_start + val_window_len)
             if val_start >= val_end:
                 continue
+            split_sizes.append((int(prefix_len), int(val_end - val_start)))
             prefix_ctx = contexts[:prefix_len]
             prefix_avail = available_sets[:prefix_len]
             prefix_actions = actions[:prefix_len]
@@ -2410,10 +2412,10 @@ class FactorizedSLDS(SLDSIMMRouter):
             )
             scores.append(float(score))
         if not scores:
-            return float("inf"), 0.0, 0
+            return float("inf"), 0.0, 0, []
         mean = float(np.mean(scores))
         std = float(np.std(scores, ddof=1)) if len(scores) > 1 else 0.0
-        return mean, std, len(scores)
+        return mean, std, len(scores), split_sizes
 
     def _train_transition_model(
         self,
@@ -2450,8 +2452,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         xi_tensor = torch.as_tensor(xi, dtype=torch.float32, device=device)
         optimizer = torch.optim.AdamW(
             self.transition_model.parameters(),
-            lr=float(lr),
-            weight_decay=float(weight_decay),
+            lr=float(lr)
         )
         best_state = None
         best_loss = float("inf")
@@ -2518,8 +2519,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         b_lin = torch.as_tensor(self.b_lin, dtype=torch.float32, device=device).requires_grad_(True)
         optimizer = torch.optim.AdamW(
             [W_lin, b_lin],
-            lr=float(lr),
-            weight_decay=float(weight_decay),
+            lr=float(lr)
         )
         losses: list[float] = []
         step_dws: list[float] = []
@@ -2607,8 +2607,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             params.append(b_attn)
         optimizer = torch.optim.AdamW(
             params,
-            lr=float(lr),
-            weight_decay=float(weight_decay),
+            lr=float(lr)
         )
         scale = (W_q.shape[1] ** 0.5)
         denom = max(float(xi_tensor.sum().detach().cpu()), self.eps)
@@ -3494,10 +3493,11 @@ class FactorizedSLDS(SLDSIMMRouter):
 
             score_std = None
             score_n = None
+            score_split_sizes = None
             if do_validation:
                 if val_strategy == "rolling":
                     n_splits = int(val_roll_splits) if val_roll_splits is not None else 3
-                    score, score_std, score_n = self._evaluate_nll_rolling(
+                    score, score_std, score_n, score_split_sizes = self._evaluate_nll_rolling(
                         contexts,
                         available_sets,
                         actions,
@@ -3535,9 +3535,14 @@ class FactorizedSLDS(SLDSIMMRouter):
                     split_str = (
                         f" splits={int(score_n)}" if score_n is not None else ""
                     )
+                    size_str = ""
+                    if score_split_sizes:
+                        train_sizes = ",".join(str(s[0]) for s in score_split_sizes)
+                        val_sizes = ",".join(str(s[1]) for s in score_split_sizes)
+                        size_str = f" train_n=[{train_sizes}] val_n=[{val_sizes}]"
                     print(
                         f"[FactorizedSLDS EM] iter {em_idx + 1}/{n_em} "
-                        f"{metric_label}={score:.6f}{std_str}{split_str}"
+                        f"{metric_label}={score:.6f}{std_str}{split_str}{size_str}"
                     )
                     if score_n is not None and int(score_n) < 2:
                         print(
