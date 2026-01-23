@@ -110,7 +110,7 @@ routers:
 
     em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 300
+    em_tk: 2000
     em_n: 5
     em_samples: 20
     em_burn_in: 15
