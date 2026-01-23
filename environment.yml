@@ -1,0 +1,18 @@
+name: Time_Series_L2D
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - matplotlib
+  - pillow
+  - packaging
+  - pip
+  - pip:
+      - torch
+      - networkx
+      - sympy
+      - pyyaml
+      - ipython
+      - ipywidgets
+      - ipympl
