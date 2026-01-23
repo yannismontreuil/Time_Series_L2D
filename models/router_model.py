@@ -283,8 +283,8 @@ class SLDSIMMRouter:
             for j in range(N):
                 m_kj = m_pred[k, j]
                 P_kj = P_pred[k, j]
-                mu = float(phi_t @ m_kj)
-                S = float(phi_t @ (P_kj @ phi_t) + self.R[k, j])
+                mu = float(np.squeeze(phi_t @ m_kj))
+                S = float(np.squeeze(phi_t @ (P_kj @ phi_t))) + self.R[k, j]
                 S_kj[k, j] = max(S, self.eps)
                 mu_kj[k, j] = mu
 
@@ -589,8 +589,8 @@ class SLDSIMMRouter:
                 for k in range(self.M):
                     m_kj = m_h[k, j]
                     P_kj = P_h[k, j]
-                    mu = float(phi_next_j @ m_kj)
-                    S = float(phi_next_j @ (P_kj @ phi_next_j) + self.R[k, j])
+                    mu = float(np.squeeze(phi_next_j @ m_kj))
+                    S = float(np.squeeze(phi_next_j @ (P_kj @ phi_next_j))) + self.R[k, j]
                     mu_k[k] = mu
                     S_k[k] = max(S, self.eps)
 

@@ -87,8 +87,8 @@ class LinUCB:
         # For small d, a direct inverse is fine.
         A_inv = np.linalg.inv(A_j)
         theta_j = A_inv @ b_j
-        mu = float(theta_j @ phi)
-        sigma_sq = float(phi @ (A_inv @ phi))
+        mu = float(np.squeeze(theta_j @ phi))
+        sigma_sq = float(np.squeeze(phi @ (A_inv @ phi)))
         sigma = float(np.sqrt(max(sigma_sq, 0.0)))
         return mu, sigma
 
