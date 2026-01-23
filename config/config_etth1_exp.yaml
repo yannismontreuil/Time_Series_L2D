@@ -138,8 +138,8 @@ environment:
   # At most 2 unavailable experts and at most 2 arriving experts can be specified.
   unavailable_expert_idx: [2, 3]
   unavailable_intervals:
-    - [[2000, 4000]]
-    - [[6500, 8000], [11000, 13000]]
+    - []
+    - []
   arrival_expert_idx: [4, 5]
   arrival_intervals:
     # We banned both expert 4 and 5 since they dominate others.
@@ -155,7 +155,7 @@ routers:
 
   factorized_slds:
     enabled: true
-    num_regimes: 3
+    num_regimes: 5
     shared_dim: 2
     idiosyncratic_dim: 1
     delta_max: 250
@@ -164,7 +164,11 @@ routers:
       - [[0.95, 0.0], [0.0, 0.95]]
       - [[0.95, 0.0], [0.0, 0.95]]
       - [[0.95, 0.0], [0.0, 0.95]]
+      - [[0.95, 0.0], [0.0, 0.95]]
+      - [[0.95, 0.0], [0.0, 0.95]]
     A_u:
+      - [[0.95]]
+      - [[0.95]]
       - [[0.95]]
       - [[0.95]]
       - [[0.95]]
@@ -172,10 +176,14 @@ routers:
       - [[0.2, 0.0], [0.0, 0.01]]
       - [[0.01, 0.0], [0.0, 0.2]]
       - [[0.1, 0.0], [0.0, 0.05]]
+      - [[0.05, 0.0], [0.0, 0.1]]
+      - [[0.15, 0.0], [0.0, 0.02]]
     Q_u:
       - [[0.015]]
       - [[0.015]]
       - [[0.02]]
+      - [[0.02]]
+      - [[0.01]]
     Q_u_scales: [0.015, 0.015, 0.02, 0.02, 0.01]
     exploration: ["g_z"]
     exploration_mc_samples: 100  # Increased from default 25 to encourage more exploration
@@ -186,8 +194,8 @@ routers:
 
     em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 5000
-    em_n: 10
+    em_tk: 1700
+    em_n: 3
     em_samples: 20
     em_burn_in: 100
     em_use_validation: true
@@ -203,9 +211,9 @@ routers:
     em_eps_n: 1.0e-3
 
     em_online_enabled: true
-    em_online_window: 200
+    em_online_window: 600
     em_online_period: 300
-    em_online_n: 2
+    em_online_n: 1
     em_online_samples: 20
     em_online_burn_in: 3
     em_online_theta_lr: 0.001
