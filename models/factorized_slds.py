@@ -2450,8 +2450,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         xi_tensor = torch.as_tensor(xi, dtype=torch.float32, device=device)
         optimizer = torch.optim.AdamW(
             self.transition_model.parameters(),
-            lr=float(lr),
-            weight_decay=float(weight_decay),
+            lr=float(lr)
         )
         best_state = None
         best_loss = float("inf")
@@ -2518,8 +2517,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         b_lin = torch.as_tensor(self.b_lin, dtype=torch.float32, device=device).requires_grad_(True)
         optimizer = torch.optim.AdamW(
             [W_lin, b_lin],
-            lr=float(lr),
-            weight_decay=float(weight_decay),
+            lr=float(lr)
         )
         losses: list[float] = []
         step_dws: list[float] = []
@@ -2607,8 +2605,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             params.append(b_attn)
         optimizer = torch.optim.AdamW(
             params,
-            lr=float(lr),
-            weight_decay=float(weight_decay),
+            lr=float(lr)
         )
         scale = (W_q.shape[1] ** 0.5)
         denom = max(float(xi_tensor.sum().detach().cpu()), self.eps)

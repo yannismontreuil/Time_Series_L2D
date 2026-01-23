@@ -1,0 +1,16 @@
+Tri-cycle diagnostics summary
+Label: L2D SLDS w/ $g_t$ linear (g_z)
+Window: t=1..9999
+Regime accuracy: 0.8332
+Switch delay (mean): nan
+Switch delay (median): nan
+Corr MAE regime 0: 0.6161
+Corr MAE (cond) regime 0: 0.6376
+Pred-loss corr MAE regime 0: 0.7239
+Pred-loss corr MAE no-g regime 0: 0.7222
+Pred-loss corr MAE LinUCB P regime 0: 0.5499
+Pred-loss corr MAE NeuralUCB P regime 0: 0.4924
+Pair 0-1 corr:
+  Regime 0: true=0.9805, est=0.7045
+Pair 2-3 corr:
+  Regime 0: true=0.9813, est=0.6562

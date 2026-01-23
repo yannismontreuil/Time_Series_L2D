@@ -35,6 +35,7 @@ class NeuralUCB:
         nn_learning_rate: float = 1e-3,
         feedback_mode: str = "partial",
         seed: int | None = 0,
+        context_dim: int | None = None,
     ):
         self.N = int(num_experts)
         self.feature_fn = feature_fn
@@ -59,7 +60,10 @@ class NeuralUCB:
         self.feedback_mode = feedback_mode
 
         # Base feature dimension
-        dummy_x = np.zeros(1, dtype=float)
+        if context_dim is None:
+            dummy_x = np.zeros(1, dtype=float)
+        else:
+            dummy_x = np.zeros(int(context_dim), dtype=float)
         phi = np.asarray(self.feature_fn(dummy_x), dtype=float).reshape(-1)
         self.d = int(phi.shape[0])
 

@@ -30,6 +30,7 @@ class LinUCB:
         lambda_reg: float = 1.0,
         beta: np.ndarray | None = None,
         feedback_mode: str = "partial",
+        context_dim: int | None = None,
     ):
         self.N = int(num_experts)
         self.feature_fn = feature_fn
@@ -54,7 +55,10 @@ class LinUCB:
         self.feedback_mode = feedback_mode
 
         # Determine feature dimension from a dummy context.
-        dummy_x = np.zeros(1, dtype=float)
+        if context_dim is None:
+            dummy_x = np.zeros(1, dtype=float)
+        else:
+            dummy_x = np.zeros(int(context_dim), dtype=float)
         phi = np.asarray(self.feature_fn(dummy_x), dtype=float).reshape(-1)
         self.d = int(phi.shape[0])
 

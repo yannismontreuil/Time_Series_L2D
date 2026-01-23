@@ -1,0 +1,30 @@
+{
+  "label": "L2D SLDS w/ $g_t$ linear (g_z)",
+  "t_start": 1,
+  "t_end": 9999,
+  "regime_accuracy": 0.8331833183318332,
+  "switch_delay_mean": NaN,
+  "switch_delay_median": NaN,
+  "corr_mae_by_regime": [
+    0.6160761575288761
+  ],
+  "corr_mae_cond_by_regime": [
+    0.6375554505575666
+  ],
+  "pred_loss_corr_mae_by_regime": [
+    0.7239091067222974
+  ],
+  "g_recovery": {},
+  "avg_cost": 2.1258878130036347e-07,
+  "avg_cost_no_g": 1.7442091658267773e-07,
+  "avg_cost_gain": -3.816786471768573e-08,
+  "pred_loss_corr_mae_no_g_by_regime": [
+    0.7221944988575786
+  ],
+  "pred_loss_corr_mae_linucb_partial_by_regime": [
+    0.5499389907154887
+  ],
+  "pred_loss_corr_mae_neuralucb_partial_by_regime": [
+    0.49238908406790943
+  ]
+}

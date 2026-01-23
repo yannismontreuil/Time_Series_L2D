@@ -69,6 +69,7 @@ class SLDSIMMRouter_Corr:
         feature_hidden_dim: Optional[int] = None,
         feature_activation: str = "tanh",
         seed: Optional[int] = None,
+        context_dim: Optional[int] = None,
     ):
         self.N = int(num_experts)
         self.M = int(num_regimes)
@@ -111,7 +112,10 @@ class SLDSIMMRouter_Corr:
         # Determine base feature dimension and initialize learnable
         # projection if needed.
         try:
-            dummy_x = np.zeros((1,), dtype=float)
+            if context_dim is None:
+                dummy_x = np.zeros((1,), dtype=float)
+            else:
+                dummy_x = np.zeros((int(context_dim),), dtype=float)
             base_phi = np.asarray(self.base_feature_fn(dummy_x), dtype=float).reshape(-1)
         except Exception as exc:  # pragma: no cover - defensive
             raise ValueError("feature_fn must accept a 1D context and return a 1D array") from exc

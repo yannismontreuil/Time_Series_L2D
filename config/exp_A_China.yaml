@@ -1,0 +1,220 @@
+# A-China HF futures prediction experiment (real dataset)
+# Designed to stress non-stationarity, correlated experts, and availability shifts.
+
+plot_shift: 1
+plot_target: "y"
+plot_synth_preview: false
+
+transition_log:
+  enabled: true
+  print: false
+  precision: 4
+  stride: 1
+  print_wlin_blin: false
+  plot: true
+  plot_show: false
+  plot_save: true
+  plot_na: true
+  online_only: true
+  plot_only_ours: true
+  plot_entropy: true
+
+environment:
+  data_source: etth1
+  csv_path: data/A_china_HF_clean.csv
+  target_column: y
+
+  # Limit horizon for faster runs (set T: 500 to use only the first 500 rows).
+  T: 10000
+  seed: 13
+
+  # Experts/regimes
+  num_experts: 5
+  num_regimes: 5
+
+  # State dimension must match context feature dimension (see context_columns + lags + time features).
+  state_dim: 19
+
+  # Context features (all fully observed in the cleaned CSV).
+  context_columns:
+    - session_id
+    - mos
+    - from_close
+    - Open
+    - High
+    - Low
+    - Close
+    - Volume
+    - "Open Interest"
+    - late_sess
+    - low_vol
+    - high_vol
+
+  # Target lags to give AR-style signal for linear experts and routers.
+  context_lags: [1, 5, 20]
+
+  # Cyclical time features derived from the date column.
+  include_time_features: true
+  time_features: [hour, dayofweek]
+
+  # Normalize mixed-scale features for stability.
+  normalize_context: true
+  normalization_window: 5000
+  normalization_eps: 1.0e-6
+  normalization_mode: "zscore"
+
+  # Expert architecture map (AR or RNN).
+  expert_archs: [ar, ar, rnn, rnn, ar]
+  rnn_hidden_dim: 10
+  rnn_spectral_radius: 0.9
+  rnn_ridge: 1.0e-3
+  rnn_washout: 5
+  rnn_input_scale: 0.5
+  rnn_share_reservoir: true
+  expert_pred_noise_std: [0.0, 0.0, 0.004, 0.004, 0.0]
+
+  # Availability dynamics to create non-stationarity.
+  unavailable_expert_idx: 1
+  unavailable_intervals:
+    - [2000, 3500]
+    - [8000, 9500]
+  arrival_expert_idx: 4
+  arrival_intervals:
+    - [6000, 12000]
+
+  analysis_window: 6000
+
+routers:
+  beta: 0.0
+  staleness_threshold: null
+  lambda_risk: -0.25
+
+  factorized_slds:
+    enabled: true
+    num_regimes: 5
+    shared_dim: 5
+    idiosyncratic_dim: 19
+    delta_max: 10000
+    R_scalar: 0.0015
+
+    A_g: null
+    Q_g_scales: 1.5
+    A_u_scale: [0.97, 0.96, 0.95, 0.94, 0.93]
+    Q_u_scales: [0.02, 0.03, 0.04, 0.05, 0.06]
+
+    exploration: ["g_z"]
+    exploration_diag_enabled: true
+    exploration_diag_stride: 250
+    exploration_diag_samples: 40
+    exploration_diag_print: true
+
+    em_enabled: true
+    em_offline_full_feedback: true
+    em_tk: 300
+    em_n: 5
+    em_samples: 20
+    em_burn_in: 15
+    em_use_validation: true
+    em_val_strategy: "rolling"
+    em_val_fraction: 0.4
+    em_val_roll_len: 100
+    em_val_roll_splits: 4
+    em_val_roll_stride: null
+    em_val_len: null
+    em_theta_lr: 0.0001
+    em_theta_steps: 12
+    em_print_val_loss: true
+    em_eps_n: 1.0e-3
+
+    em_online_enabled: false
+    em_online_window: 400
+    em_online_period: 300
+    em_online_n: 1
+    em_online_samples: 20
+    em_online_burn_in: 3
+    em_online_theta_lr: 0.001
+    em_online_theta_steps: 1
+    em_online_eps_n: 1.0e-3
+    em_online_print_val_loss: true
+    em_online_start_t: null
+
+    transition_mode: "linear"
+
+baselines:
+  l2d:
+    arch: "mlp"
+    learning_rate: 0.001
+    hidden_dim: 8
+    window_size: 1
+    alpha: 1.0
+    beta: null
+
+  l2d_sw:
+    arch: "rnn"
+    learning_rate: 0.001
+    hidden_dim: 8
+    window_size: 200
+    alpha: 1.0
+    beta: null
+
+  linucb:
+    alpha_ucb: 5
+    l2_reg: 1.0
+    feedback_mode: "partial"
+
+  neural_ucb:
+    alpha_ucb: 5
+    lambda_reg: 1.0
+    hidden_dim: 16
+    nn_learning_rate: 0.001
+    feedback_mode: "partial"
+
+analysis:
+  baselines_train_from_start: true
+  cost_precision: 8
+
+  pred_target_corr:
+    enabled: true
+    min_points: 10
+    use_fisher: true
+
+  tri_cycle_corr:
+    enabled: true
+    router: "factorized_full"
+    out_dir: "out/A_china_HF"
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true
+    pairs: [[0, 1], [2, 3]]
+    corr_smooth_window: 25
+    transfer_probe:
+      enabled: true
+      target_expert: 1
+      source_expert: 0
+      compare_no_g: true
+      show_truth: true
+    expert_structure_baselines: true
+
+  pruning:
+    enabled: true
+    expert_idx: 1
+    rolling_window: 200
+    out_dir: "out/A_china_HF/pruning"
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true
+
+horizon_planning:
+  t0: 6000
+  H: 50
+  method: "100_monte_carlo"
+  delta: 0.05
+  scenario_generator:
+    type: "oracle_ar1"
+    ar_coef: 0.7
+    use_true_regime: false
+    sigma0: 1
+    q_scale: 1
+    noise_scale: 1

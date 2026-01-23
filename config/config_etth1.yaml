@@ -27,7 +27,7 @@ environment:
 
 #  # Number of experts and regimes.
   num_experts: 4
-#  num_regimes: 2
+  num_regimes: 2
 
   # State dimension d = dim φ(x). The current feature map returns 2D features.
   state_dim: 1
@@ -61,7 +61,7 @@ routers:
 
   factorized_slds:
     enabled: true
-    num_regimes: 2
+    num_regimes: 4
     shared_dim: 2
     idiosyncratic_dim: 1
     delta_max: 250
@@ -82,7 +82,7 @@ routers:
     exploration_diag_samples: 50
     exploration_diag_print: true
 
-    em_enabled: true
+    em_enabled: offline
     em_offline_full_feedback: true
     em_tk: 400
     em_n: 5
@@ -100,7 +100,7 @@ routers:
     em_print_val_loss: true
     em_eps_n: 1.0e-3
 
-    em_online_enabled: true
+    em_online_enabled: offline
     em_online_window: 400
     em_online_period: 300
     em_online_n: 1
@@ -146,9 +146,9 @@ baselines:
 analysis:
   baselines_train_from_start: true
   tri_cycle_corr:
-    enabled: false
+    enabled: true
     router: "factorized_full"
-    out_dir: "out/tri_cycle_corr"
+    out_dir: "out/ETTh1"
     show_plots: false
     save_plots: true
     save_png: true
