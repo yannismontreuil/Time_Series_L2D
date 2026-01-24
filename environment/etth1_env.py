@@ -523,7 +523,7 @@ class ETTh1TimeSeriesEnv:
                 hidden_dim: int,
                 rng_local: np.random.Generator,
                 num_epochs: int = 1000,
-                learning_rate: float = 1e-2,
+                learning_rate: float = 5e-3,
             ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
                 """
                 Train a tiny 1-hidden-layer MLP for an expert:
