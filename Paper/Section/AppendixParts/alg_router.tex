@@ -1,0 +1,58 @@
+% =========================
+% Router / Filtering Algorithms
+% =========================
+\subsection{Router and Filtering Recursion}
+\label{app:alg_router}
+\paragraph{Scope.} This subsection provides implementation-ready pseudocode for the per-round router
+(Algorithm~\ref{alg:router_main}) and the queried update (Algorithm~\ref{alg:correct_reweight}). We
+assume parameters \(\Theta\) and an initial belief are provided (learnable via Algorithm~\ref{alg:trainmodel_em}).
+
+\begin{algorithm}[H]
+\caption{Context-Aware Router (Factorized SLDS + IMM + IDS)}
+\label{alg:router_main}
+\begin{algorithmic}[1]
+\STATE {\bfseries Input:} horizon \(T\); parameters \(\Theta\); feature map \(\Phi\); loss \(\psi\); fees \((\beta_k)_k\); default entry priors \((\mu^{(m)}_{\mathrm{init,def}},\Sigma^{(m)}_{\mathrm{init,def}})_{m=1}^M\); staleness \(\Delta_{\max}\); floors \((\epsilon_w,\epsilon_{\mathrm{IG}})\); Monte Carlo budget \(S\) for \(\mathrm{IG}_t(k)\) (Appendix~\ref{app:info_gain}).
+\STATE {\bfseries Initialize:} \(w_0^{(m)}\leftarrow \mathbb{P}(z_1=m)\); \((\mu^{(m)}_{g,0|0},\Sigma^{(m)}_{g,0|0})_{m=1}^M\); \(\mathcal{K}_0\leftarrow\varnothing\); \(\tau_{\mathrm{last}}(k)\leftarrow 0\) for all \(k\).
+\FOR{\(t=1\) to \(T\)}
+    \STATE Observe \((\mathbf{x}_t,\mathcal{E}_t)\).
+    \STATE \textbf{Registry:} \(\mathcal{E}^{\mathrm{init}}_t \leftarrow \mathcal{E}_t \setminus \mathcal{K}_{t-1}\).
+    \STATE \textbf{Registry:} \(\mathcal{K}^{\mathrm{stale}}_t \leftarrow \{k\in\mathcal{K}_{t-1}\setminus\mathcal{E}_t:\ t-\tau_{\mathrm{last}}(k)>\Delta_{\max}\}\).
+    \STATE \textbf{Registry:} \(\mathcal{K}_t \leftarrow (\mathcal{K}_{t-1}\cup \mathcal{E}_t)\setminus \mathcal{K}^{\mathrm{stale}}_t\). \COMMENT{Prune stale \(\mathbf{u}_{\cdot,k}\) marginals}
+    \STATE For each \(k\in\mathcal{E}^{\mathrm{init}}_t\), set \((\mu^{(m)}_{\mathrm{init},k},\Sigma^{(m)}_{\mathrm{init},k})_{m=1}^M\) (default: \((\mu^{(m)}_{\mathrm{init,def}},\Sigma^{(m)}_{\mathrm{init,def}})\)).
+
+    \STATE \COMMENT{\textbf{IMM predictive step:} compute \(\bar w_t^{(m)}=\mathbb{P}(z_t=m\mid\mathcal{F}_t)\) from \(w_{t-1}\) and \(\Pi_\theta(\mathbf{x}_t)\) (Eq.~\ref{eq:context_transitions}), with flooring \(\epsilon_w\), and moment-match mixed priors at time \(t-1\).}
+    \STATE \COMMENT{\textbf{Time update:} apply Eqs.~\ref{eq:global_dynamics}, \ref{eq:idiosyncratic_dynamics}, and \ref{eq:birth_time_update} to obtain \((\mu^{(m)}_{g,t|t-1},\Sigma^{(m)}_{g,t|t-1})\) and \((\mu^{(m)}_{u,k,t|t-1},\Sigma^{(m)}_{u,k,t|t-1})\) for \(k\in\mathcal{K}_t\).}
+
+    \STATE For each \(m\in[M]\) and \(k\in\mathcal{E}_t\), compute \((\bar e_{t,k}^{\mathrm{pred},(m)},\Sigma_{t,k}^{\mathrm{pred},(m)})\) from Eq.~\ref{eq:residual_emission}.
+    \STATE For each \(k\in\mathcal{E}_t\), set \(\bar C_{t,k}^{\mathrm{pred}}\leftarrow \sum_{m=1}^M \bar w_t^{(m)}\big(\mathbb{E}_{e\sim\mathcal{N}(\bar e_{t,k}^{\mathrm{pred},(m)},\Sigma_{t,k}^{\mathrm{pred},(m)})}[\psi(e)]+\beta_k\big)\).
+    \STATE \(k_t^{\mathrm{pred}} \in \arg\min_{k\in\mathcal{E}_t}\bar C_{t,k}^{\mathrm{pred}}\); \(\Delta_t(k)\leftarrow \bar C_{t,k}^{\mathrm{pred}}-\bar C_{t,k_t^{\mathrm{pred}}}^{\mathrm{pred}}\) for all \(k\in\mathcal{E}_t\).
+    \STATE Compute \(\mathrm{IG}_t(k)=\mathcal{I}((z_t,\mathbf{g}_t);e_{t,k}^{\mathrm{pred}}\mid\mathcal{F}_t)\) as in Appendix~\ref{app:info_gain}; clamp \(\mathrm{IG}_t(k)\leftarrow \max(\mathrm{IG}_t(k),\epsilon_{\mathrm{IG}})\).
+    \STATE Choose \(I_t \in \arg\min_{k\in\mathcal{E}_t}\Delta_t(k)^2/\mathrm{IG}_t(k)\).
+    \STATE Observe \((\vhaty_{t,I_t},\vy_t)\), set \(e_t\leftarrow \vhaty_{t,I_t}-\vy_t\), and update \(\tau_{\mathrm{last}}(I_t)\leftarrow t\).
+    \STATE Run Algorithm~\ref{alg:correct_reweight} to obtain \(w_t\) and updated posteriors for \(\mathbf{g}_t\) and \((\mathbf{u}_{t,k})_{k\in\mathcal{K}_t}\).
+    \STATE Optional: update \(\Theta\) via Algorithm~\ref{alg:online_em}.
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\caption{\textsc{Correct}: Queried Kalman Update and Mode Posterior}
+\label{alg:correct_reweight}
+\begin{algorithmic}[1]
+\STATE {\bfseries Input:} \(\mathbf{x}_t\), queried residual \(e_t\), queried expert \(I_t\); predictive weights \(\bar w_t\); predictive states \(\{\mu^{(m)}_{g,t|t-1},\Sigma^{(m)}_{g,t|t-1}\}_{m=1}^M\) and \(\{\mu^{(m)}_{u,k,t|t-1},\Sigma^{(m)}_{u,k,t|t-1}\}_{m\in[M],\,k\in\mathcal{K}_t}\); parameters \((\mathbf{B}_{I_t},(\mathbf{R}_{m,I_t})_{m=1}^M)\).
+\STATE \(H_t \leftarrow [\Phi(\mathbf{x}_t)^\top \mathbf{B}_{I_t}\;\;\Phi(\mathbf{x}_t)^\top]\).
+\FOR{\(m=1\) to \(M\)}
+    \STATE \(\mu^{(m)}_{s,t|t-1} \leftarrow [(\mu^{(m)}_{g,t|t-1})^\top\;(\mu^{(m)}_{u,I_t,t|t-1})^\top]^\top\).
+    \STATE \(\Sigma^{(m)}_{s,t|t-1} \leftarrow \mathrm{diag}(\Sigma^{(m)}_{g,t|t-1},\Sigma^{(m)}_{u,I_t,t|t-1})\).
+    \STATE \(\bar e_{t,I_t}^{\mathrm{pred},(m)} \leftarrow H_t\mu^{(m)}_{s,t|t-1}\),\quad
+    \(\Sigma_{t,I_t}^{\mathrm{pred},(m)} \leftarrow H_t\Sigma^{(m)}_{s,t|t-1}H_t^\top + \mathbf{R}_{m,I_t}\).
+    \STATE \(K_t^{(m)} \leftarrow \Sigma^{(m)}_{s,t|t-1}H_t^\top(\Sigma_{t,I_t}^{\mathrm{pred},(m)})^{-1}\).
+    \STATE \(\mu^{(m)}_{s,t|t} \leftarrow \mu^{(m)}_{s,t|t-1} + K_t^{(m)}(e_t-\bar e_{t,I_t}^{\mathrm{pred},(m)})\).
+    \STATE \(\Sigma^{(m)}_{s,t|t} \leftarrow \Sigma^{(m)}_{s,t|t-1} - K_t^{(m)}\Sigma_{t,I_t}^{\mathrm{pred},(m)}(K_t^{(m)})^\top\).
+    \STATE Project to factorized marginals: keep only the diagonal blocks for \(\mathbf{g}_t\) and \(\mathbf{u}_{t,I_t}\); set \((\mu^{(m)}_{u,k,t|t},\Sigma^{(m)}_{u,k,t|t})\leftarrow(\mu^{(m)}_{u,k,t|t-1},\Sigma^{(m)}_{u,k,t|t-1})\) for \(k\neq I_t\).
+    \STATE \(\mathcal{L}_t^{(m)} \leftarrow \mathcal{N}\!\big(e_t;\bar e_{t,I_t}^{\mathrm{pred},(m)},\Sigma_{t,I_t}^{\mathrm{pred},(m)}\big)\).
+\ENDFOR
+\STATE \(w_t^{(m)} \leftarrow \frac{\mathcal{L}_t^{(m)}\bar w_t^{(m)}}{\sum_{\ell=1}^M \mathcal{L}_t^{(\ell)}\bar w_t^{(\ell)}}\) for all \(m\in[M]\).
+\STATE {\bfseries Return:} \(w_t\) and updated posteriors \(\{\mu^{(m)}_{g,t|t},\Sigma^{(m)}_{g,t|t}\}_{m=1}^M\), \(\{\mu^{(m)}_{u,k,t|t},\Sigma^{(m)}_{u,k,t|t}\}_{m\in[M],\,k\in\mathcal{K}_t}\).
+\end{algorithmic}
+\end{algorithm}

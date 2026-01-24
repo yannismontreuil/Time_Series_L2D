@@ -53,16 +53,8 @@
     0.6506180047481267,
     0.6017545744331878
   ],
-  "pred_loss_corr_mae_linucb_full_by_regime": [
-    0.6494789278222748,
-    0.5980982525376716
-  ],
   "pred_loss_corr_mae_neuralucb_partial_by_regime": [
     0.4728650997545305,
     0.4029615653756173
-  ],
-  "pred_loss_corr_mae_neuralucb_full_by_regime": [
-    0.6525035234933216,
-    0.6314037169433685
   ]
 }

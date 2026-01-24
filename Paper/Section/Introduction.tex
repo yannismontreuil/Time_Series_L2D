@@ -1,0 +1,41 @@
+\section{Introduction}
+
+Learning-to-defer (L2D) studies decision systems that \emph{route} each query to one of several experts and incur expert-dependent
+\emph{consultation costs} \citep{madras2018predict,mozannar2021consistent,Narasimhan,mao2023twostage, montreuil2025ask}.
+Most L2D work is studied in an \emph{offline} regime: a routing policy is learned from a fixed dataset, typically under i.i.d.\ assumptions,
+and training often relies on supervision that is unavailable online, such as access to \emph{all} experts' predictions or losses for the same input.
+
+
+In sequential problems, decisions and observations are interleaved over time and the offline assumptions above become
+impractical.
+At round $t$, the router observes a context $\mathbf{x}_t$ and a set of available experts $\mathcal{E}_t$, selects an expert $I_t\in\mathcal{E}_t$,
+and then observes the target $\vy_t$ together with the queried prediction $\vhaty_{t,I_t}$.
+Feedback is \emph{censored}: the predictions of unqueried experts remain unobserved.
+Moreover, the stream is \emph{non-i.i.d.} and often non-stationary \citep{hamilton2020time, sezer2020financial}, so expert capability
+and cross-expert dependence can drift or switch regimes over time.
+The expert pool can also change, with experts becoming unavailable or newly arriving, and in operational settings experts may be scarce
+resources that must be allocated under availability constraints.
+These features make a direct transfer of offline L2D formulations insufficient and motivate online methods that explicitly reason
+over time, uncertainty, and resource constraints.
+
+
+To address these challenges, we develop a probabilistic routing framework for non-stationary time series
+under censored feedback and a dynamic expert pool.
+We model expert residuals with a switching linear-Gaussian state-space
+\citep{ghahramani2000variational, linderman2016recurrent, hu2024modeling} model
+that couples a shared global factor with
+expert-specific idiosyncratic states and a discrete regime process, enabling time-varying cross-expert dependence.
+Faithful to practical settings, we support adding or removing experts without affecting the maintained marginals of retained experts.
+We also propose an exploration rule based on the IDS framework \citep{russo2014learning} that trades off predictive cost and information gain
+about latent states and regimes.
+
+
+%
+%\paragraph{Contributions.}
+%Our main contributions are:
+%\begin{itemize}
+%    \item A sequential expert-routing formulation for non-stationary time series with censored feedback and a time-varying expert pool (Section~\ref{sec:problem_formulation}).
+%    \item A factorized switching state-space model for expert residuals with context-dependent regime switching and a shared latent factor enabling cross-expert information transfer (Section~\ref{sec:generative_model}).
+%    \item A scalable IMM-style filtering recursion with dynamic registry management that updates only the queried expert jointly with the shared factor, while keeping per-expert marginals (Sections~\ref{sec:generative_model} and~\ref{sec:registry}).
+%    \item An information-directed routing rule based on mutual information about $(z_t,\mathbf{g}_t)$, together with a predictive scheduling layer that outputs on-call active sets under availability constraints (Sections~\ref{sec:exploration} and~\ref{sec:scheduling}).
+%\end{itemize}

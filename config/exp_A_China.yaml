@@ -92,7 +92,7 @@ routers:
   factorized_slds:
     enabled: true
     num_regimes: 5
-    shared_dim: 5
+    shared_dim: 2
     idiosyncratic_dim: 19
     delta_max: 10000
     R_scalar: 0.0015
@@ -117,7 +117,7 @@ routers:
     em_use_validation: true
     em_val_strategy: "rolling"
     em_val_fraction: 0.4
-    em_val_roll_len: 100
+    em_val_roll_len: 400
     em_val_roll_splits: 4
     em_val_roll_stride: null
     em_val_len: null
@@ -138,7 +138,7 @@ routers:
     em_online_print_val_loss: true
     em_online_start_t: null
 
-    transition_mode: "linear"
+    transition_mode: "attention"
 
 baselines:
   l2d:

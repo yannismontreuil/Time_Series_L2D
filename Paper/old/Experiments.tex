@@ -1,0 +1,275 @@
+\section{Experiments Details}
+\label{sec:experiments-details}
+
+We provide additional details on the experiments of Section~\ref{section:experiments}, including
+experimental setup, hyperparameters, and implementation details.
+
+\subsection{Baselines}
+
+\paragraph{Alternative baselines: Bayes-UCB and posterior sampling.}
+It can be very informative to benchmark against exploration rules that are widely used in Bayesian
+bandits and do not require an explicit information-gain computation.
+In our setting, they plug directly into the predictive cost random variable \(C^{\mathrm{pred}}_{t,k}\)
+from \eqref{eq:exp_virtual_cost}.
+
+\paragraph{Learning-to-Defer baselines (oracle/full feedback).}
+Our L2D and L2D-SW baselines use full-feedback losses from all \emph{available} experts at each time
+step, i.e., \(\{\ell_{t,k}: k\in\mathcal{E}_t\}\). This information is not observed under bandit
+feedback, so these methods are reported only as oracle baselines (labeled as full-feedback in
+figures/tables) and are excluded from bandit comparisons.
+
+\subparagraph{Bayes-UCB (for costs: a Bayesian LCB rule).}
+For losses/costs, the natural analogue of UCB is a \emph{lower} credible bound on the cost.
+Let \(F_{t,k}(c)\coloneqq \mathbb{P}(C^{\mathrm{pred}}_{t,k}\le c\mid \mathcal{F}_t)\) be the conditional
+cdf of the predictive cost and define the \(\alpha\)-quantile
+\begin{equation}
+\label{eq:exp_bayes_ucb_quantile}
+Q_{t}(k;\alpha)
+\coloneqq
+\inf\left\{c\in\mathbb{R}: F_{t,k}(c)\ge \alpha\right\}.
+\end{equation}
+Given a confidence schedule \(\alpha_t\in(0,1)\) that decays with \(t\) (e.g., \(\alpha_t=1/t\) or \(\alpha_t=1/(t\log^2 t)\)),
+the Bayes-UCB (LCB) decision rule is
+\begin{equation}
+\label{eq:exp_bayes_ucb_rule}
+I_t \in \arg\min_{k\in\mathcal{E}_t}\ Q_t(k;\alpha_t).
+\end{equation}
+Intuition: \eqref{eq:exp_bayes_ucb_rule} chooses an expert that looks good under an optimistic
+assessment of its cost (a low quantile), thereby naturally favoring experts with large posterior
+uncertainty when they could plausibly be very good.
+
+\subparagraph{Computing \(Q_t(k;\alpha)\) under the IMM predictive model.}
+With squared loss \(\psi(e)=\lVert e\rVert_2^2\), \(C^{\mathrm{pred}}_{t,k}=\lVert e^{\mathrm{pred}}_{t,k}\rVert_2^2+\beta_k\) is a nonlinear
+transformation of a Gaussian mixture, so closed-form quantiles are not available in general.
+However, quantiles are easy to estimate by Monte Carlo using the same per-mode predictive objects as
+Algorithm~\ref{alg:router_main}:
+\begin{enumerate}
+\item draw a mode \(\tilde z\sim \mathrm{Cat}((\bar{w}_t^{(m)})_{m=1}^M)\);
+\item draw \(\tilde{\mathbf{g}}\sim \mathcal{N}(\mu^{(\tilde z)}_{g,t\mid t-1},\Sigma^{(\tilde z)}_{g,t\mid t-1})\);
+\item for each \(k\), draw \(\tilde e_k = \mathbf{H}_{t,k} \tilde{\mathbf{g}} + \mathbf{b}^{(\tilde z)}_{t,k} + \tilde\varepsilon_k\) with \(\tilde\varepsilon_k\sim\mathcal{N}(\mathbf{0},\mathbf{S}^{(\tilde z)}_{t,k})\);
+\item set \(\tilde C_k=\psi(\tilde e_k)+\beta_k\).
+\end{enumerate}
+Repeating \(N\) times yields samples \(\{\tilde C_{k}^{(n)}\}_{n=1}^N\), and \(Q_t(k;\alpha)\) is the empirical
+\(\alpha\)-quantile.
+
+\subparagraph{Posterior sampling (Thompson sampling).}
+Posterior sampling chooses actions by sampling a plausible world from the current posterior and then
+acting optimally in that sampled world.
+In our setting, a direct and implementation-friendly one-step variant is \emph{posterior sampling on
+predictive costs}:
+\begin{align}
+\label{eq:exp_ps_cost}
+\text{(PS on predictive costs)}\qquad
+&(\tilde z_t,\tilde{\mathbf{g}}_t)\sim p(z_t,\mathbf{g}_t\mid\mathcal{F}_t),\quad
+\tilde e_{t,k}=\mathbf{H}_{t,k} \tilde{\mathbf{g}}_t + \mathbf{b}^{(\tilde z_t)}_{t,k} + \tilde\varepsilon_{t,k},\ \ \tilde\varepsilon_{t,k}\sim \mathcal{N}(\mathbf{0},\mathbf{S}^{(\tilde z_t)}_{t,k}),\\
+&I_t \in \arg\min_{k\in\mathcal{E}_t}\ \psi(\tilde e_{t,k})+\beta_k.
+\end{align}
+This rule preserves the \emph{shared-factor coupling} across experts because all sampled residuals are
+generated using the same \((\tilde z_t,\tilde{\mathbf{g}}_t)\).
+If one prefers a deterministic decision conditional on sampled latents, one can instead replace
+\(\psi(\tilde e_{t,k})\) by the conditional predictive expectation
+\(\mathbb{E}[\psi(E)]\) with \(E\sim \mathcal{N}(\mathbf{H}_{t,k}\tilde{\mathbf{g}}_t+\mathbf{b}^{(\tilde z_t)}_{t,k},\mathbf{S}^{(\tilde z_t)}_{t,k})\).
+Under squared loss \(\psi(e)=\lVert e\rVert_2^2\), this yields the closed form
+\begin{equation}
+\label{eq:exp_ps_squared_det}
+\mathbb{E}\!\left[\lVert E\rVert_2^2\right]
+=
+\mathrm{tr}(\mathbf{S}^{(\tilde z_t)}_{t,k})+\big\lVert \mathbf{H}_{t,k}\tilde{\mathbf{g}}_t+\mathbf{b}^{(\tilde z_t)}_{t,k}\big\rVert_2^2,
+\qquad
+I_t \in \arg\min_{k\in\mathcal{E}_t}\ \left(\mathrm{tr}(\mathbf{S}^{(\tilde z_t)}_{t,k})+\big\lVert \mathbf{H}_{t,k}\tilde{\mathbf{g}}_t+\mathbf{b}^{(\tilde z_t)}_{t,k}\big\rVert_2^2+\beta_k\right),
+\end{equation}
+which avoids sampling \(\tilde\varepsilon_{t,k}\) and reduces Monte Carlo variance.
+
+\subsection{Information Gain for Idiosyncratic States}
+\label{sec:ig_idiosyncratic}
+
+For expert-specific exploration, it can be useful to score the information gained about the
+idiosyncratic state \(\mathbf{u}_{t,k}\) in addition to \((z_t,\mathbf{g}_t)\). Define
+\begin{equation}
+\label{eq:exp_ig_zgu_def}
+\mathrm{IG}^{(z,g,u)}_t(k)
+\coloneqq
+\mathcal{I}\!\left((z_t,\mathbf{g}_t,\mathbf{u}_{t,k});\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right).
+\end{equation}
+By the chain rule,
+\begin{equation}
+\label{eq:exp_ig_zgu_chain}
+\mathrm{IG}^{(z,g,u)}_t(k)
+=
+\mathcal{I}\!\left(z_t;\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right)
++
+\mathcal{I}\!\left((\mathbf{g}_t,\mathbf{u}_{t,k});\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t,z_t\right).
+\end{equation}
+For a fixed mode \(z_t=m\), the factorized predictive belief gives independent Gaussians
+\(\mathbf{g}_t\sim\mathcal{N}(\mu^{(m)}_{g,t\mid t-1},\Sigma^{(m)}_{g,t\mid t-1})\) and
+\(\mathbf{u}_{t,k}\sim\mathcal{N}(\mu^{(m)}_{u,k,t\mid t-1},\Sigma^{(m)}_{u,k,t\mid t-1})\).
+The observation channel can be written as
+\[
+e_{t,k}^{\mathrm{pred}}
+=
+\mathbf{H}_{t,k}\mathbf{g}_t + \Phi(\mathbf{x}_t)^\top \mathbf{u}_{t,k} + \varepsilon,
+\qquad
+\varepsilon\sim\mathcal{N}(\mathbf{0},\mathbf{R}_{m,k}),
+\]
+so for a multivariate linear-Gaussian channel,
+\begin{equation}
+\label{eq:exp_ig_gu_mode}
+\mathcal{I}\!\left((\mathbf{g}_t,\mathbf{u}_{t,k});\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t,z_t=m\right)
+=
+\frac12\log\det\!\left(\mathbf{I}_{d_y}+\left(\mathbf{H}_{t,k}\Sigma^{(m)}_{g,t\mid t-1}\mathbf{H}_{t,k}^\top+\Phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\Phi(\mathbf{x}_t)\right)\mathbf{R}_{m,k}^{-1}\right).
+\end{equation}
+Thus,
+\begin{equation}
+\label{eq:exp_ig_zgu_final}
+\mathrm{IG}^{(z,g,u)}_t(k)
+=
+\mathcal{I}\!\left(z_t;\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right)
++
+\sum_{m=1}^M \bar{w}_t^{(m)}\,
+\frac12\log\det\!\left(\mathbf{I}_{d_y}+\left(\mathbf{H}_{t,k}\Sigma^{(m)}_{g,t\mid t-1}\mathbf{H}_{t,k}^\top+\Phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\Phi(\mathbf{x}_t)\right)\mathbf{R}_{m,k}^{-1}\right).
+\end{equation}
+
+\paragraph{Relation to \((z_t,\mathbf{g}_t)\)-information.}
+Using \(\mathbf{S}^{(m)}_{t,k}=\Phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\Phi(\mathbf{x}_t)+\mathbf{R}_{m,k}\),
+the mode-conditioned term in \eqref{eq:exp_ig_gu_mode} decomposes as
+\[
+\frac12\log\det\!\left(\mathbf{I}_{d_y}+\Phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\Phi(\mathbf{x}_t)\,\mathbf{R}_{m,k}^{-1}\right)
+\;+\;
+\frac12\log\det\!\left(\mathbf{I}_{d_y}+\mathbf{H}_{t,k}\Sigma^{(m)}_{g,t\mid t-1}\mathbf{H}_{t,k}^\top(\mathbf{S}^{(m)}_{t,k})^{-1}\right).
+\]
+The second term is exactly the shared-factor refinement from \eqref{eq:exp_ig_g_mode}; the first term
+captures how much a query teaches the expert-specific drift \(\mathbf{u}_{t,k}\). This additional term
+improves future predictions for expert \(k\) but, under the factorized model, does not transfer to
+other experts.
+When expert-specific learning is important, one can replace \(\widehat{\mathrm{IG}}^{(z,g)}_t(k)\)
+by \(\widehat{\mathrm{IG}}^{(z,g,u)}_t(k)\) in \eqref{eq:exp_det_ids_zg} or \eqref{eq:exp_additive_zg}.
+
+\subsection{Synthetic: Regime-Dependent Correlation and Information Transfer}
+\label{sec:exp_synthetic_transfer_appendix}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\textwidth]{figures/corr_new_v2.pdf}
+    \caption{Regime-0 expert dependence in the synthetic transfer experiment. Each heatmap shows the
+    pairwise Pearson correlation (color: \([-1,1]\)) between experts' per-round losses (experts indexed
+    \(0\)--\(3\)). Top row: partial feedback (only queried losses observed); bottom row: full feedback.
+    Columns (left-to-right) show the ground-truth correlation implied by the simulator and the
+    correlations estimated by each method. L2D-SLDS best recovers the block-structured correlations
+    (experts \(\{0,1\}\) vs.\ \(\{2,3\}\)), highlighting the benefit of modeling shared latent factors for
+    cross-expert information transfer under censoring.}
+    \label{fig:exp_synthetic_transfer_regime_estimation_attention}
+\end{figure}
+
+\paragraph{Design goal.}
+We construct a controlled routing instance in which (i) experts are \emph{correlated} in a
+regime-dependent way, so that observing one expert should update beliefs about others (information
+transfer; Proposition~\ref{prop:cross_update}); and (ii) one expert temporarily disappears and
+re-enters, so that the maintained registry \(\mathcal{K}_t\) matters (see Appendix).
+
+\paragraph{Environment (regimes, target, context).}
+We use \(M=2\) regimes and deterministic switching in blocks of length \(L=150\) over horizon
+\(T=3000\) such as $z_t \coloneqq 1 + \left\lfloor \frac{t-1}{L}\right\rfloor \bmod 2$.
+The target follows a regime-dependent AR(1), and the context is the one-step lag:
+\begin{equation}
+\label{eq:exp_tri_cycle_ts_appendix}
+y_t = 0.8\,y_{t-1} + d_{z_t} + \eta_t,\qquad \eta_t\sim\mathcal{N}(0,\sigma_y^2).
+\end{equation}
+We set the router's context to \(x_t\coloneqq y_{t-1}\).
+The regime \(z_t\) is latent to the router: the router observes only \(x_t\) (before acting) and the
+single queried prediction \(\hat y_{t,I_t}\) (after acting).
+
+\paragraph{Experts.}
+We use \(K=4\) experts indexed \(k\in\{0,1,2,3\}\). Expert \(k=1\) is removed from the available set \(\mathcal{E}_t\)
+for a contiguous interval \(t\in[2000,2500]\) and then re-enters. Each expert is a one-step forecaster
+\(\hat y_{t,k}=f_k(x_t)\) with a shared slope and expert-specific intercept plus noise:
+\begin{equation}
+\label{eq:exp_synth_expert_rule_appendix}
+\hat y_{t,k} \coloneqq 0.8\,y_{t-1} + b_k + \varepsilon_{t,k}.
+\end{equation}
+We set \((b_0,b_1,b_2,b_3)=(d_1,d_1,d_2,d_2)\), so experts \(\{0,1\}\) are well-calibrated in regime
+\(z_t=1\) and experts \(\{2,3\}\) are well-calibrated in regime \(z_t=2\).
+
+To induce \emph{regime-dependent correlation} under bandit feedback, we generate the expert noises as
+\[
+\varepsilon_{t,k} \coloneqq s_{t,g(k)} + \tilde\varepsilon_{t,k},
+\qquad
+g(k)\coloneqq 1+\mathbf{1}\{k\in\{2,3\}\},
+\]
+with independent components \(s_{t,1},s_{t,2},(\tilde\varepsilon_{t,k})_{k}\) and regime-dependent
+variances $s_{t,1}\sim\mathcal{N}(0,\sigma_{z_t,1}^2), s_{t,2}\sim\mathcal{N}(0,\sigma_{z_t,2}^2),
+\tilde\varepsilon_{t,k}\sim\mathcal{N}(0,\sigma_{\mathrm{id}}^2)$, where \((\sigma_{1,1}^2,\sigma_{1,2}^2)=(\sigma_{\mathrm{hi}}^2,\sigma_{\mathrm{lo}}^2)\) and
+\((\sigma_{2,1}^2,\sigma_{2,2}^2)=(\sigma_{\mathrm{lo}}^2,\sigma_{\mathrm{hi}}^2)\) with
+\(\sigma_{\mathrm{hi}}^2\gg\sigma_{\mathrm{lo}}^2\). This makes experts \(\{0,1\}\) strongly
+correlated in regime \(1\) and experts \(\{2,3\}\) strongly correlated in regime \(2\). We report the MSE of each expert in
+Table~\ref{tab:exp_avg_costs}.
+
+
+\paragraph{Compared methods.}
+We compare our \textbf{L2D-SLDS} router under bandit feedback to the following baselines.
+\emph{(i) Ablation:} L2D-SLDS without the shared global factor (set \(d_g=0\)).
+\emph{(ii) Contextual bandits:} LinUCB \citep{li2010contextual} and NeuralUCB \citep{zhou2020neuralcontextualbanditsucbbased}.
+\emph{(iii) Full-feedback:} a full-feedback variant of L2D-SLDS and online
+Learning-to-Defer baselines \citep{mao2024regressionmultiexpertdeferral,Narasimhan} that assume access
+to all experts' predictions each round (hence are not feasible under censoring): standard L2D \citep{Narasimhan, mao2024regressionmultiexpertdeferral}, and a
+sliding-window L2D (L2D\_SW) with \(W=500\) taking the most recent data to handle
+non-stationarity. We use an RNN encoder \citep{rumelhart1985learning} as a drop-in context
+representation for methods that require learned features.
+
+\begin{table}[ht]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Averaged cumulative cost \eqref{eq:routing_objective} on experiment (Section~\ref{sec:exp_synthetic_transfer}).
+We report mean \(\pm\) standard error across five runs. Lower is better.}
+\label{tab:exp_avg_costs_appendix}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Method & Partial feedback & Full feedback \\
+\midrule
+\textbf{L2D-SLDS} & \(\mathbf{13.58 \pm 0.07}\) & \(\mathbf{10.17 \pm 0.01}\) \\
+L2D-SLDS w/o \(\mathbf{g}_t\) & \(14.68 \pm 0.01\) & \(10.18 \pm 0.01\) \\
+\midrule
+L2D & \multicolumn{1}{c}{--} & \(16.69 \pm 0.25\) \\
+L2D\_SW (\(W=500\)) & \multicolumn{1}{c}{--} & \(13.26 \pm 0.11\) \\
+LinUCB & \(22.94 \pm 0.01\) & \(23.24 \pm 0.01\) \\
+NeuralUCB & \(21.92 \pm 0.31\) & \(21.39 \pm 1.89\) \\
+Random & \(26.13 \pm 0.25\) & \(26.13 \pm 0.25\)  \\
+Always expert 0 & \(23.07\) & \multicolumn{1}{c}{--} \\
+Always expert 1 & \(28.66\) & \multicolumn{1}{c}{--} \\
+Always expert 2 & \(23.05\) & \multicolumn{1}{c}{--} \\
+Always expert 3 & \(29.36\) & \multicolumn{1}{c}{--} \\
+Oracle & \(9.04\) & \(9.04\) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Correlation recovery.}
+Figure~\ref{fig:exp_synthetic_transfer_regime_estimation} compares the regime-0 loss correlation
+structure. The ground truth exhibits a clear block structure: experts \(\{0,1\}\)
+form one correlated group while experts \(\{2,3\}\) form another.
+Under partial feedback, L2D-SLDS is the only method that reliably recovers this clustering from
+partial observations, whereas removing the shared factor \(\mathbf{g}_t\) blurs the separation and
+inflates cross-group correlations, consistent with losing cross-expert information transfer. In
+contrast, LinUCB/NeuralUCB yield near-degenerate correlation estimates (e.g., overly uniform or
+unstable patterns), reflecting that purely discriminative bandit updates do not maintain a coherent
+joint belief over experts' latent error processes. Under full feedback, the gap between L2D-SLDS and
+its ablation largely closes, as observing all experts makes explicit transfer less critical; however,
+the remaining baselines can still exhibit spurious structure, highlighting that modeling regime-wise
+coupling is beneficial beyond simply having access to more feedback.
+
+\paragraph{Results.}
+Table~\ref{tab:exp_avg_costs} shows that \textbf{L2D-SLDS} achieves the lowest routing cost under
+partial feedback (\(13.58\pm 0.07\)), improving over LinUCB/NeuralUCB by a wide margin and also
+outperforming the best fixed expert. Crucially, it also beats the ablation that removes the shared
+factor \(\mathbf{g}_t\) (\(14.68\pm 0.01\)), a \(\approx 7.5\%\) reduction, which directly supports
+our central claim: under censoring, modeling a \emph{global} latent component enables
+\emph{cross-expert information transfer} from a single queried residual (see Proposition \ref{prop:transfer}). Intuitively, \(\mathbf{g}_t\)
+captures regime-dependent common shocks that couple experts; thus, querying one expert updates beliefs
+about unqueried experts in a way that contextual bandits (which treat arms largely independently) and
+independent per-expert dynamics cannot replicate. Under full feedback, the gap between L2D-SLDS and
+its ablation essentially vanishes (\(\approx 10.17\)), as expected when all experts are observed and
+explicit transfer is no longer the bottleneck; in this setting L2D-SLDS is close to the oracle and
+substantially improves over full-feedback L2D and L2D\_SW.
+
+In Appendix, we provide additional experiments and study in depth this regime-dependant experiment notably by studying how our approach treat the pruning and
+the re-birth of experts.

@@ -1,0 +1,112 @@
+% =========================
+% Parameter Learning / Adaptation
+% =========================
+\subsection{Parameter Learning and Online Adaptation}
+\label{app:alg_learning}
+\paragraph{Scope.} This subsection describes optional model-learning routines (offline initialization and
+sliding-window adaptation). The main router only requires a filtering belief and the learned parameters.
+
+\begin{algorithm}[H]
+\caption{\textsc{LearnParameters\_MCEM}: Monte Carlo EM for the Factorized SLDS (windowed batch)}
+\label{alg:trainmodel_em}
+\begin{algorithmic}[1]
+\STATE {\bfseries Input:} window $\mathcal{T}=\{t_a,\dots,t_b\}$; stream $(\mathbf{x}_t,I_t,e_t)_{t\in\mathcal{T}}$ with $e_t=\vhaty_{t,I_t}-\vy_t$; feature map $\Phi$; EM iterations $N_{\mathrm{EM}}$; MCMC settings $(N_{\mathrm{samp}},N_{\mathrm{burn}})$; occupancy floor $\epsilon_N>0$; (optional) regularization $(\lambda_\theta,\lambda_B)$ for $(\Pi_\theta,\mathbf{B})$.
+\STATE $\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}}\leftarrow \{I_t:\ t\in\mathcal{T}\}$. \COMMENT{Experts queried in the window}
+\STATE {\bfseries Initialize:} parameters $\Theta^{(0)}$ and priors for $z_{t_a}$, $\mathbf{g}_{t_a}$, and $\{\mathbf{u}_{t_a,k}\}_{k\in\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}}}$.
+\FOR{iteration $i = 1$ to $N_{\mathrm{EM}}$}
+	    \STATE \textbf{// E-step: Monte Carlo posterior (blocked Gibbs)}
+	    \STATE Draw samples from \(p(z_{t_a:t_b},\mathbf{g}_{t_a:t_b},(\mathbf{u}_{t_a:t_b,k})_{k\in\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}}}\mid (\mathbf{x}_t,I_t,e_t)_{t\in\mathcal{T}},\Theta^{(i-1)})\) by alternating:
+	    \STATE \hspace{1.5em}1) sample \(z_{t_a:t_b}\) via FFBS from the conditional HMM given \(\mathbf{g}_{t_a:t_b}\) and \((\mathbf{u}_{t_a:t_b,k})_k\);
+	    \STATE \hspace{1.5em}2) sample \(\mathbf{g}_{t_a:t_b}\) via Kalman smoothing given \(z_{t_a:t_b}\) and \((\mathbf{u}_{t,I_t})_{t\in\mathcal{T}}\);
+	    \STATE \hspace{1.5em}3) for each \(k\in\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}}\), sample \(\mathbf{u}_{t_a:t_b,k}\) via Kalman smoothing using only \(\{(t,e_t): I_t=k\}\).
+	    \STATE From post-burn-in samples, estimate \(\gamma_t^{(m)}\approx \mathbb{P}(z_t=m\mid\cdot)\), \(\xi_{t-1}^{(\ell,m)}\approx \mathbb{P}(z_{t-1}=\ell,z_t=m\mid\cdot)\), and the moments used in the M-step.
+
+	    \STATE \textbf{// M-step: MAP / regularized updates (factorized moments)}
+	    \STATE Update \((\mathbf{A}^{(g)}_{m},\mathbf{Q}^{(g)}_{m})_{m=1}^M\) and \((\mathbf{A}^{(u)}_{m},\mathbf{Q}^{(u)}_{m})_{m=1}^M\) using weighted least-squares/covariance matching (skip updates when the effective count is \(\le\epsilon_N\); see below).
+	    \STATE Update \((\mathbf{B}_k)_{k\in\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}}}\) and \((\mathbf{R}_{m,k})_{m\in[M],\,k\in\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}}}\) via weighted linear-Gaussian regression (skip updates when the effective count is \(\le\epsilon_N\); see below).
+	    \STATE Update \(\theta\) by maximizing \(\sum_{t\in\mathcal{T}\setminus\{t_a\}}\sum_{\ell,m}\xi_{t-1}^{(\ell,m)}\log \Pi_\theta(\mathbf{x}_t)_{\ell m}-\frac{\lambda_\theta}{2}\lVert\theta\rVert_2^2\).
+\ENDFOR
+\STATE {\bfseries Return:} $\Theta^{(N_\mathrm{EM})}$
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Implementation notes (E-step).}
+In step 1, FFBS samples \(z_{t_a:t_b}\) from the conditional distribution induced by the Markov
+transition \(\Pi_\theta(\mathbf{x}_t)\) (Eq.~\ref{eq:context_transitions}) and the linear-Gaussian
+dynamics/emission terms (Eqs.~\ref{eq:global_dynamics}, \ref{eq:idiosyncratic_dynamics},
+\ref{eq:residual_emission}) evaluated at the current \(\mathbf{g}_{t_a:t_b}\) and
+\((\mathbf{u}_{t_a:t_b,k})_k\). In step 2, conditioned on \(z_{t_a:t_b}\) and \((\mathbf{u}_{t,I_t})_t\),
+the observation model for \(\mathbf{g}_t\) is
+\(e_t-\Phi(\mathbf{x}_t)^\top\mathbf{u}_{t,I_t}=\Phi(\mathbf{x}_t)^\top\mathbf{B}_{I_t}\mathbf{g}_t+v_t\)
+with \(v_t\sim\mathcal{N}(\mathbf{0},\mathbf{R}_{z_t,I_t})\). In step 3, for a fixed expert \(k\),
+conditioning on \(z_{t_a:t_b}\) and \(\mathbf{g}_{t_a:t_b}\), the observations at times \(\{t:I_t=k\}\)
+satisfy \(e_t-\Phi(\mathbf{x}_t)^\top\mathbf{B}_{k}\mathbf{g}_t=\Phi(\mathbf{x}_t)^\top\mathbf{u}_{t,k}+v_t\)
+with the same \(v_t\).
+
+\paragraph{M-step updates.}
+Let \(\langle\cdot\rangle\) denote the average over post-burn-in samples.
+For each regime \(m\), define \(N_m\coloneqq\sum_{t=t_a+1}^{t_b}\gamma_t^{(m)}\) and the sufficient
+statistics
+\[
+S^{(m)}_{g g^-}\coloneqq \sum_{t=t_a+1}^{t_b}\left\langle \mathbf{1}\{z_t=m\}\mathbf{g}_t\mathbf{g}_{t-1}^\top\right\rangle,
+\qquad
+S^{(m)}_{g^- g^-}\coloneqq \sum_{t=t_a+1}^{t_b}\left\langle \mathbf{1}\{z_t=m\}\mathbf{g}_{t-1}\mathbf{g}_{t-1}^\top\right\rangle.
+\]
+If \(N_m>\epsilon_N\), set \(\mathbf{A}^{(g)}_{m}\leftarrow S^{(m)}_{g g^-}\left(S^{(m)}_{g^- g^-}\right)^{-1}\) and
+\[
+\mathbf{Q}^{(g)}_{m}
+\leftarrow
+\frac{1}{N_m}\sum_{t=t_a+1}^{t_b}\left\langle \mathbf{1}\{z_t=m\}\left(\mathbf{g}_t-\mathbf{A}^{(g)}_m\mathbf{g}_{t-1}\right)\left(\mathbf{g}_t-\mathbf{A}^{(g)}_m\mathbf{g}_{t-1}\right)^\top\right\rangle.
+\]
+Define \(N_m^{(u)}\coloneqq\sum_{t=t_a+1}^{t_b}\sum_{k\in\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}}}\gamma_t^{(m)}\) and
+\[
+S^{(m)}_{u u^-}\coloneqq \sum_{t=t_a+1}^{t_b}\sum_{k\in\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}}}\left\langle \mathbf{1}\{z_t=m\}\mathbf{u}_{t,k}\mathbf{u}_{t-1,k}^\top\right\rangle,
+\qquad
+S^{(m)}_{u^- u^-}\coloneqq \sum_{t=t_a+1}^{t_b}\sum_{k\in\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}}}\left\langle \mathbf{1}\{z_t=m\}\mathbf{u}_{t-1,k}\mathbf{u}_{t-1,k}^\top\right\rangle.
+\]
+If \(N_m^{(u)}>\epsilon_N\), set \(\mathbf{A}^{(u)}_{m}\leftarrow S^{(m)}_{u u^-}\left(S^{(m)}_{u^- u^-}\right)^{-1}\) and
+\[
+\mathbf{Q}^{(u)}_{m}
+\leftarrow
+\frac{1}{N_m^{(u)}}\sum_{t=t_a+1}^{t_b}\sum_{k\in\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}}}\left\langle \mathbf{1}\{z_t=m\}\left(\mathbf{u}_{t,k}-\mathbf{A}^{(u)}_m\mathbf{u}_{t-1,k}\right)\left(\mathbf{u}_{t,k}-\mathbf{A}^{(u)}_m\mathbf{u}_{t-1,k}\right)^\top\right\rangle.
+\]
+
+\textbf{Emission parameters \((\mathbf{B}_k,\mathbf{R}_{m,k})\).}
+Fix an expert \(k\in\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}}\) and denote \(\Phi_t\coloneqq \Phi(\mathbf{x}_t)\).
+For each \(t\in\mathcal{T}\) with \(I_t=k\), define the residual after removing the idiosyncratic term
+\(y_t\coloneqq e_t-\Phi_t^\top \mathbf{u}_{t,k}\in\mathbb{R}^{d_y}\) and the design matrix
+\(X_t\coloneqq (\mathbf{g}_t^\top\otimes \Phi_t^\top)\in\mathbb{R}^{d_y\times (d_g d_\alpha)}\),
+so that \(y_t=X_t\,\mathrm{vec}(\mathbf{B}_k)+v_t\) with \(v_t\sim\mathcal{N}(\mathbf{0},\mathbf{R}_{z_t,k})\).
+Here \(\otimes\) is the Kronecker product and \(\mathrm{vec}(\cdot)\) stacks matrix columns.
+Given current \((\mathbf{R}_{m,k})_{m=1}^M\), a (ridge) generalized least-squares update is
+\[
+\mathrm{vec}(\mathbf{B}_k)\leftarrow
+\Big(\sum_{t\in\mathcal{T}:I_t=k}\sum_{m=1}^M \left\langle \mathbf{1}\{z_t=m\}\,X_t^\top \mathbf{R}_{m,k}^{-1} X_t\right\rangle+\lambda_B \mathbf{I}\Big)^{-1}
+\Big(\sum_{t\in\mathcal{T}:I_t=k}\sum_{m=1}^M \left\langle \mathbf{1}\{z_t=m\}\,X_t^\top \mathbf{R}_{m,k}^{-1} y_t\right\rangle\Big).
+\]
+For each regime \(m\), define the effective count \(N_{m,k}\coloneqq\sum_{t\in\mathcal{T}:I_t=k}\gamma_t^{(m)}\).
+If \(N_{m,k}>\epsilon_N\), update the emission covariance by weighted covariance matching:
+\[
+\mathbf{R}_{m,k}
+\leftarrow
+\frac{1}{N_{m,k}}\sum_{t\in\mathcal{T}:I_t=k}\left\langle \mathbf{1}\{z_t=m\}\,r_{t,k}r_{t,k}^\top\right\rangle,
+\quad
+r_{t,k}\coloneqq e_t-\Phi_t^\top(\mathbf{B}_k\mathbf{g}_t+\mathbf{u}_{t,k}).
+\]
+
+\begin{algorithm}[H]
+\caption{\textsc{OnlineUpdate}: Sliding-Window Monte Carlo EM (non-stationary adaptation)}
+\label{alg:online_em}
+\begin{algorithmic}[1]
+\STATE {\bfseries Input:} current time $t$; stream $(\mathbf{x}_\tau,\mathcal{E}_\tau,I_\tau,e_\tau)_{\tau\le t}$; current parameters $\Theta^{(t-1)}$; window length $W$; update period $K$; EM iterations $N_{\mathrm{EM}}^{\mathrm{win}}$; MCMC settings; occupancy floor $\epsilon_N$; hyperparameters as in Algorithm~\ref{alg:trainmodel_em}.
+\STATE $\tau_0 \leftarrow t-W+1$.
+\IF{$t < W$ \textbf{or} $t \bmod K \neq 0$}
+    \STATE $\Theta^{(t)} \leftarrow \Theta^{(t-1)}$ and \textbf{return}.
+\ENDIF
+\STATE Define window $\mathcal{T}_t \leftarrow \{\tau_0,\dots,t\}$ and $\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}_t}\leftarrow \{I_\tau:\ \tau\in\mathcal{T}_t\}$.
+\STATE Initialize priors for $z_{\tau_0}$, $\mathbf{g}_{\tau_0}$, and $\{\mathbf{u}_{\tau_0,k}\}_{k\in\mathcal{K}^{\mathrm{qry}}_{\mathcal{T}_t}}$ from the stored filtering belief at time $\tau_0-1$ (plus one time-update); if unavailable, use conservative default priors.
+\STATE Run Algorithm~\ref{alg:trainmodel_em} on $\mathcal{T}_t$ with initialization $\Theta^{(t-1)}$, floor $\epsilon_N$, and $N_{\mathrm{EM}}^{\mathrm{win}}$ iterations.
+\STATE Re-run a forward filtering pass over $\mathcal{T}_t$ under $\Theta^{(t)}$ to refresh the belief at time $t$ (starting from the window-initial prior).
+\STATE {\bfseries Return:} updated parameters $\Theta^{(t)}$.
+\end{algorithmic}
+\end{algorithm}

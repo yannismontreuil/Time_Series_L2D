@@ -1558,6 +1558,47 @@ class FactorizedSLDS(SLDSIMMRouter):
             iz_avg = float(np.mean(iz_vals)) if iz_vals.size else 0.0
             iz_max = float(np.max(iz_vals)) if iz_vals.size else 0.0
             iz_sel = float(iz_scores.get(int(r_t), 0.0))
+            ig_g_vals = np.array(
+                [info_gains.get(int(k), 0.0) for k in avail_arr], dtype=float
+            )
+            ig_g_avg = float(np.mean(ig_g_vals)) if ig_g_vals.size else 0.0
+            ig_g_max = float(np.max(ig_g_vals)) if ig_g_vals.size else 0.0
+            ig_g_sel = float(info_gains.get(int(r_t), 0.0))
+            if self.exploration == "g_z":
+                ig_zg_avg = iz_avg + ig_g_avg
+                ig_zg_max = iz_max + ig_g_max
+                ig_zg_sel = iz_sel + ig_g_sel
+            else:
+                ig_zg_avg = ig_g_avg
+                ig_zg_max = ig_g_max
+                ig_zg_sel = ig_g_sel
+            greedy_k = int(min(costs, key=costs.get))
+            ids_k = None
+            ids_scores = None
+            if self.exploration in ("g", "g_z"):
+                info_gains_used: Dict[int, float] = {}
+                for k in costs:
+                    ig_val = float(info_gains.get(k, 0.0))
+                    if self.exploration == "g_z":
+                        ig_val += max(float(iz_scores.get(k, 0.0)), 0.0)
+                    info_gains_used[int(k)] = ig_val
+                min_cost = min(costs.values())
+                ids_scores = {}
+                max_score = 1e12
+                for k, cost in costs.items():
+                    delta = cost - min_cost
+                    ig = info_gains_used.get(int(k), 0.0)
+                    if ig <= self.eps:
+                        score = 0.0 if abs(delta) <= self.eps else np.inf
+                    else:
+                        score = (delta ** 2) / ig
+                        if score > max_score:
+                            score = max_score
+                    ids_scores[int(k)] = float(score)
+                if all(np.isinf(score) for score in ids_scores.values()):
+                    ids_k = greedy_k
+                else:
+                    ids_k = int(min(ids_scores, key=ids_scores.get))
             if self.exploration_diag_max_records > 0:
                 if len(self.exploration_diag_records) < self.exploration_diag_max_records:
                     self.exploration_diag_records.append((t_now, iz_avg, iz_max, iz_sel))
@@ -1567,8 +1608,23 @@ class FactorizedSLDS(SLDSIMMRouter):
                     label = "FactorizedSLDS"
                 print(
                     f"[Exploration diag] {label} t={t_now} "
-                    f"iz_avg={iz_avg:.6f} iz_max={iz_max:.6f} iz_sel={iz_sel:.6f}"
+                    f"iz_avg={iz_avg:.6f} iz_max={iz_max:.6f} iz_sel={iz_sel:.6f} "
+                    f"ig_g_avg={ig_g_avg:.6f} ig_g_max={ig_g_max:.6f} ig_g_sel={ig_g_sel:.6f} "
+                    f"ig_zg_avg={ig_zg_avg:.6f} ig_zg_max={ig_zg_max:.6f} ig_zg_sel={ig_zg_sel:.6f}"
                 )
+                if ids_scores is not None and ids_k is not None:
+                    ids_str = ", ".join(
+                        f"k{k}={v:.6f}" for k, v in sorted(ids_scores.items())
+                    )
+                    print(
+                        f"[Exploration diag] {label} t={t_now} "
+                        f"greedy={greedy_k} ids_best={ids_k} selected={int(r_t)} ids_scores: {ids_str}"
+                    )
+                else:
+                    print(
+                        f"[Exploration diag] {label} t={t_now} "
+                        f"greedy={greedy_k} selected={int(r_t)}"
+                    )
 
         # Debug diagnostics: log predictive stats before selection
         self._log_debug_diagnostics(

@@ -1,0 +1,180 @@
+\appendix
+\onecolumn
+
+\section{Appendix Roadmap}
+\label{app:roadmap}
+This appendix collects (i) implementation-ready algorithms for the router and learning routines,
+(ii) derivations underlying our exploration score, and (iii) proofs deferred from the main text.
+It is organized as follows:
+\begin{itemize}
+        \item Appendix~\ref{app:notation}: notation table for the main paper.
+	    \item Section~\ref{algo}: end-to-end router/filtering pseudocode and optional learning updates.
+	    \item Appendix~\ref{app:cross_covariance}: exact (non-factorized) Kalman update cross-covariance for the queried update.
+	    \item Section~\ref{app:info_gain}: information-gain derivations used for IDS-style exploration.
+	    \item Appendix~\ref{app:proof_cross_update}--\ref{app:transfer}: proofs of propositions.
+\end{itemize}
+
+\section{Notation}
+\label{app:notation}
+\renewcommand{\arraystretch}{1.15}
+\begin{longtable}{@{}p{0.22\linewidth}p{0.74\linewidth}@{}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\bottomrule
+\endlastfoot
+
+\multicolumn{2}{@{}l@{}}{\textbf{Time, data, and actions}} \\
+\midrule
+\(t\in[T]\) & Round index; finite horizon \(T\). \\
+\(\mathbf{x}_t\in\mathbb{R}^d\) & Observed context at round \(t\). \\
+\(\vy_t\in\mathbb{R}^{d_y}\) & Target/label at round \(t\). \\
+\(\mathcal{E}_t\) & Set of available experts at round \(t\) (may vary with time). \\
+\(I_t\in\mathcal{E}_t\) & Queried expert at round \(t\). \\
+\(\vhaty_{t,k}\in\mathbb{R}^{d_y}\) & Prediction of expert \(k\) at round \(t\). \\
+\(O_t=(I_t,\vhaty_{t,I_t},\vy_t)\) & Post-action feedback tuple at round \(t\). \\
+\(\mathcal{H}_t\) & Interaction history through the end of round \(t\). \\
+\(\mathcal{F}_t\) & Decision-time sigma-algebra (information before choosing \(I_t\)). \\
+
+\midrule
+\multicolumn{2}{@{}l@{}}{\textbf{Residuals, costs, and objective}} \\
+\midrule
+\(e_{t,k}=\vhaty_{t,k}-\vy_t\) & Signed residual of expert \(k\) at time \(t\); realized residual \(e_t=e_{t,I_t}\). \\
+\(\psi(\cdot)\) & Convex loss applied to residuals (e.g., \(\lVert\cdot\rVert_2^2\)). \\
+\(\beta_k\ge 0\) & Expert-specific query fee. \\
+\(C_{t,k}=\psi(e_{t,k})+\beta_k\) & Routing cost for expert \(k\); realized cost \(C_t=C_{t,I_t}\). \\
+\(J(\pi)=\mathbb{E}\!\left[\sum_{t=1}^T C_{t,I_t}\right]\) & Expected cumulative cost of policy \(\pi\). \\
+\(k_t^\star\) & Myopic Bayes benchmark minimizing \(\mathbb{E}[C_{t,k}\mid\mathcal{F}_t]\) over \(k\in\mathcal{E}_t\). \\
+
+\midrule
+\multicolumn{2}{@{}l@{}}{\textbf{Latent-state model (factorized switching LDS)}} \\
+\midrule
+\(z_t\in\{1,\dots,M\}\) & Discrete latent regime at round \(t\); \(M\) regimes. \\
+\(\Pi_\theta(\mathbf{x}_t)\in[0,1]^{M\times M}\) & Context-dependent transition matrix; \(\mathbb{P}(z_t=m\mid z_{t-1}=\ell,\mathbf{x}_t)=\Pi_\theta(\mathbf{x}_t)_{\ell m}\). \\
+\(\theta\) & Parameters of the context-dependent transition model \(\Pi_\theta(\mathbf{x}_t)\). \\
+\(d_{\mathrm{attn}}\) & Bottleneck dimension in the low-rank transition-parameterization. \\
+\(\mathbf{g}_t\in\mathbb{R}^{d_g}\) & Shared global latent factor coupling experts. \\
+\(\mathbf{u}_{t,k}\in\mathbb{R}^{d_\alpha}\) & Expert-specific idiosyncratic latent state. \\
+\(\mathbf{A}^{(g)}_m,\mathbf{Q}^{(g)}_m\) & Regime-\(m\) dynamics matrix and process noise covariance for \(\mathbf{g}_t\). \\
+\(\mathbf{A}^{(u)}_m,\mathbf{Q}^{(u)}_m\) & Regime-\(m\) dynamics matrix and process noise covariance for \(\mathbf{u}_{t,k}\) (shared across experts). \\
+\(\Phi(\mathbf{x}_t)\) & Feature map used in the residual emission mean. \\
+\(\mathbf{B}_k\in\mathbb{R}^{d_\alpha\times d_g}\) & Expert-specific loading matrix coupling \(\mathbf{g}_t\) into expert \(k\)'s residual model. \\
+\(\boldsymbol\alpha_{t,k}=\mathbf{B}_k\mathbf{g}_t+\mathbf{u}_{t,k}\) & Latent ``reliability'' vector of expert \(k\) at time \(t\). \\
+\(\mathbf{R}_{m,k}\in\mathbb{S}^{d_y}_{++}\) & Regime- and expert-specific emission noise covariance. \\
+\(\Theta\) & Collection of model parameters (e.g., \(\Pi_\theta\), \((\mathbf{A}^{(g)}_m,\mathbf{Q}^{(g)}_m)_m\), \((\mathbf{A}^{(u)}_m,\mathbf{Q}^{(u)}_m)_m\), \((\mathbf{B}_k)_k\), \((\mathbf{R}_{m,k})_{m,k}\)). \\
+
+\midrule
+\multicolumn{2}{@{}l@{}}{\textbf{Filtering, prediction, and routing scores}} \\
+\midrule
+\(\bar w_t^{(m)}=\mathbb{P}(z_t=m\mid\mathcal{F}_t)\) & Predictive (pre-observation) regime weight. \\
+\(w_t^{(m)}=\mathbb{P}(z_t=m\mid\mathcal{F}_t,I_t,e_t)\) & Filtering (post-observation) regime weight. \\
+\(\gamma_t^{(m)}\) & Posterior regime responsibility used in (Monte Carlo) EM. \\
+\(\xi_{t-1}^{(\ell,m)}\) & Posterior transition responsibility used in (Monte Carlo) EM. \\
+\(e_{t,k}^{\mathrm{pred}}\) & One-step-ahead predictive residual random variable for expert \(k\). \\
+\(\bar C_{t,k}^{\mathrm{pred}}\) & Predicted cost: \(\mathbb{E}[\psi(e_{t,k}^{\mathrm{pred}})\mid\mathcal{F}_t]+\beta_k\). \\
+\(k_t^{\mathrm{pred}}\) & Myopic predicted-cost minimizer in \(\mathcal{E}_t\). \\
+\(\Delta_t(k)\) & Predicted cost gap relative to \(k_t^{\mathrm{pred}}\). \\
+\(\mathrm{IG}_t(k)\) & Information gain: \(\mathcal{I}((z_t,\mathbf{g}_t);e_{t,k}^{\mathrm{pred}}\mid\mathcal{F}_t)\). \\
+\(\epsilon_w\) & Mixing floor for predictive mode weights \(\bar w_t^{(m)}\) in IMM updates. \\
+\(\epsilon_{\mathrm{IG}}\) & Information-gain floor used in IDS (avoids division by zero and clamps Monte Carlo noise). \\
+\(S\) & Monte Carlo sample size used to estimate the mode-identification term in \(\mathrm{IG}_t(k)\). \\
+
+\midrule
+\multicolumn{2}{@{}l@{}}{\textbf{Dynamic registry management}} \\
+\midrule
+\(\mathcal{K}_t\) & Maintained expert registry: experts for which per-expert filtering marginals (hence \(\mathbf{u}_{t,k}\)) are stored. \\
+\(\mathcal{E}_t^{\mathrm{init}}=\mathcal{E}_t\setminus \mathcal{K}_{t-1}\) & Entering experts at round \(t\) (new or re-entering after pruning). \\
+\(\tau_{\mathrm{last}}(k)\) & Last round at which expert \(k\) was queried. \\
+\(\Delta_{\max}\) & Staleness horizon controlling pruning. \\
+\(\mathcal{K}_t^{\mathrm{stale}}\) & Stale experts eligible for pruning. \\
+\end{longtable}
+\renewcommand{\arraystretch}{1}
+
+\section{L2D-SLDS Probabilistic Model}
+We report the complete probabilistic graphical model of our L2D-SLDS with censored feedback and context-dependent
+regime switching in Figure~\ref{fig:slds_pgm_final}.
+\begin{figure}[H]
+    \centering
+%    \resizebox{0.25\textwidth}{!}{
+    \begin{tikzpicture}[
+    node distance=1.5cm and 3cm,
+    >=latex,
+    thick,
+    latent_node/.style={latent, minimum size=1cm},
+    obs_node/.style={obs, minimum size=1cm},
+    rcurinfo_node/.style={latent, minimum size=1cm},
+    action_node/.style={draw, rectangle, minimum size=0.9cm},
+    param_edge/.style={->, dashed, color=gray!80}
+]
+
+% --- NODES ---
+\node[latent_node] (zt_prev) {$z_{t-1}$};
+\node[latent_node, right=of zt_prev] (zt) {$z_t$};
+\node[latent_node, right=of zt] (zt_next) {$z_{t+1}$};
+
+\node[obs_node, above=1.2cm of zt] (xt) {$\mathbf{x}_t$};
+
+\node[latent_node, below=1.8cm of zt_prev] (gt_prev) {$\mathbf{g}_{t-1}$};
+\node[latent_node, right=of gt_prev] (gt) {$\mathbf{g}_t$};
+
+\node[latent_node, below=1.8cm of gt_prev] (ut_prev) {$\mathbf{u}_{t-1,j}$};
+\node[latent_node, right=of ut_prev] (ut) {$\mathbf{u}_{t,j}$};
+
+\node[obs_node, below=1.5cm of ut] (lt) {$e_{t,j}$};
+
+% Plate over maintained registry
+\plate {experts} {(ut_prev)(ut)(lt)} {$j \in \mathcal{K}_t$};
+
+% Availability and action
+\node[obs_node, right=4cm of ut] (Kt) {$\mc{E}_t$};
+\node[action_node, below=1.5cm of Kt] (rt) {$I_t$};
+
+% --- EDGES ---
+\edge {zt_prev} {zt};
+\edge {zt} {zt_next};
+\edge {gt_prev} {gt};
+\edge {ut_prev} {ut};
+
+\draw[param_edge] (zt) to [bend right=20] node[pos=0.3, midway, right, font=\tiny] {$A^{(g)}_{z_t},Q^{(g)}_{z_t}$} (gt);
+\draw[param_edge] (zt.south east) to [bend left=45] node[pos=0.7, right, font=\tiny, xshift=2pt] {$A^{(u)}_{z_t},Q^{(u)}_{z_t}$} (ut.north east);
+
+\draw[->] (gt) to [bend left=45] (lt);
+\edge {ut} {lt};
+
+\draw[param_edge]
+  (xt)
+  to
+  node[pos=0.5, right, font=\tiny, xshift=2pt]
+  {$\Pi_\theta(\cdot,\cdot\mid \mathbf{x}_t)$}
+  (zt);
+
+\draw[->] (xt.east) to [out=0, in=0, looseness=1] node[midway, right, font=\small] {$\Phi(\mathbf{x}_t)$} (lt.east);
+
+\edge {Kt} {rt};
+
+% Selection affects what is observed (not what is generated)
+\draw[->, dotted] (rt) -- (lt) node[midway, above, font=\tiny] {reveals};
+
+\end{tikzpicture}
+%}
+    \caption{L2D-SLDS with bandit feedback and \emph{context-dependent} regime switching:
+\(p(z_t\mid z_{t-1},\mathbf{x}_t)\). The plate \(j\in\mathcal{K}_t\) indexes experts whose
+idiosyncratic states are stored. Each \(e_{t,j}\) is a \emph{potential} residual, but only \(e_{t,I_t}\)
+is revealed at round \(t\).}
+    \label{fig:slds_pgm_final}
+\end{figure}
+
+\section{Algorithms} \label{algo}
+\input{Section/AppendixParts/alg_router}
+\input{Section/AppendixParts/alg_learning}
+\input{Section/AppendixParts/derivations}
+\input{Section/AppendixParts/info_gain}
+\input{Section/AppendixParts/proofs}
+\input{Section/AppendixParts/Experiments}

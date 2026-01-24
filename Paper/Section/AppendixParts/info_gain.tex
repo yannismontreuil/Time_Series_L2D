@@ -1,0 +1,262 @@
+% =========================
+% Information Gain Details
+% =========================
+\section{Information Gain for Exploration}
+\label{app:info_gain}
+
+\begin{remark}[$(z_t,\mathbf{g}_t)$-Information Gain for Non-Stationary Routing]
+\label{rmk:zg_information}
+Algorithm~\ref{alg:router_main} uses the \emph{full} $(z_t,\mathbf{g}_t)$-information gain rather than
+conditioning only on $\mathbf{g}_t$. By the chain rule for mutual information:
+\begin{equation}
+\label{eq:ig_chain_rule_rmk}
+\mathcal{I}\!\left((z_t,\mathbf{g}_t);e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right)
+=
+\underbrace{\mathcal{I}\!\left(z_t;e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right)}_{\text{mode-identification}}
++
+\underbrace{\mathcal{I}\!\left(\mathbf{g}_t;e_{t,k}^{\mathrm{pred}}\,\middle|\,z_t,\mathcal{F}_t\right)}_{\text{shared-factor refinement}}.
+\end{equation}
+The first term measures how much observing the residual $e_{t,k}^{\mathrm{pred}}$ helps identify the current
+regime $z_t$. This is crucial for non-stationarity: when modes have distinct predictive distributions, querying
+an expert whose residual discriminates between regimes accelerates adaptation to regime changes.
+\end{remark}
+\textbf{Why both terms matter:}
+\begin{itemize}
+\item \emph{Shared-factor refinement} (closed-form): Reduces posterior uncertainty about $\mathbf{g}_t$,
+improving predictions for \emph{all} experts via Proposition~\ref{prop:cross_update}.
+\item \emph{Mode-identification} (Monte Carlo): Reduces uncertainty about $z_t$, ensuring the router uses
+the correct dynamics parameters $(\mathbf{A}_m^{(g)},\mathbf{Q}_m^{(g)},\mathbf{A}_m^{(u)},\mathbf{Q}_m^{(u)},\mathbf{R}_{m,k})$.
+\end{itemize}
+
+\textbf{Computational note:} The mode-identification term requires Monte Carlo estimation because the
+predictive distribution $p(e_{t,k}^{\mathrm{pred}}\mid\mathcal{F}_t)$ is a Gaussian mixture, for which KL divergence has no
+closed form. The LogSumExp trick ensures numerical stability. With $S=50$ samples per expert, the overhead is
+negligible compared to the SLDS update cost.
+
+
+\subsection{Exploration via \((z_t,\mathbf{g}_t)\)-information}
+\label{sec:exploration_zg}
+
+Bandit feedback reveals only the queried expert's residual, so the router must trade off
+\emph{exploitation} (low immediate cost) against \emph{learning} (reducing posterior uncertainty to
+improve future decisions).
+In our IMM-factorized SLDS, two latent objects drive both non-stationarity and cross-expert transfer:
+the regime \(z_t\in\{1,\dots,M\}\) and the shared factor \(\mathbf{g}_t\) (Proposition~\ref{prop:cross_update}).
+We therefore score exploration by the information gained about the \emph{joint} latent state
+\((z_t,\mathbf{g}_t)\) from the (potential) queried residual.
+Throughout, logarithms are natural unless stated otherwise, so mutual information is measured in nats
+(replace \(\log\) by \(\log_2\) to obtain bits).
+We reuse the core SLDS/IMM notation from the main text: \(\Phi(\mathbf{x}_t)\), \(\mathbf{B}_k\),
+\(\bar{w}_t^{(m)}=\mathbb{P}(z_t=m\mid\mathcal{F}_t)\), and the predictive moments
+\((\mu^{(m)}_{g,t\mid t-1},\Sigma^{(m)}_{g,t\mid t-1})\), \((\mu^{(m)}_{u,k,t\mid t-1},\Sigma^{(m)}_{u,k,t\mid t-1})\), and \(\mathbf{R}_{m,k}\).
+For Monte Carlo, we use \(\tilde{\cdot}\) to denote sampled quantities and write
+\(\tilde z\sim \mathrm{Cat}((\bar{w}_t^{(m)})_{m=1}^M)\) for a categorical draw from the mode weights.
+
+\paragraph{Decision-time predictive random variables.}
+At round \(t\), the decision-time sigma-algebra is
+\(
+\mathcal{F}_t=\sigma(\mathcal{H}_{t-1},\mathbf{x}_t,\mathcal{E}_t)
+\)
+and the router chooses \(I_t\in\mathcal{E}_t\).
+For each available expert \(k\in\mathcal{E}_t\), define the pre-query predictive residual random variable
+\begin{equation}
+\label{eq:exp_pred_rv}
+e_{t,k}^{\mathrm{pred}} \sim p(e_{t,k}\mid \mathcal{F}_t).
+\end{equation}
+If \(I_t=k\), the realized observation is \(e_t=e_{t,k}\) and
+\(
+e_t \mid (\mathcal{F}_t,I_t=k)\overset{d}{=} e_{t,k}^{\mathrm{pred}}\mid \mathcal{F}_t.
+\)
+
+\paragraph{Per-mode linear-Gaussian predictive parametrization (IMM outputs).}
+Fix a regime \(z_t=m\).
+The IMM predictive step yields a Gaussian predictive prior for the shared factor:
+\begin{equation}
+\label{eq:exp_g_prior}
+\mathbf{g}_t\mid(\mathcal{F}_t,z_t=m)\sim
+\mathcal{N}\!\left(\mu^{(m)}_{g,t\mid t-1},\,\Sigma^{(m)}_{g,t\mid t-1}\right).
+\end{equation}
+Under the factorized predictive belief, querying expert \(k\) induces the linear-Gaussian observation channel
+\begin{equation}
+\label{eq:exp_channel}
+e_{t,k}^{\mathrm{pred}} \mid (\mathbf{g}_t,\mathcal{F}_t,z_t=m)
+\sim
+\mathcal{N}\!\big(\mathbf{H}_{t,k}\mathbf{g}_t + \mathbf{b}^{(m)}_{t,k},\, \mathbf{S}^{(m)}_{t,k}\big),
+\end{equation}
+with mode-specific quantities
+\begin{equation}
+\label{eq:exp_channel_params}
+\begin{aligned}
+\mathbf{H}_{t,k} &\coloneqq \Phi(\mathbf{x}_t)^\top \mathbf{B}_k\in\mathbb{R}^{d_y\times d_g},\\
+\mathbf{b}^{(m)}_{t,k} &\coloneqq \Phi(\mathbf{x}_t)^\top \mu^{(m)}_{u,k,t\mid t-1}\in\mathbb{R}^{d_y},\\
+\mathbf{S}^{(m)}_{t,k} &\coloneqq
+\Phi(\mathbf{x}_t)^\top \Sigma^{(m)}_{u,k,t\mid t-1}\Phi(\mathbf{x}_t) + \mathbf{R}_{m,k}\in\mathbb{S}^{d_y}_{++}.
+\end{aligned}
+\end{equation}
+
+\paragraph{Exploitation score: predictive cost and gap.}
+Recall the realized cost \(C_{t,k}=\psi(e_{t,k})+\beta_k\), where \(\beta_k\ge 0\) is the known query
+fee.
+In practice, we use squared loss,
+\begin{equation}
+\label{eq:exp_squared_loss}
+\psi(u)=\lVert u\rVert_2^2,
+\end{equation}
+and we will simplify expressions accordingly; nothing in the \((z_t,\mathbf{g}_t)\)-information score
+depends on this choice.
+Define the predictive (virtual) cost random variable
+\begin{equation}
+\label{eq:exp_virtual_cost}
+C_{t,k}^{\mathrm{pred}}
+\coloneqq
+\psi(e_{t,k}^{\mathrm{pred}})+\beta_k,
+\qquad k\in\mathcal{E}_t,
+\end{equation}
+with conditional mean
+\begin{equation}
+\label{eq:exp_mean_cost}
+\bar C_{t,k}^{\mathrm{pred}}\coloneqq \mathbb{E}\!\left[C_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right]
+=
+\mathbb{E}\!\left[\psi(e_{t,k}^{\mathrm{pred}})\,\middle|\,\mathcal{F}_t\right]+\beta_k.
+\end{equation}
+Let \(k_t^{\mathrm{pred}}\in\arg\min_{k\in\mathcal{E}_t}\bar C_{t,k}^{\mathrm{pred}}\) and define the predictive gap
+\begin{equation}
+\label{eq:exp_gap}
+\Delta_t(k)\coloneqq \bar C_{t,k}^{\mathrm{pred}}-\bar C_{t,k_t^{\mathrm{pred}}}^{\mathrm{pred}}\ge 0.
+\end{equation}
+
+\paragraph{Computing \(\bar C_{t,k}^{\mathrm{pred}}\) from per-mode moments.}
+From \eqref{eq:exp_g_prior}--\eqref{eq:exp_channel}, the mode-conditioned predictive residual is Gaussian with
+\begin{align}
+\label{eq:exp_residual_mean}
+\bar e_{t,k}^{\mathrm{pred},(m)}
+&\coloneqq
+\mathbb{E}\!\left[e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t,z_t=m\right]
+=
+\mathbf{H}_{t,k}\mu^{(m)}_{g,t\mid t-1}+\mathbf{b}^{(m)}_{t,k}\in\mathbb{R}^{d_y},\\
+\label{eq:exp_residual_var}
+\Sigma_{t,k}^{\mathrm{pred},(m)}
+&\coloneqq
+\mathrm{Cov}\!\left(e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t,z_t=m\right)
+=
+\mathbf{H}_{t,k}\Sigma^{(m)}_{g,t\mid t-1}\mathbf{H}_{t,k}^\top+\mathbf{S}^{(m)}_{t,k}\in\mathbb{S}^{d_y}_{++}.
+\end{align}
+Let \(\bar{w}_t^{(m)}=\mathbb{P}(z_t=m\mid\mathcal{F}_t)\).
+Then \(p(e_{t,k}^{\mathrm{pred}}\mid\mathcal{F}_t)=\sum_{m=1}^M \bar{w}_t^{(m)}\,\mathcal{N}(\bar e_{t,k}^{\mathrm{pred},(m)},\Sigma_{t,k}^{\mathrm{pred},(m)})\).
+For general \(\psi\),
+\begin{equation}
+\label{eq:exp_cost_mix}
+\mathbb{E}\!\left[\psi(e_{t,k}^{\mathrm{pred}})\,\middle|\,\mathcal{F}_t\right]
+=
+\sum_{m=1}^M \bar{w}_t^{(m)}\,
+\mathbb{E}\!\left[\psi(E)\right]_{E\sim\mathcal{N}(\bar e_{t,k}^{\mathrm{pred},(m)},\Sigma_{t,k}^{\mathrm{pred},(m)})}.
+\end{equation}
+In the squared-loss case \(\psi(e)=\lVert e\rVert_2^2\) from \eqref{eq:exp_squared_loss}, we have
+\(\mathbb{E}[\lVert E\rVert_2^2]=\mathrm{tr}(\Sigma)+\lVert \mu\rVert_2^2\), hence
+\begin{equation}
+\label{eq:exp_square_loss_mix}
+\bar C_{t,k}^{\mathrm{pred}}
+=
+\left(\sum_{m=1}^M \bar{w}_t^{(m)}\big(\mathrm{tr}(\Sigma_{t,k}^{\mathrm{pred},(m)})+\lVert \bar e_{t,k}^{\mathrm{pred},(m)}\rVert_2^2\big)\right)+\beta_k.
+\end{equation}
+
+\paragraph{Learning score: information about \((z_t,\mathbf{g}_t)\).}
+Define the \((z_t,\mathbf{g}_t)\)-information gain of querying expert \(k\) by
+\begin{equation}
+\label{eq:exp_ig_zg_def}
+\mathrm{IG}_t(k)
+\coloneqq
+\mathcal{I}\!\left((z_t,\mathbf{g}_t);\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right).
+\end{equation}
+By the chain rule,
+\begin{align}
+\label{eq:exp_ig_zg_chain}
+\mathrm{IG}_t(k)
+&=
+\mathcal{I}\!\left(z_t;\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right)
++
+\mathcal{I}\!\left(\mathbf{g}_t;\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t,z_t\right)\\
+&=
+\underbrace{\mathcal{I}\!\left(z_t;\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right)}_{\text{mode-identification}}
++
+\underbrace{\sum_{m=1}^M \bar{w}_t^{(m)}\,
+\mathcal{I}\!\left(\mathbf{g}_t;\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t,z_t=m\right)}_{\text{shared-factor refinement}}.
+\end{align}
+The second term admits a closed form per mode; the first term is an information quantity for a
+\(d_y\)-dimensional Gaussian mixture that can be computed accurately with light Monte Carlo.
+
+\paragraph{Closed form: \(\mathcal{I}(\mathbf{g}_t;e_{t,k}^{\mathrm{pred}}\mid \mathcal{F}_t,z_t=m)\).}
+Fix \(z_t=m\).
+Let \(G\coloneqq \mathbf{g}_t\) and \(Y\coloneqq e_{t,k}^{\mathrm{pred}}\).
+Equation \eqref{eq:exp_channel} implies the affine Gaussian channel
+\(
+Y=\mathbf{H}_{t,k}G+\mathbf{b}^{(m)}_{t,k}+\varepsilon
+\)
+with \(\varepsilon\sim\mathcal{N}(\mathbf{0},\mathbf{S}^{(m)}_{t,k})\) independent of \(G\).
+Then
+\begin{equation}
+\label{eq:exp_ig_g_mode}
+\mathcal{I}\!\left(\mathbf{g}_t;\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t,z_t=m\right)
+=
+\frac12\log\det\!\left(\mathbf{I}_{d_y}+\mathbf{H}_{t,k}\Sigma^{(m)}_{g,t\mid t-1}\mathbf{H}_{t,k}^\top(\mathbf{S}^{(m)}_{t,k})^{-1}\right).
+\end{equation}
+
+\paragraph{Monte Carlo: \(\mathcal{I}(z_t;e_{t,k}^{\mathrm{pred}}\mid\mathcal{F}_t)\) for a Gaussian mixture.}
+Let \(p_m(e)\coloneqq p(e_{t,k}^{\mathrm{pred}}=e\mid \mathcal{F}_t,z_t=m)=\mathcal{N}(e;\bar e_{t,k}^{\mathrm{pred},(m)},\Sigma_{t,k}^{\mathrm{pred},(m)})\) and
+\(
+p_{\mathrm{mix}}(e)\coloneqq \sum_{m=1}^M \bar{w}_t^{(m)}p_m(e).
+\)
+Then
+\begin{align}
+\label{eq:exp_iz_mc}
+\mathcal{I}\!\left(z_t;\ e_{t,k}^{\mathrm{pred}}\,\middle|\,\mathcal{F}_t\right)
+&=
+\sum_{m=1}^M \bar{w}_t^{(m)}\,\mathrm{KL}\!\left(p_m\ \middle\|\ p_{\mathrm{mix}}\right)\\
+&=
+\sum_{m=1}^M \bar{w}_t^{(m)}\,
+\mathbb{E}_{E\sim p_m}\!\left[\log p_m(E)-\log p_{\mathrm{mix}}(E)\right].
+\end{align}
+This suggests the estimator (with \(S\) samples per mode):
+\begin{equation}
+\label{eq:exp_iz_estimator}
+\widehat{\mathcal{I}}_t^{(z)}(k)
+\coloneqq
+\sum_{m=1}^M \bar{w}_t^{(m)}\left(\frac{1}{S}\sum_{s=1}^S \Big[\log p_m(E_{m,s})-\log p_{\mathrm{mix}}(E_{m,s})\Big]\right),
+\qquad
+E_{m,s}\overset{\text{iid}}{\sim}\mathcal{N}(\bar e_{t,k}^{\mathrm{pred},(m)},\Sigma_{t,k}^{\mathrm{pred},(m)}).
+\end{equation}
+
+\paragraph{Stable evaluation of \(\log p_{\mathrm{mix}}(e)\).}
+Compute Gaussian log-densities via
+\begin{equation}
+\label{eq:exp_logpdf_gauss}
+\log \mathcal{N}(e;\mu,\Sigma)
+=
+-\frac12\left(d_y\log(2\pi)+\log\det(\Sigma)+(e-\mu)^\top \Sigma^{-1}(e-\mu)\right).
+\end{equation}
+Define \(\ell_m(e)\coloneqq \log \bar{w}_t^{(m)}+\log \mathcal{N}(e;\bar e_{t,k}^{\mathrm{pred},(m)},\Sigma_{t,k}^{\mathrm{pred},(m)})\).
+Then compute \(\log p_{\mathrm{mix}}(e)\) by a stable log-sum-exp:
+\begin{equation}
+\label{eq:exp_logmix_lse}
+\log p_{\mathrm{mix}}(e)
+=
+\log\!\left(\sum_{m=1}^M e^{\ell_m(e)}\right)
+=
+a(e)+\log\!\left(\sum_{m=1}^M e^{\ell_m(e)-a(e)}\right),
+\qquad
+a(e)\coloneqq \max_{m\in\{1,\dots,M\}} \ell_m(e).
+\end{equation}
+
+\paragraph{Final \((z_t,\mathbf{g}_t)\)-information gain.}
+Combine \eqref{eq:exp_ig_zg_chain}, \eqref{eq:exp_ig_g_mode}, and \eqref{eq:exp_iz_estimator}:
+\begin{equation}
+\label{eq:exp_ig_zg_final}
+\widehat{\mathrm{IG}}_t(k)
+\coloneqq
+\widehat{\mathcal{I}}_t^{(z)}(k)
++
+\sum_{m=1}^M \bar{w}_t^{(m)}\,
+\frac12\log\det\!\left(\mathbf{I}_{d_y}+\mathbf{H}_{t,k}\Sigma^{(m)}_{g,t\mid t-1}\mathbf{H}_{t,k}^\top(\mathbf{S}^{(m)}_{t,k})^{-1}\right).
+\end{equation}
+In Algorithm~\ref{alg:router_main}, we use \(\mathrm{IG}_t(k)\) as a shorthand for this computable estimate \(\widehat{\mathrm{IG}}_t(k)\).
+
