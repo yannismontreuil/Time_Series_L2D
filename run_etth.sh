@@ -8,7 +8,6 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --time=2:00:00
 #SBATCH --array=0-2
-#SBATCH --nodelist=xcnf[6-25]
 #SBATCH --mail-user=yannis.montreuil@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
 

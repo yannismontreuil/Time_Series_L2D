@@ -161,7 +161,7 @@ routers:
     em_enabled: true
     em_offline_full_feedback: true
     em_tk: 4000
-    em_n: 10
+    em_n: 15
     em_samples: 10
     em_burn_in: 5
     em_use_validation: true
