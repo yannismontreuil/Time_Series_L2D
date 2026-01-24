@@ -1,0 +1,39 @@
+=================================================
+Job ID: 322534
+Node: xcnf6
+Start time: Sat Jan 24 11:43:29 PM +08 2026
+Working directory: /home/y/yuletian/TS_final/Time_Series_L2D
+=================================================
+Running ETTh1 hyperparameter sweep under Slurm (array)...
+-------------------------------------------------
+Array task: 0
+Run 1: em_online_enabled=true em_online_window=400 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1 em_online_n=1 em_online_samples=20 em_online_burn_in=3
+Config: /home/y/yuletian/TS_final/Time_Series_L2D/out/etth1_sweep_322534/config_etth1_online_1.yaml
+Starting Python script...
+Loaded configuration from /home/y/yuletian/TS_final/Time_Series_L2D/out/etth1_sweep_322534/config_etth1_online_1.yaml using YAML parser.
+Using num_regimes = 2.
+Warning: using default transition matrix Pi.
+
+--- Running L2D SLDS Router (partial, attention, g_z) ---
+
+--- Running L2D SLDS Router (full, attention, g_z) ---
+
+--- FactorizedSLDS EM (L2D SLDS w/ $g_t$ attention (g_z) full) (t=1..1700, n_em=3) ---
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1 iz_avg=0.003634 iz_max=0.005922 iz_sel=0.003199 ig_g_avg=1.171835 ig_g_max=1.171835 ig_g_sel=1.171835 ig_zg_avg=1.171835 ig_zg_max=1.171835 ig_zg_sel=1.171835
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.000000, k2=0.000000, k3=0.000000, k5=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=201 iz_avg=0.021783 iz_max=0.027332 iz_sel=0.017466 ig_g_avg=1.204826 ig_g_max=1.204826 ig_g_sel=1.204826 ig_zg_avg=1.204826 ig_zg_max=1.204826 ig_zg_sel=1.204826
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=201 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.282409, k1=1.385323, k2=0.000000, k3=2295.531880, k5=472473.244796
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=401 iz_avg=0.003081 iz_max=0.005580 iz_sel=0.003414 ig_g_avg=1.286765 ig_g_max=1.286765 ig_g_sel=1.286765 ig_zg_avg=1.286765 ig_zg_max=1.286765 ig_zg_sel=1.286765
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=97.960240, k2=1657.409487, k3=40626.928314, k5=1067456.070553
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=601 iz_avg=0.001641 iz_max=0.002621 iz_sel=0.001396 ig_g_avg=1.290920 ig_g_max=1.290920 ig_g_sel=1.290920 ig_zg_avg=1.290920 ig_zg_max=1.290920 ig_zg_sel=1.290920
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=27.167968, k2=4111.995164, k3=66254.193305, k5=1426328.116819
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=801 iz_avg=0.012542 iz_max=0.017184 iz_sel=0.016626 ig_g_avg=1.236428 ig_g_max=1.236428 ig_g_sel=1.236428 ig_zg_avg=1.236428 ig_zg_max=1.236428 ig_zg_sel=1.236428
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.055470, k1=36.589766, k2=0.000000, k3=3944.080238, k5=468708.940206
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1001 iz_avg=0.013819 iz_max=0.017493 iz_sel=0.009712 ig_g_avg=1.245908 ig_g_max=1.245910 ig_g_sel=1.245910 ig_zg_avg=1.245908 ig_zg_max=1.245910 ig_zg_sel=1.245910
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1001 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=480.673398, k3=29692.429764, k4=0.315613, k5=1146765.335774
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1201 iz_avg=0.007093 iz_max=0.016915 iz_sel=0.004880 ig_g_avg=1.269092 ig_g_max=1.269092 ig_g_sel=1.269092 ig_zg_avg=1.269092 ig_zg_max=1.269092 ig_zg_sel=1.269092
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1201 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=530.721199, k3=31251.471396, k4=5.710685, k5=1203323.497338
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1401 iz_avg=0.046316 iz_max=0.057095 iz_sel=0.037600 ig_g_avg=1.077281 ig_g_max=1.077281 ig_g_sel=1.077281 ig_zg_avg=1.077281 ig_zg_max=1.077281 ig_zg_sel=1.077281
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1401 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=0.767776, k3=9.671963, k4=0.299106, k5=231892.329006
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1601 iz_avg=0.022410 iz_max=0.026032 iz_sel=0.026032 ig_g_avg=1.209360 ig_g_max=1.209360 ig_g_sel=1.209360 ig_zg_avg=1.209360 ig_zg_max=1.209360 ig_zg_sel=1.209360
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1601 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=1.008741, k3=4487.456196, k4=2.533204, k5=634034.036398

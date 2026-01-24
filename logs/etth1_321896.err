@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "/home/y/yuletian/TS_final/Time_Series_L2D/slds_imm_router.py", line 1458, in <module>
+    fact_router_partial = _build_factorized_router(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/y/yuletian/TS_final/Time_Series_L2D/slds_imm_router.py", line 1364, in _build_factorized_router
+    return FactorizedSLDS(
+           ^^^^^^^^^^^^^^^
+  File "/home/y/yuletian/TS_final/Time_Series_L2D/models/factorized_slds.py", line 134, in __init__
+    self.A_g = self._normalize_matrix(A_g, self.d_g)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/y/yuletian/TS_final/Time_Series_L2D/models/factorized_slds.py", line 331, in _normalize_matrix
+    raise ValueError("A must have shape (M, d, d).")
+ValueError: A must have shape (M, d, d).

@@ -1,0 +1,978 @@
+=================================================
+Job ID: 322033
+Node: xcnf23
+Start time: Sat Jan 24 06:09:05 PM +08 2026
+Working directory: /home/y/yuletian/TS_final/Time_Series_L2D
+=================================================
+Running ETTh2 hyperparameter sweep under Slurm (array)...
+-------------------------------------------------
+Array task: 2
+Run 3: em_online_enabled=true em_online_window=800 em_online_period=500 em_online_theta_lr=0.002 em_online_theta_steps=1 em_online_n=1 em_online_samples=20 em_online_burn_in=5
+Config: /home/y/yuletian/TS_final/Time_Series_L2D/out/etth1_sweep_322033/config_etth2_online_3.yaml
+Starting Python script...
+Loaded configuration from /home/y/yuletian/TS_final/Time_Series_L2D/out/etth1_sweep_322033/config_etth2_online_3.yaml using YAML parser.
+Using num_regimes = 2.
+Warning: using default transition matrix Pi.
+
+--- Running L2D SLDS Router (partial, attention, g_z) ---
+
+--- Running L2D SLDS Router (full, attention, g_z) ---
+
+--- FactorizedSLDS EM (L2D SLDS w/ $g_t$ attention (g_z) full) (t=1..1700, n_em=3) ---
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1 iz_avg=0.003634 iz_max=0.005922 iz_sel=0.003199 ig_g_avg=1.171835 ig_g_max=1.171835 ig_g_sel=1.171835 ig_zg_avg=1.171835 ig_zg_max=1.171835 ig_zg_sel=1.171835
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.000000, k2=0.000000, k3=0.000000, k5=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=201 iz_avg=0.021783 iz_max=0.027332 iz_sel=0.017466 ig_g_avg=1.204826 ig_g_max=1.204826 ig_g_sel=1.204826 ig_zg_avg=1.204826 ig_zg_max=1.204826 ig_zg_sel=1.204826
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=201 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.282409, k1=1.385323, k2=0.000000, k3=2295.531880, k5=472473.244796
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=401 iz_avg=0.003081 iz_max=0.005580 iz_sel=0.003414 ig_g_avg=1.286765 ig_g_max=1.286765 ig_g_sel=1.286765 ig_zg_avg=1.286765 ig_zg_max=1.286765 ig_zg_sel=1.286765
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=97.960240, k2=1657.409487, k3=40626.928314, k5=1067456.070553
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=601 iz_avg=0.001641 iz_max=0.002621 iz_sel=0.001396 ig_g_avg=1.290920 ig_g_max=1.290920 ig_g_sel=1.290920 ig_zg_avg=1.290920 ig_zg_max=1.290920 ig_zg_sel=1.290920
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=27.167968, k2=4111.995164, k3=66254.193305, k5=1426328.116819
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=801 iz_avg=0.012542 iz_max=0.017184 iz_sel=0.016626 ig_g_avg=1.236428 ig_g_max=1.236428 ig_g_sel=1.236428 ig_zg_avg=1.236428 ig_zg_max=1.236428 ig_zg_sel=1.236428
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.055470, k1=36.589766, k2=0.000000, k3=3944.080238, k5=468708.940206
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1001 iz_avg=0.013819 iz_max=0.017493 iz_sel=0.009712 ig_g_avg=1.245908 ig_g_max=1.245910 ig_g_sel=1.245910 ig_zg_avg=1.245908 ig_zg_max=1.245910 ig_zg_sel=1.245910
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1001 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=480.673398, k3=29692.429764, k4=0.315613, k5=1146765.335774
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1201 iz_avg=0.007093 iz_max=0.016915 iz_sel=0.004880 ig_g_avg=1.269092 ig_g_max=1.269092 ig_g_sel=1.269092 ig_zg_avg=1.269092 ig_zg_max=1.269092 ig_zg_sel=1.269092
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1201 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=530.721199, k3=31251.471396, k4=5.710685, k5=1203323.497338
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1401 iz_avg=0.046316 iz_max=0.057095 iz_sel=0.037600 ig_g_avg=1.077281 ig_g_max=1.077281 ig_g_sel=1.077281 ig_zg_avg=1.077281 ig_zg_max=1.077281 ig_zg_sel=1.077281
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1401 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=0.767776, k3=9.671963, k4=0.299106, k5=231892.329006
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1601 iz_avg=0.022410 iz_max=0.026032 iz_sel=0.026032 ig_g_avg=1.209360 ig_g_max=1.209360 ig_g_sel=1.209360 ig_zg_avg=1.209360 ig_zg_max=1.209360 ig_zg_sel=1.209360
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1601 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=1.008741, k3=4487.456196, k4=2.533204, k5=634034.036398
+[FactorizedSLDS EM] iter 1/3 val_roll_nll_mean=7.433538 val_roll_nll_std=1.183088 splits=2 train_n=[1020,1600] val_n=[100,100]
+[FactorizedSLDS EM] iter 2/3 val_roll_nll_mean=4.676006 val_roll_nll_std=1.056809 splits=2 train_n=[1020,1600] val_n=[100,100]
+[FactorizedSLDS EM] iter 3/3 val_roll_nll_mean=3.305081 val_roll_nll_std=0.986623 splits=2 train_n=[1020,1600] val_n=[100,100]
+[FactorizedSLDS EM] best_val_roll_nll_mean=3.305081
+
+--- FactorizedSLDS EM (L2D SLDS w/ $g_t$ attention (g_z) no-g full) (t=1..1700, n_em=3) ---
+[FactorizedSLDS EM] iter 1/3 val_roll_nll_mean=8.473518 val_roll_nll_std=0.988314 splits=2 train_n=[1020,1600] val_n=[100,100]
+[FactorizedSLDS EM] iter 2/3 val_roll_nll_mean=7.006555 val_roll_nll_std=0.843409 splits=2 train_n=[1020,1600] val_n=[100,100]
+[FactorizedSLDS EM] iter 3/3 val_roll_nll_mean=6.493099 val_roll_nll_std=0.816998 splits=2 train_n=[1020,1600] val_n=[100,100]
+[FactorizedSLDS EM] best_val_roll_nll_mean=6.493099
+[baselines] training from t=1 (full history); evaluation masked after em_tk=1700.
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1 iz_avg=0.003025 iz_max=0.007495 iz_sel=0.000000 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.003025 ig_zg_max=0.007495 ig_zg_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.000000, k1=0.000001, k2=0.000001, k3=0.000000, k5=0.000001
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=201 iz_avg=0.042931 iz_max=0.213228 iz_sel=0.213228 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.042931 ig_zg_max=0.213228 ig_zg_sel=0.213228
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=201 greedy=3 ids_best=3 selected=3 ids_scores: k0=134028032.841499, k1=inf, k2=21986797.992855, k3=0.000000, k5=28059836.231248
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=401 iz_avg=0.019678 iz_max=0.095036 iz_sel=0.095036 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.019678 ig_zg_max=0.095036 ig_zg_sel=0.095036
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=65373618.121055, k2=172059123.072456, k3=1378396834.001023, k5=356624249.026200
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=601 iz_avg=0.010280 iz_max=0.050227 iz_sel=0.050227 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.010280 ig_zg_max=0.050227 ig_zg_sel=0.050227
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=inf, k2=94631556.705443, k3=inf, k5=573053882.684269
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=801 iz_avg=0.029194 iz_max=0.145129 iz_sel=0.145129 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.029194 ig_zg_max=0.145129 ig_zg_sel=0.145129
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=51963929.874593, k2=inf, k3=inf, k5=280476384.679840
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1001 iz_avg=0.023570 iz_max=0.116710 iz_sel=0.116710 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.023570 ig_zg_max=0.116710 ig_zg_sel=0.116710
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1001 greedy=4 ids_best=4 selected=4 ids_scores: k1=147051802.690570, k2=inf, k3=88624688.815378, k4=0.000000, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1201 iz_avg=0.026718 iz_max=0.132048 iz_sel=0.132048 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.026718 ig_zg_max=0.132048 ig_zg_sel=0.132048
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1201 greedy=4 ids_best=4 selected=4 ids_scores: k1=inf, k2=86093975.606249, k3=70444956.183274, k4=0.000000, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1401 iz_avg=0.047256 iz_max=0.235458 iz_sel=0.235458 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.047256 ig_zg_max=0.235458 ig_zg_sel=0.235458
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1401 greedy=4 ids_best=4 selected=4 ids_scores: k1=inf, k2=15571677.650802, k3=inf, k4=0.000000, k5=557787816.361742
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1601 iz_avg=0.035560 iz_max=0.175560 iz_sel=0.175560 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.035560 ig_zg_max=0.175560 ig_zg_sel=0.175560
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1601 greedy=4 ids_best=4 selected=4 ids_scores: k1=28909874.432847, k2=61392312.753608, k3=inf, k4=0.000000, k5=118594843.591044
+[online-run] Router=FactorizedSLDS, eval_window=[1701,17419] (training_mode=n/a)
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1801 iz_avg=0.052605 iz_max=0.262395 iz_sel=0.262395 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.052605 ig_zg_max=0.262395 ig_zg_sel=0.262395
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=1801 greedy=4 ids_best=4 selected=4 ids_scores: k1=57270007.064395, k2=49736231.271257, k3=inf, k4=0.000000, k5=inf
+[FactorizedSLDS EM] online update t=2000 window=[1201,2000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.390280
+[FactorizedSLDS EM] best_train_nll=1.390280
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2001 iz_avg=0.000446 iz_max=0.001304 iz_sel=0.001304 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.000446 ig_zg_max=0.001304 ig_zg_sel=0.001304
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2001 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=inf, k2=inf, k3=1559769.673479, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2201 iz_avg=0.060541 iz_max=0.301476 iz_sel=0.301476 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.060541 ig_zg_max=0.301476 ig_zg_sel=0.301476
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2201 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=4147080.668949, k2=inf, k3=11975716.850646, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2401 iz_avg=0.059186 iz_max=0.294401 iz_sel=0.294401 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.059186 ig_zg_max=0.294401 ig_zg_sel=0.294401
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=10066815.830542, k2=4647408.774684, k3=inf, k5=inf
+[FactorizedSLDS EM] online update t=2500 window=[1701,2500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.472892
+[FactorizedSLDS EM] best_train_nll=1.472892
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2601 iz_avg=0.054912 iz_max=0.269616 iz_sel=0.269616 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.054912 ig_zg_max=0.269616 ig_zg_sel=0.269616
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=786215.110496, k2=93331571.265747, k3=3343729.212101, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2801 iz_avg=0.039931 iz_max=0.199655 iz_sel=0.199655 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.039931 ig_zg_max=0.199655 ig_zg_sel=0.199655
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=2801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=inf, k2=inf, k3=inf, k5=inf
+[FactorizedSLDS EM] online update t=3000 window=[2201,3000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.745429
+[FactorizedSLDS EM] best_train_nll=1.745429
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=3001 iz_avg=0.067832 iz_max=0.332922 iz_sel=0.332922 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.067832 ig_zg_max=0.332922 ig_zg_sel=0.332922
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=3001 greedy=2 ids_best=2 selected=2 ids_scores: k0=617433.579456, k1=534097.333428, k2=0.000000, k3=353853.581865, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=3201 iz_avg=0.071067 iz_max=0.352028 iz_sel=0.352028 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.071067 ig_zg_max=0.352028 ig_zg_sel=0.352028
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=3201 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=277569.198638, k2=0.000000, k3=755608.190996, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=3401 iz_avg=0.062667 iz_max=0.302685 iz_sel=0.302685 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.062667 ig_zg_max=0.302685 ig_zg_sel=0.302685
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=3401 greedy=2 ids_best=2 selected=2 ids_scores: k0=17407710.719413, k1=527281.591255, k2=0.000000, k3=966996.513692, k5=273931.694706
+[FactorizedSLDS EM] online update t=3500 window=[2701,3500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=2.043373
+[FactorizedSLDS EM] best_train_nll=2.043373
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=3601 iz_avg=0.065763 iz_max=0.321905 iz_sel=0.321905 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.065763 ig_zg_max=0.321905 ig_zg_sel=0.321905
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=3601 greedy=3 ids_best=3 selected=3 ids_scores: k0=inf, k1=921403.642867, k2=426338.465079, k3=0.000000, k5=586648.856556
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=3801 iz_avg=0.068480 iz_max=0.320279 iz_sel=0.320279 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.068480 ig_zg_max=0.320279 ig_zg_sel=0.320279
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=3801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=2416.162818, k2=514.358186, k3=554.396009, k5=40260.757701
+[FactorizedSLDS EM] online update t=4000 window=[3201,4000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.969036
+[FactorizedSLDS EM] best_train_nll=1.969036
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=4001 iz_avg=0.067750 iz_max=0.329652 iz_sel=0.329652 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.067750 ig_zg_max=0.329652 ig_zg_sel=0.329652
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=4001 greedy=3 ids_best=3 selected=3 ids_scores: k0=338135.225244, k1=392859.323465, k2=486223.224627, k3=0.000000, k5=309663.786338
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=4201 iz_avg=0.076957 iz_max=0.368607 iz_sel=0.368607 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.076957 ig_zg_max=0.368607 ig_zg_sel=0.368607
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=4201 greedy=1 ids_best=1 selected=1 ids_scores: k0=2044627.703654, k1=0.000000, k2=159238.631562, k3=671508.977403, k5=190515.698590
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=4401 iz_avg=0.079104 iz_max=0.389413 iz_sel=0.389413 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.079104 ig_zg_max=0.389413 ig_zg_sel=0.389413
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=4401 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=106848.170960, k2=0.000000, k3=inf, k5=inf
+[FactorizedSLDS EM] online update t=4500 window=[3701,4500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.786270
+[FactorizedSLDS EM] best_train_nll=1.786270
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=4601 iz_avg=0.083856 iz_max=0.410206 iz_sel=0.410206 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.083856 ig_zg_max=0.410206 ig_zg_sel=0.410206
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=4601 greedy=1 ids_best=1 selected=1 ids_scores: k0=inf, k1=0.000000, k2=36969.480762, k3=39589.338034, k5=141602.328224
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=4801 iz_avg=0.074574 iz_max=0.346320 iz_sel=0.346320 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.074574 ig_zg_max=0.346320 ig_zg_sel=0.346320
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=4801 greedy=1 ids_best=1 selected=1 ids_scores: k0=11365.154715, k1=0.000000, k2=12009.585566, k3=9279.360700, k5=3883.469696
+[FactorizedSLDS EM] online update t=5000 window=[4201,5000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.816710
+[FactorizedSLDS EM] best_train_nll=1.816710
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=5001 iz_avg=0.063856 iz_max=0.305835 iz_sel=0.305835 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.063856 ig_zg_max=0.305835 ig_zg_sel=0.305835
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=5001 greedy=3 ids_best=3 selected=3 ids_scores: k0=7108.450659, k1=9151.700254, k2=inf, k3=0.000000, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=5201 iz_avg=0.070603 iz_max=0.339915 iz_sel=0.339915 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.070603 ig_zg_max=0.339915 ig_zg_sel=0.339915
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=5201 greedy=1 ids_best=1 selected=1 ids_scores: k0=14527.459106, k1=0.000000, k2=11881.562917, k3=inf, k5=3843.085205
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=5401 iz_avg=0.075998 iz_max=0.368921 iz_sel=0.368921 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.075998 ig_zg_max=0.368921 ig_zg_sel=0.368921
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=5401 greedy=2 ids_best=2 selected=2 ids_scores: k0=13490.710431, k1=inf, k2=0.000000, k3=inf, k5=8445.431270
+[FactorizedSLDS EM] online update t=5500 window=[4701,5500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.729805
+[FactorizedSLDS EM] best_train_nll=1.729805
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=5601 iz_avg=0.082339 iz_max=0.396527 iz_sel=0.396527 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.082339 ig_zg_max=0.396527 ig_zg_sel=0.396527
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=5601 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=96592.086426, k2=0.000000, k3=74619.755907, k5=66085.463400
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=5801 iz_avg=0.071632 iz_max=0.321380 iz_sel=0.321380 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.071632 ig_zg_max=0.321380 ig_zg_sel=0.321380
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=5801 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=91202.550878, k2=0.000000, k3=121327.886285, k5=98345.281504
+[FactorizedSLDS EM] online update t=6000 window=[5201,6000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.839462
+[FactorizedSLDS EM] best_train_nll=1.839462
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=6001 iz_avg=0.063099 iz_max=0.307125 iz_sel=0.307125 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.063099 ig_zg_max=0.307125 ig_zg_sel=0.307125
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=6001 greedy=2 ids_best=2 selected=2 ids_scores: k0=28179.424732, k1=59174.983984, k2=0.000000, k3=inf, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=6201 iz_avg=0.063520 iz_max=0.305377 iz_sel=0.305377 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.063520 ig_zg_max=0.305377 ig_zg_sel=0.305377
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=6201 greedy=3 ids_best=3 selected=3 ids_scores: k0=54861.780579, k1=inf, k2=13674.681227, k3=0.000000, k5=67987.476185
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=6401 iz_avg=0.080272 iz_max=0.396519 iz_sel=0.396519 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.080272 ig_zg_max=0.396519 ig_zg_sel=0.396519
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=6401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=60332.609592, k2=1292.190068, k3=inf, k5=inf
+[FactorizedSLDS EM] online update t=6500 window=[5701,6500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.763278
+[FactorizedSLDS EM] best_train_nll=1.763278
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=6601 iz_avg=0.073303 iz_max=0.345830 iz_sel=0.345830 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.073303 ig_zg_max=0.345830 ig_zg_sel=0.345830
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=6601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=inf, k2=30993.250751, k3=88650.613802, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=6801 iz_avg=0.068867 iz_max=0.329642 iz_sel=0.329642 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.068867 ig_zg_max=0.329642 ig_zg_sel=0.329642
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=6801 greedy=1 ids_best=1 selected=1 ids_scores: k0=28560.257658, k1=0.000000, k2=17019.646673, k3=inf, k5=10876.724326
+[FactorizedSLDS EM] online update t=7000 window=[6201,7000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.687028
+[FactorizedSLDS EM] best_train_nll=1.687028
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=7001 iz_avg=0.048078 iz_max=0.215382 iz_sel=0.215382 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.048078 ig_zg_max=0.215382 ig_zg_sel=0.215382
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=7001 greedy=2 ids_best=2 selected=2 ids_scores: k0=158370.208522, k1=222456.242178, k2=0.000000, k3=inf, k5=432593.298882
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=7201 iz_avg=0.060865 iz_max=0.296729 iz_sel=0.296729 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.060865 ig_zg_max=0.296729 ig_zg_sel=0.296729
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=7201 greedy=2 ids_best=2 selected=2 ids_scores: k0=99889.462224, k1=2368681.717349, k2=0.000000, k3=inf, k5=78194.983395
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=7401 iz_avg=0.051098 iz_max=0.232928 iz_sel=0.232928 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.051098 ig_zg_max=0.232928 ig_zg_sel=0.232928
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=7401 greedy=2 ids_best=2 selected=2 ids_scores: k0=308709.534172, k1=inf, k2=0.000000, k3=237925.624512, k5=114104.992429
+[FactorizedSLDS EM] online update t=7500 window=[6701,7500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.792228
+[FactorizedSLDS EM] best_train_nll=1.792228
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=7601 iz_avg=0.055181 iz_max=0.257623 iz_sel=0.257623 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.055181 ig_zg_max=0.257623 ig_zg_sel=0.257623
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=7601 greedy=1 ids_best=1 selected=1 ids_scores: k0=286037.777387, k1=0.000000, k2=1369097.560827, k3=inf, k5=412336.301145
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=7801 iz_avg=0.051710 iz_max=0.230990 iz_sel=0.230990 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.051710 ig_zg_max=0.230990 ig_zg_sel=0.230990
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=7801 greedy=1 ids_best=1 selected=1 ids_scores: k0=52286.058038, k1=0.000000, k2=37887.938197, k3=inf, k5=inf
+[FactorizedSLDS EM] online update t=8000 window=[7201,8000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.735770
+[FactorizedSLDS EM] best_train_nll=1.735770
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=8001 iz_avg=0.049304 iz_max=0.214463 iz_sel=0.214463 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.049304 ig_zg_max=0.214463 ig_zg_sel=0.214463
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=8001 greedy=2 ids_best=2 selected=2 ids_scores: k0=79000.850486, k1=86734.748943, k2=0.000000, k3=53408.915580, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=8201 iz_avg=0.045011 iz_max=0.207446 iz_sel=0.207446 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.045011 ig_zg_max=0.207446 ig_zg_sel=0.207446
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=8201 greedy=2 ids_best=2 selected=2 ids_scores: k0=67729.846920, k1=319948.328004, k2=0.000000, k3=inf, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=8401 iz_avg=0.053753 iz_max=0.215981 iz_sel=0.215981 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.053753 ig_zg_max=0.215981 ig_zg_sel=0.215981
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=8401 greedy=2 ids_best=2 selected=2 ids_scores: k0=34909.471547, k1=98030.874606, k2=0.000000, k3=237907.812111, k5=16721.451011
+[FactorizedSLDS EM] online update t=8500 window=[7701,8500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.586392
+[FactorizedSLDS EM] best_train_nll=1.586392
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=8601 iz_avg=0.050737 iz_max=0.232248 iz_sel=0.232248 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.050737 ig_zg_max=0.232248 ig_zg_sel=0.232248
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=8601 greedy=2 ids_best=2 selected=2 ids_scores: k0=41636.281633, k1=inf, k2=0.000000, k3=43199.814337, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=8801 iz_avg=0.044831 iz_max=0.208374 iz_sel=0.208374 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.044831 ig_zg_max=0.208374 ig_zg_sel=0.208374
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=8801 greedy=1 ids_best=1 selected=1 ids_scores: k0=inf, k1=0.000000, k2=192738.158739, k3=99591.585412, k5=196650.145031
+[FactorizedSLDS EM] online update t=9000 window=[8201,9000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.616528
+[FactorizedSLDS EM] best_train_nll=1.616528
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=9001 iz_avg=0.050675 iz_max=0.224782 iz_sel=0.224782 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.050675 ig_zg_max=0.224782 ig_zg_sel=0.224782
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=9001 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=18167.733969, k2=277722.911045, k3=32475.819359, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=9201 iz_avg=0.047305 iz_max=0.201387 iz_sel=0.201387 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.047305 ig_zg_max=0.201387 ig_zg_sel=0.201387
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=9201 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=inf, k2=20064.396017, k3=55205.981482, k5=32102.663740
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=9401 iz_avg=0.042034 iz_max=0.177149 iz_sel=0.177149 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.042034 ig_zg_max=0.177149 ig_zg_sel=0.177149
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=9401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=63736.187955, k2=66364.174940, k3=50928.364058, k5=inf
+[FactorizedSLDS EM] online update t=9500 window=[8701,9500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.598222
+[FactorizedSLDS EM] best_train_nll=1.598222
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=9601 iz_avg=0.053631 iz_max=0.227049 iz_sel=0.227049 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.053631 ig_zg_max=0.227049 ig_zg_sel=0.227049
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=9601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=29152.037322, k2=15391.270836, k3=31867.869050, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=9801 iz_avg=0.062224 iz_max=0.262066 iz_sel=0.008854 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.062224 ig_zg_max=0.262066 ig_zg_sel=0.008854
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=9801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.590234, k1=0.120606, k2=0.000000, k3=6.574092, k5=13.605701
+[FactorizedSLDS EM] online update t=10000 window=[9201,10000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.476308
+[FactorizedSLDS EM] best_train_nll=1.476308
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=10001 iz_avg=0.051723 iz_max=0.223664 iz_sel=0.223664 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.051723 ig_zg_max=0.223664 ig_zg_sel=0.223664
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=10001 greedy=1 ids_best=1 selected=1 ids_scores: k0=28736.208982, k1=0.000000, k2=29900.449117, k3=43586.938353, k5=7464.741981
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=10201 iz_avg=0.053589 iz_max=0.207217 iz_sel=0.207217 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.053589 ig_zg_max=0.207217 ig_zg_sel=0.207217
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=10201 greedy=2 ids_best=2 selected=2 ids_scores: k0=1048.275136, k1=1174.088852, k2=0.000000, k3=2052.483175, k5=1272.061864
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=10401 iz_avg=0.048228 iz_max=0.206870 iz_sel=0.206870 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.048228 ig_zg_max=0.206870 ig_zg_sel=0.206870
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=10401 greedy=1 ids_best=1 selected=1 ids_scores: k0=5926.522881, k1=0.000000, k2=18888.215056, k3=19435.083382, k5=2900.479158
+[FactorizedSLDS EM] online update t=10500 window=[9701,10500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.343480
+[FactorizedSLDS EM] best_train_nll=1.343480
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=10601 iz_avg=0.038251 iz_max=0.164106 iz_sel=0.164106 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.038251 ig_zg_max=0.164106 ig_zg_sel=0.164106
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=10601 greedy=2 ids_best=2 selected=2 ids_scores: k0=4825.729223, k1=18430.285413, k2=0.000000, k3=15484.895019, k5=7472.809463
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=10801 iz_avg=0.068559 iz_max=0.234813 iz_sel=0.234813 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.068559 ig_zg_max=0.234813 ig_zg_sel=0.234813
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=10801 greedy=2 ids_best=2 selected=2 ids_scores: k0=67.066644, k1=154.658542, k2=0.000000, k3=112.162225, k5=36.209582
+[FactorizedSLDS EM] online update t=11000 window=[10201,11000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.406227
+[FactorizedSLDS EM] best_train_nll=1.406227
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=11001 iz_avg=0.056813 iz_max=0.182963 iz_sel=0.182963 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.056813 ig_zg_max=0.182963 ig_zg_sel=0.182963
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=11001 greedy=1 ids_best=1 selected=1 ids_scores: k0=1666.497254, k1=0.000000, k2=767.172846, k3=2321.753355, k5=2229.874061
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=11201 iz_avg=0.060773 iz_max=0.221488 iz_sel=0.221488 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.060773 ig_zg_max=0.221488 ig_zg_sel=0.221488
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=11201 greedy=2 ids_best=2 selected=2 ids_scores: k0=651.753308, k1=998.861960, k2=0.000000, k3=312.553253, k5=179.730484
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=11401 iz_avg=0.071892 iz_max=0.267087 iz_sel=0.000000 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.071892 ig_zg_max=0.267087 ig_zg_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=11401 greedy=1 ids_best=1 selected=1 ids_scores: k0=19.855320, k1=0.000000, k2=21.795607, k3=12.943198, k5=8.888630
+[FactorizedSLDS EM] online update t=11500 window=[10701,11500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.405529
+[FactorizedSLDS EM] best_train_nll=1.405529
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=11601 iz_avg=0.061950 iz_max=0.240751 iz_sel=0.240751 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.061950 ig_zg_max=0.240751 ig_zg_sel=0.240751
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=11601 greedy=2 ids_best=2 selected=2 ids_scores: k0=286.580937, k1=inf, k2=0.000000, k3=259.668327, k5=511.304911
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=11801 iz_avg=0.058177 iz_max=0.212316 iz_sel=0.212316 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.058177 ig_zg_max=0.212316 ig_zg_sel=0.212316
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=11801 greedy=1 ids_best=1 selected=1 ids_scores: k0=392.895064, k1=0.000000, k2=430.001218, k3=330.482687, k5=249.987558
+[FactorizedSLDS EM] online update t=12000 window=[11201,12000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.144056
+[FactorizedSLDS EM] best_train_nll=1.144056
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=12001 iz_avg=0.064344 iz_max=0.239919 iz_sel=0.239919 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.064344 ig_zg_max=0.239919 ig_zg_sel=0.239919
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=12001 greedy=1 ids_best=1 selected=1 ids_scores: k0=245.372554, k1=0.000000, k2=76.679065, k3=77.366551, k5=101.500292
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=12201 iz_avg=0.097249 iz_max=0.171020 iz_sel=0.149040 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.097249 ig_zg_max=0.171020 ig_zg_sel=0.149040
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=12201 greedy=1 ids_best=1 selected=1 ids_scores: k0=11.282462, k1=0.000000, k2=25.457461, k3=4.542224, k5=5.605488
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=12401 iz_avg=0.118743 iz_max=0.215638 iz_sel=0.205181 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.118743 ig_zg_max=0.215638 ig_zg_sel=0.205181
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=12401 greedy=2 ids_best=2 selected=2 ids_scores: k0=11.565778, k1=7.308675, k2=0.000000, k3=9.610920, k5=9.097576
+[FactorizedSLDS EM] online update t=12500 window=[11701,12500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.000989
+[FactorizedSLDS EM] best_train_nll=1.000989
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=12601 iz_avg=0.141154 iz_max=0.283770 iz_sel=0.181817 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.141154 ig_zg_max=0.283770 ig_zg_sel=0.181817
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=12601 greedy=2 ids_best=2 selected=2 ids_scores: k0=6.621799, k1=0.279630, k2=0.000000, k3=1.137714, k5=2.594216
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=12801 iz_avg=0.128392 iz_max=0.187242 iz_sel=0.187242 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.128392 ig_zg_max=0.187242 ig_zg_sel=0.187242
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=12801 greedy=2 ids_best=2 selected=2 ids_scores: k0=8.973259, k1=0.607140, k2=0.000000, k3=1.198013, k5=3.453647
+[FactorizedSLDS EM] online update t=13000 window=[12201,13000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=0.983166
+[FactorizedSLDS EM] best_train_nll=0.983166
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=13001 iz_avg=0.148081 iz_max=0.326199 iz_sel=0.137272 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.148081 ig_zg_max=0.326199 ig_zg_sel=0.137272
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=13001 greedy=1 ids_best=1 selected=1 ids_scores: k0=9.275979, k1=0.000000, k2=7.653400, k3=2.441641, k5=58.490029
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=13201 iz_avg=0.170573 iz_max=0.306354 iz_sel=0.125234 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.170573 ig_zg_max=0.306354 ig_zg_sel=0.125234
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=13201 greedy=1 ids_best=1 selected=1 ids_scores: k0=6.521120, k1=0.000000, k2=0.201881, k3=0.671757, k5=69.881702
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=13401 iz_avg=0.193652 iz_max=0.327225 iz_sel=0.034808 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.193652 ig_zg_max=0.327225 ig_zg_sel=0.034808
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=13401 greedy=2 ids_best=2 selected=2 ids_scores: k0=3.682479, k1=0.028429, k2=0.000000, k3=0.052838, k5=39.242055
+[FactorizedSLDS EM] online update t=13500 window=[12701,13500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.080917
+[FactorizedSLDS EM] best_train_nll=1.080917
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=13601 iz_avg=0.169349 iz_max=0.386921 iz_sel=0.174377 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.169349 ig_zg_max=0.386921 ig_zg_sel=0.174377
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=13601 greedy=2 ids_best=2 selected=2 ids_scores: k0=11.234315, k1=1.337044, k2=0.000000, k3=2.364115, k5=94.060508
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=13801 iz_avg=0.454285 iz_max=0.550251 iz_sel=0.348401 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.454285 ig_zg_max=0.550251 ig_zg_sel=0.348401
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=13801 greedy=1 ids_best=1 selected=1 ids_scores: k0=3.131422, k1=0.000000, k2=0.004645, k3=0.021385, k5=63.979403
+[FactorizedSLDS EM] online update t=14000 window=[13201,14000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=0.987010
+[FactorizedSLDS EM] best_train_nll=0.987010
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=14001 iz_avg=0.199950 iz_max=0.375994 iz_sel=0.144244 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.199950 ig_zg_max=0.375994 ig_zg_sel=0.144244
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=14001 greedy=1 ids_best=1 selected=1 ids_scores: k0=3.529337, k1=0.000000, k2=0.013580, k3=0.017323, k5=66.368500
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=14201 iz_avg=0.196100 iz_max=0.377376 iz_sel=0.190358 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.196100 ig_zg_max=0.377376 ig_zg_sel=0.190358
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=14201 greedy=3 ids_best=3 selected=3 ids_scores: k0=5.391092, k1=0.271389, k2=0.127697, k3=0.000000, k5=89.873402
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=14401 iz_avg=0.209013 iz_max=0.345320 iz_sel=0.255674 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.209013 ig_zg_max=0.345320 ig_zg_sel=0.255674
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=14401 greedy=1 ids_best=1 selected=1 ids_scores: k0=6.579022, k1=0.000000, k2=0.261403, k3=0.187876, k5=115.361202
+[FactorizedSLDS EM] online update t=14500 window=[13701,14500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=0.936925
+[FactorizedSLDS EM] best_train_nll=0.936925
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=14601 iz_avg=0.165404 iz_max=0.334028 iz_sel=0.190987 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.165404 ig_zg_max=0.334028 ig_zg_sel=0.190987
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=14601 greedy=1 ids_best=1 selected=1 ids_scores: k0=9.520883, k1=0.000000, k2=6.418446, k3=2.980120, k5=110.181419
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=14801 iz_avg=0.114561 iz_max=0.254200 iz_sel=0.178670 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.114561 ig_zg_max=0.254200 ig_zg_sel=0.178670
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=14801 greedy=2 ids_best=2 selected=2 ids_scores: k0=37.857329, k1=17.023072, k2=0.000000, k3=19.937796, k5=168.292228
+[FactorizedSLDS EM] online update t=15000 window=[14201,15000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.061805
+[FactorizedSLDS EM] best_train_nll=1.061805
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=15001 iz_avg=0.154046 iz_max=0.303446 iz_sel=0.012802 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.154046 ig_zg_max=0.303446 ig_zg_sel=0.012802
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=15001 greedy=3 ids_best=3 selected=3 ids_scores: k0=4.781884, k1=1.467022, k2=2.840010, k3=0.000000, k5=109.966005
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=15201 iz_avg=0.099161 iz_max=0.221207 iz_sel=0.204364 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.099161 ig_zg_max=0.221207 ig_zg_sel=0.204364
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=15201 greedy=3 ids_best=3 selected=3 ids_scores: k0=133.135926, k1=98.432957, k2=53646.299943, k3=0.000000, k5=233.098687
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=15401 iz_avg=0.090579 iz_max=0.239438 iz_sel=0.239438 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.090579 ig_zg_max=0.239438 ig_zg_sel=0.239438
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=15401 greedy=1 ids_best=1 selected=1 ids_scores: k0=211.265862, k1=0.000000, k2=1634.447463, k3=343.953582, k5=447.575301
+[FactorizedSLDS EM] online update t=15500 window=[14701,15500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.094359
+[FactorizedSLDS EM] best_train_nll=1.094359
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=15601 iz_avg=0.141098 iz_max=0.319713 iz_sel=0.148214 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.141098 ig_zg_max=0.319713 ig_zg_sel=0.148214
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=15601 greedy=3 ids_best=3 selected=3 ids_scores: k0=14.689317, k1=6.842042, k2=9.598675, k3=0.000000, k5=125.803961
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=15801 iz_avg=0.096623 iz_max=0.228715 iz_sel=0.112278 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.096623 ig_zg_max=0.228715 ig_zg_sel=0.112278
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=15801 greedy=3 ids_best=3 selected=3 ids_scores: k0=36.725472, k1=47.137303, k2=25.507998, k3=0.000000, k5=177.247802
+[FactorizedSLDS EM] online update t=16000 window=[15201,16000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.009386
+[FactorizedSLDS EM] best_train_nll=1.009386
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=16001 iz_avg=0.070688 iz_max=0.151814 iz_sel=0.151814 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.070688 ig_zg_max=0.151814 ig_zg_sel=0.151814
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=16001 greedy=2 ids_best=2 selected=2 ids_scores: k0=160.345842, k1=90.578809, k2=0.000000, k3=inf, k5=323.541905
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=16201 iz_avg=0.124719 iz_max=0.289800 iz_sel=0.157177 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.124719 ig_zg_max=0.289800 ig_zg_sel=0.157177
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=16201 greedy=2 ids_best=2 selected=2 ids_scores: k0=23.942931, k1=71.876081, k2=0.000000, k3=31.340162, k5=143.091764
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=16401 iz_avg=0.065290 iz_max=0.190128 iz_sel=0.190128 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.065290 ig_zg_max=0.190128 ig_zg_sel=0.190128
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=16401 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=231.419123, k2=0.000000, k3=236.383952, k5=304.489372
+[FactorizedSLDS EM] online update t=16500 window=[15701,16500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.098506
+[FactorizedSLDS EM] best_train_nll=1.098506
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=16601 iz_avg=0.082252 iz_max=0.170680 iz_sel=0.122015 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.082252 ig_zg_max=0.170680 ig_zg_sel=0.122015
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=16601 greedy=1 ids_best=1 selected=1 ids_scores: k0=39.311439, k1=0.000000, k2=517.798808, k3=34.767782, k5=198.668219
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=16801 iz_avg=0.115876 iz_max=0.252134 iz_sel=0.020767 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.115876 ig_zg_max=0.252134 ig_zg_sel=0.020767
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=16801 greedy=1 ids_best=1 selected=1 ids_scores: k0=6.922017, k1=0.000000, k2=0.261056, k3=0.048769, k5=110.712447
+[FactorizedSLDS EM] online update t=17000 window=[16201,17000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=0.936475
+[FactorizedSLDS EM] best_train_nll=0.936475
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=17001 iz_avg=0.144773 iz_max=0.280979 iz_sel=0.171831 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.144773 ig_zg_max=0.280979 ig_zg_sel=0.171831
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=17001 greedy=2 ids_best=2 selected=2 ids_scores: k0=12.940502, k1=4.270292, k2=0.000000, k3=11.550115, k5=139.142843
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=17201 iz_avg=0.072815 iz_max=0.174159 iz_sel=0.077435 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.072815 ig_zg_max=0.174159 ig_zg_sel=0.077435
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=17201 greedy=2 ids_best=2 selected=2 ids_scores: k0=71.315430, k1=31.316802, k2=0.000000, k3=62.222375, k5=230.739225
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=17401 iz_avg=0.120497 iz_max=0.242500 iz_sel=0.164310 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.120497 ig_zg_max=0.242500 ig_zg_sel=0.164310
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g partial t=17401 greedy=1 ids_best=1 selected=1 ids_scores: k0=21.657754, k1=0.000000, k2=14.858299, k3=15.967961, k5=167.890645
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1 iz_avg=0.003025 iz_max=0.007495 iz_sel=0.000000 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.003025 ig_zg_max=0.007495 ig_zg_sel=0.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.000000, k1=0.000001, k2=0.000001, k3=0.000000, k5=0.000001
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=201 iz_avg=0.193251 iz_max=0.218305 iz_sel=0.195042 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.193251 ig_zg_max=0.218305 ig_zg_sel=0.195042
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=201 greedy=2 ids_best=2 selected=2 ids_scores: k0=1.826153, k1=11.629165, k2=0.000000, k3=16499.174569, k5=3535017.896665
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=401 iz_avg=0.184529 iz_max=0.203686 iz_sel=0.188042 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.184529 ig_zg_max=0.203686 ig_zg_sel=0.188042
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=754.581574, k2=14527.739757, k3=298089.576201, k5=9578913.969508
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=601 iz_avg=0.040227 iz_max=0.046099 iz_sel=0.040999 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.040227 ig_zg_max=0.046099 ig_zg_sel=0.040999
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=919.381599, k2=192643.929181, k3=2849994.806325, k5=50190141.003229
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=801 iz_avg=0.139052 iz_max=0.162421 iz_sel=0.156370 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.139052 ig_zg_max=0.162421 ig_zg_sel=0.156370
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.627908, k1=462.483833, k2=0.000000, k3=44398.254977, k5=4250450.248674
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1001 iz_avg=0.074548 iz_max=0.080582 iz_sel=0.075043 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.074548 ig_zg_max=0.080582 ig_zg_sel=0.075043
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1001 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=12028.441212, k3=552234.589198, k4=6.150214, k5=21386869.005972
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1201 iz_avg=0.105761 iz_max=0.121012 iz_sel=0.102745 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.105761 ig_zg_max=0.121012 ig_zg_sel=0.102745
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1201 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=9147.637379, k3=481479.368284, k4=70.849893, k5=14926129.139288
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1401 iz_avg=0.209977 iz_max=0.231122 iz_sel=0.212382 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.209977 ig_zg_max=0.231122 ig_zg_sel=0.212382
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1401 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=4.500843, k3=58.540344, k4=2.084923, k5=1266030.820438
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1601 iz_avg=0.181068 iz_max=0.216582 iz_sel=0.206672 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.181068 ig_zg_max=0.216582 ig_zg_sel=0.206672
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1601 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=9.675557, k3=38903.149540, k4=20.890816, k5=4148579.421726
+[online-run] Router=FactorizedSLDS, eval_window=[1701,17419] (training_mode=n/a)
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1801 iz_avg=0.184678 iz_max=0.208617 iz_sel=0.208617 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.184678 ig_zg_max=0.208617 ig_zg_sel=0.208617
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=1801 greedy=4 ids_best=4 selected=4 ids_scores: k1=18.731295, k2=0.080747, k3=348.399182, k4=0.000000, k5=1488240.556992
+[FactorizedSLDS EM] online update t=2000 window=[1201,2000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=5.605439
+[FactorizedSLDS EM] best_train_nll=5.605439
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2001 iz_avg=0.122487 iz_max=0.160919 iz_sel=0.160919 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.122487 ig_zg_max=0.160919 ig_zg_sel=0.160919
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2001 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=9.536113, k2=0.000000, k3=0.000001, k5=1071986.258296
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2201 iz_avg=0.269718 iz_max=0.328719 iz_sel=0.213323 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.269718 ig_zg_max=0.328719 ig_zg_sel=0.213323
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2201 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.050827, k1=1.430320, k2=0.000000, k3=0.000000, k5=222998.416772
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2401 iz_avg=0.253691 iz_max=0.270275 iz_sel=0.255056 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.253691 ig_zg_max=0.270275 ig_zg_sel=0.255056
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2401 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.017976, k1=4.924556, k2=0.000000, k3=0.079696, k5=478189.654638
+[FactorizedSLDS EM] online update t=2500 window=[1701,2500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=5.644638
+[FactorizedSLDS EM] best_train_nll=5.644638
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2601 iz_avg=0.383495 iz_max=0.447893 iz_sel=0.353584 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.383495 ig_zg_max=0.447893 ig_zg_sel=0.353584
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=4.483392, k2=0.000103, k3=0.127405, k5=264502.496991
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2801 iz_avg=0.370244 iz_max=0.474643 iz_sel=0.474643 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.370244 ig_zg_max=0.474643 ig_zg_sel=0.474643
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=2801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.378935, k1=0.003007, k2=0.000000, k3=0.007431, k5=117184.576055
+[FactorizedSLDS EM] online update t=3000 window=[2201,3000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=6.366332
+[FactorizedSLDS EM] best_train_nll=6.366332
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=3001 iz_avg=0.447648 iz_max=0.495092 iz_sel=0.434149 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.447648 ig_zg_max=0.495092 ig_zg_sel=0.434149
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=3001 greedy=1 ids_best=1 selected=1 ids_scores: k0=1.701815, k1=0.000000, k2=0.220839, k3=0.475644, k5=101628.754391
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=3201 iz_avg=0.484475 iz_max=0.529072 iz_sel=0.427783 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.484475 ig_zg_max=0.529072 ig_zg_sel=0.427783
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=3201 greedy=1 ids_best=1 selected=1 ids_scores: k0=5.210252, k1=0.000000, k2=1.878964, k3=2.210373, k5=89032.850392
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=3401 iz_avg=0.491221 iz_max=0.538339 iz_sel=0.455560 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.491221 ig_zg_max=0.538339 ig_zg_sel=0.455560
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=3401 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.003977, k1=1.450375, k2=0.000000, k3=0.004856, k5=131287.361813
+[FactorizedSLDS EM] online update t=3500 window=[2701,3500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=7.616249
+[FactorizedSLDS EM] best_train_nll=7.616249
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=3601 iz_avg=0.567223 iz_max=0.594498 iz_sel=0.583965 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.567223 ig_zg_max=0.594498 ig_zg_sel=0.583965
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=3601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=1.374346, k2=0.015140, k3=0.003476, k5=56959.947777
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=3801 iz_avg=0.495426 iz_max=0.518702 iz_sel=0.510222 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.495426 ig_zg_max=0.518702 ig_zg_sel=0.510222
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=3801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.010336, k2=0.001618, k3=0.000014, k5=69.363730
+[FactorizedSLDS EM] online update t=4000 window=[3201,4000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=7.541128
+[FactorizedSLDS EM] best_train_nll=7.541128
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=4001 iz_avg=0.643007 iz_max=0.717486 iz_sel=0.574569 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.643007 ig_zg_max=0.717486 ig_zg_sel=0.574569
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=4001 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.004443, k1=0.043245, k2=0.000286, k3=0.000000, k5=9768.364252
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=4201 iz_avg=0.614187 iz_max=0.649164 iz_sel=0.600892 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.614187 ig_zg_max=0.649164 ig_zg_sel=0.600892
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=4201 greedy=1 ids_best=1 selected=1 ids_scores: k0=0.672684, k1=0.000000, k2=0.337670, k3=0.151438, k5=27029.402460
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=4401 iz_avg=0.599186 iz_max=0.669090 iz_sel=0.579410 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.599186 ig_zg_max=0.669090 ig_zg_sel=0.579410
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=4401 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.001935, k1=0.115846, k2=0.000011, k3=0.000000, k5=15058.775052
+[FactorizedSLDS EM] online update t=4500 window=[3701,4500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=6.661310
+[FactorizedSLDS EM] best_train_nll=6.661310
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=4601 iz_avg=0.552633 iz_max=0.638973 iz_sel=0.446695 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.552633 ig_zg_max=0.638973 ig_zg_sel=0.446695
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=4601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.069657, k2=0.020071, k3=0.000279, k5=1554.148490
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=4801 iz_avg=0.571397 iz_max=0.648647 iz_sel=0.555699 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.571397 ig_zg_max=0.648647 ig_zg_sel=0.555699
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=4801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.059831, k2=0.030923, k3=0.000423, k5=1169.576375
+[FactorizedSLDS EM] online update t=5000 window=[4201,5000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=6.455717
+[FactorizedSLDS EM] best_train_nll=6.455717
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=5001 iz_avg=0.369799 iz_max=0.421746 iz_sel=0.323150 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.369799 ig_zg_max=0.421746 ig_zg_sel=0.323150
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=5001 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.000152, k1=0.031539, k2=0.006342, k3=0.000000, k5=3574.261781
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=5201 iz_avg=0.499245 iz_max=0.587306 iz_sel=0.467658 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.499245 ig_zg_max=0.587306 ig_zg_sel=0.467658
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=5201 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.000068, k1=0.020796, k2=0.006177, k3=0.000000, k5=1666.184057
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=5401 iz_avg=0.529594 iz_max=0.600712 iz_sel=0.554356 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.529594 ig_zg_max=0.600712 ig_zg_sel=0.554356
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=5401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=1.080360, k2=0.162840, k3=0.019627, k5=1623.856292
+[FactorizedSLDS EM] online update t=5500 window=[4701,5500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=6.331067
+[FactorizedSLDS EM] best_train_nll=6.331067
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=5601 iz_avg=0.560921 iz_max=0.607227 iz_sel=0.528647 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.560921 ig_zg_max=0.607227 ig_zg_sel=0.528647
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=5601 greedy=1 ids_best=1 selected=1 ids_scores: k0=5.234389, k1=0.000000, k2=2.451108, k3=1.420690, k5=41860.755640
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=5801 iz_avg=0.583791 iz_max=0.638084 iz_sel=0.549152 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.583791 ig_zg_max=0.638084 ig_zg_sel=0.549152
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=5801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.179737, k1=0.002369, k2=0.000000, k3=0.005779, k5=71361.581081
+[FactorizedSLDS EM] online update t=6000 window=[5201,6000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=7.440066
+[FactorizedSLDS EM] best_train_nll=7.440066
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=6001 iz_avg=0.321654 iz_max=0.375621 iz_sel=0.317376 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.321654 ig_zg_max=0.375621 ig_zg_sel=0.317376
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=6001 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.001237, k1=0.097027, k2=0.000618, k3=0.000000, k5=14601.242099
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=6201 iz_avg=0.529475 iz_max=0.582258 iz_sel=0.569943 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.529475 ig_zg_max=0.582258 ig_zg_sel=0.569943
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=6201 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.756784, k2=0.010052, k3=0.018732, k5=8222.274477
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=6401 iz_avg=0.262043 iz_max=0.325508 iz_sel=0.325508 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.262043 ig_zg_max=0.325508 ig_zg_sel=0.325508
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=6401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=2.368835, k2=0.959342, k3=0.066888, k5=341.928750
+[FactorizedSLDS EM] online update t=6500 window=[5701,6500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=7.722458
+[FactorizedSLDS EM] best_train_nll=7.722458
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=6601 iz_avg=0.516260 iz_max=0.562238 iz_sel=0.465261 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.516260 ig_zg_max=0.562238 ig_zg_sel=0.465261
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=6601 greedy=1 ids_best=1 selected=1 ids_scores: k0=0.513014, k1=0.000000, k2=0.108012, k3=0.095224, k5=55984.034955
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=6801 iz_avg=0.202804 iz_max=0.230796 iz_sel=0.230412 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.202804 ig_zg_max=0.230796 ig_zg_sel=0.230412
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=6801 greedy=1 ids_best=1 selected=1 ids_scores: k0=2.114522, k1=0.000000, k2=0.130382, k3=0.994498, k5=14427.000412
+[FactorizedSLDS EM] online update t=7000 window=[6201,7000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=7.205667
+[FactorizedSLDS EM] best_train_nll=7.205667
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=7001 iz_avg=0.316669 iz_max=0.368000 iz_sel=0.280710 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.316669 ig_zg_max=0.368000 ig_zg_sel=0.280710
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=7001 greedy=3 ids_best=3 selected=3 ids_scores: k0=1.693060, k1=0.000140, k2=0.104302, k3=0.000000, k5=501348.441667
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=7201 iz_avg=0.506608 iz_max=0.537572 iz_sel=0.470620 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.506608 ig_zg_max=0.537572 ig_zg_sel=0.470620
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=7201 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.001284, k1=0.383695, k2=0.000022, k3=0.000000, k5=46268.659718
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=7401 iz_avg=0.434467 iz_max=0.535631 iz_sel=0.386557 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.434467 ig_zg_max=0.535631 ig_zg_sel=0.386557
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=7401 greedy=1 ids_best=1 selected=1 ids_scores: k0=45.540604, k1=0.000000, k2=20.155517, k3=14.701053, k5=277481.219991
+[FactorizedSLDS EM] online update t=7500 window=[6701,7500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=7.770013
+[FactorizedSLDS EM] best_train_nll=7.770013
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=7601 iz_avg=0.348566 iz_max=0.368632 iz_sel=0.346583 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.348566 ig_zg_max=0.368632 ig_zg_sel=0.346583
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=7601 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.366126, k1=2.845495, k2=0.000000, k3=195.177164, k5=850768.344831
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=7801 iz_avg=0.473280 iz_max=0.504464 iz_sel=0.455265 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.473280 ig_zg_max=0.504464 ig_zg_sel=0.455265
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=7801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=9.860882, k2=0.101002, k3=1.248261, k5=186550.387258
+[FactorizedSLDS EM] online update t=8000 window=[7201,8000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=7.715971
+[FactorizedSLDS EM] best_train_nll=7.715971
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=8001 iz_avg=0.326290 iz_max=0.394791 iz_sel=0.325176 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.326290 ig_zg_max=0.394791 ig_zg_sel=0.325176
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=8001 greedy=1 ids_best=1 selected=1 ids_scores: k0=8.713246, k1=0.000000, k2=3.349625, k3=0.482054, k5=607574.132839
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=8201 iz_avg=0.324833 iz_max=0.365317 iz_sel=0.361314 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.324833 ig_zg_max=0.365317 ig_zg_sel=0.361314
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=8201 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=16.653716, k2=0.276279, k3=0.024472, k5=520873.130878
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=8401 iz_avg=0.397970 iz_max=0.438501 iz_sel=0.393946 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.397970 ig_zg_max=0.438501 ig_zg_sel=0.393946
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=8401 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.022244, k1=2.050372, k2=0.000000, k3=0.018604, k5=235677.427842
+[FactorizedSLDS EM] online update t=8500 window=[7701,8500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=6.668678
+[FactorizedSLDS EM] best_train_nll=6.668678
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=8601 iz_avg=0.309035 iz_max=0.322465 iz_sel=0.309136 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.309035 ig_zg_max=0.322465 ig_zg_sel=0.309136
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=8601 greedy=1 ids_best=1 selected=1 ids_scores: k0=25.443663, k1=0.000000, k2=10.497306, k3=2.643246, k5=631354.095747
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=8801 iz_avg=0.303569 iz_max=0.314679 iz_sel=0.305190 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.303569 ig_zg_max=0.314679 ig_zg_sel=0.305190
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=8801 greedy=1 ids_best=1 selected=1 ids_scores: k0=2.800211, k1=0.000000, k2=0.615828, k3=0.017101, k5=436609.194353
+[FactorizedSLDS EM] online update t=9000 window=[8201,9000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=7.221381
+[FactorizedSLDS EM] best_train_nll=7.221381
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=9001 iz_avg=0.420112 iz_max=0.480959 iz_sel=0.426748 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.420112 ig_zg_max=0.480959 ig_zg_sel=0.426748
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=9001 greedy=3 ids_best=3 selected=3 ids_scores: k0=1.488143, k1=0.028911, k2=0.249276, k3=0.000000, k5=470484.106816
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=9201 iz_avg=0.363967 iz_max=0.383087 iz_sel=0.300470 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.363967 ig_zg_max=0.383087 ig_zg_sel=0.300470
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=9201 greedy=1 ids_best=1 selected=1 ids_scores: k0=23.293886, k1=0.000000, k2=7.928163, k3=29.357822, k5=783206.198727
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=9401 iz_avg=0.385109 iz_max=0.427795 iz_sel=0.375103 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.385109 ig_zg_max=0.427795 ig_zg_sel=0.375103
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=9401 greedy=1 ids_best=1 selected=1 ids_scores: k0=7.044139, k1=0.000000, k2=0.257629, k3=735.343504, k5=1219956.598427
+[FactorizedSLDS EM] online update t=9500 window=[8701,9500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=6.772078
+[FactorizedSLDS EM] best_train_nll=6.772078
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=9601 iz_avg=0.320308 iz_max=0.364294 iz_sel=0.282632 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.320308 ig_zg_max=0.364294 ig_zg_sel=0.282632
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=9601 greedy=1 ids_best=1 selected=1 ids_scores: k0=3.185759, k1=0.000000, k2=0.753078, k3=0.016099, k5=514607.386899
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=9801 iz_avg=0.213013 iz_max=0.276729 iz_sel=0.188799 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.213013 ig_zg_max=0.276729 ig_zg_sel=0.188799
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=9801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=77.982806, k2=4.363081, k3=4.132864, k5=38750.952588
+[FactorizedSLDS EM] online update t=10000 window=[9201,10000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=6.261299
+[FactorizedSLDS EM] best_train_nll=6.261299
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=10001 iz_avg=0.430388 iz_max=0.468520 iz_sel=0.455942 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.430388 ig_zg_max=0.468520 ig_zg_sel=0.455942
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=10001 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.251007, k1=0.864120, k2=0.015292, k3=0.000000, k5=312950.270850
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=10201 iz_avg=0.402358 iz_max=0.454414 iz_sel=0.446101 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.402358 ig_zg_max=0.454414 ig_zg_sel=0.446101
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=10201 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.063152, k1=0.031611, k2=0.007870, k3=0.000000, k5=43267.274541
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=10401 iz_avg=0.462474 iz_max=0.499325 iz_sel=0.499325 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.462474 ig_zg_max=0.499325 ig_zg_sel=0.499325
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=10401 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.149128, k1=0.105663, k2=0.000000, k3=0.003004, k5=110091.112589
+[FactorizedSLDS EM] online update t=10500 window=[9701,10500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=5.647981
+[FactorizedSLDS EM] best_train_nll=5.647981
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=10601 iz_avg=0.466141 iz_max=0.519757 iz_sel=0.422742 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.466141 ig_zg_max=0.519757 ig_zg_sel=0.422742
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=10601 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.012014, k1=1.373401, k2=0.000000, k3=0.000004, k5=146074.929700
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=10801 iz_avg=0.171366 iz_max=0.218253 iz_sel=0.107935 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.171366 ig_zg_max=0.218253 ig_zg_sel=0.107935
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=10801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=1.475278, k2=0.513303, k3=0.028686, k5=6283.686557
+[FactorizedSLDS EM] online update t=11000 window=[10201,11000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=6.271934
+[FactorizedSLDS EM] best_train_nll=6.271934
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=11001 iz_avg=0.486527 iz_max=0.544170 iz_sel=0.485682 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.486527 ig_zg_max=0.544170 ig_zg_sel=0.485682
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=11001 greedy=1 ids_best=1 selected=1 ids_scores: k0=0.427229, k1=0.000000, k2=0.056613, k3=0.035332, k5=63697.043602
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=11201 iz_avg=0.294188 iz_max=0.350872 iz_sel=0.296544 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.294188 ig_zg_max=0.350872 ig_zg_sel=0.296544
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=11201 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=10.400583, k2=0.268283, k3=0.567930, k5=24066.224088
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=11401 iz_avg=0.088979 iz_max=0.121645 iz_sel=0.108873 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.088979 ig_zg_max=0.121645 ig_zg_sel=0.108873
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=11401 greedy=1 ids_best=1 selected=1 ids_scores: k0=36.860299, k1=0.000000, k2=2.947257, k3=17.640626, k5=320368.982801
+[FactorizedSLDS EM] online update t=11500 window=[10701,11500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=6.418754
+[FactorizedSLDS EM] best_train_nll=6.418754
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=11601 iz_avg=0.106746 iz_max=0.143104 iz_sel=0.053407 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.106746 ig_zg_max=0.143104 ig_zg_sel=0.053407
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=11601 greedy=1 ids_best=1 selected=1 ids_scores: k0=12.115070, k1=0.000000, k2=4.820832, k3=3.009598, k5=172608.776462
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=11801 iz_avg=0.112799 iz_max=0.147108 iz_sel=0.091828 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.112799 ig_zg_max=0.147108 ig_zg_sel=0.091828
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=11801 greedy=1 ids_best=1 selected=1 ids_scores: k0=0.674462, k1=0.000000, k2=0.219748, k3=0.113474, k5=54652.380596
+[FactorizedSLDS EM] online update t=12000 window=[11201,12000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=4.427745
+[FactorizedSLDS EM] best_train_nll=4.427745
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=12001 iz_avg=0.434379 iz_max=0.450500 iz_sel=0.440861 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.434379 ig_zg_max=0.450500 ig_zg_sel=0.440861
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=12001 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.698479, k2=0.004630, k3=0.020752, k5=16182.312295
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=12201 iz_avg=0.112128 iz_max=0.169956 iz_sel=0.107876 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.112128 ig_zg_max=0.169956 ig_zg_sel=0.107876
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=12201 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.231305, k2=0.198206, k3=0.006408, k5=1626.843368
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=12401 iz_avg=0.112208 iz_max=0.176223 iz_sel=0.097283 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.112208 ig_zg_max=0.176223 ig_zg_sel=0.097283
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=12401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.098834, k2=0.106861, k3=0.001113, k5=2786.267056
+[FactorizedSLDS EM] online update t=12500 window=[11701,12500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=3.480175
+[FactorizedSLDS EM] best_train_nll=3.480175
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=12601 iz_avg=0.489558 iz_max=0.525534 iz_sel=0.522310 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.489558 ig_zg_max=0.525534 ig_zg_sel=0.522310
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=12601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.088472, k2=0.082016, k3=0.006782, k5=378.345329
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=12801 iz_avg=0.092887 iz_max=0.125059 iz_sel=0.089965 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.092887 ig_zg_max=0.125059 ig_zg_sel=0.089965
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=12801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.012840, k1=0.000232, k2=0.000000, k3=0.000024, k5=1732.450400
+[FactorizedSLDS EM] online update t=13000 window=[12201,13000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=3.482959
+[FactorizedSLDS EM] best_train_nll=3.482959
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=13001 iz_avg=0.453576 iz_max=0.503038 iz_sel=0.503038 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.453576 ig_zg_max=0.503038 ig_zg_sel=0.503038
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=13001 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.001226, k1=0.000083, k2=0.000000, k3=0.000000, k5=441.306655
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=13201 iz_avg=0.473737 iz_max=0.522861 iz_sel=0.516340 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.473737 ig_zg_max=0.522861 ig_zg_sel=0.516340
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=13201 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.003749, k2=0.000418, k3=0.000179, k5=143.327167
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=13401 iz_avg=0.295612 iz_max=0.342963 iz_sel=0.342963 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.295612 ig_zg_max=0.342963 ig_zg_sel=0.342963
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=13401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.002797, k2=0.000167, k3=0.000315, k5=26.578130
+[FactorizedSLDS EM] online update t=13500 window=[12701,13500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=3.739724
+[FactorizedSLDS EM] best_train_nll=3.739724
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=13601 iz_avg=0.459054 iz_max=0.497985 iz_sel=0.497985 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.459054 ig_zg_max=0.497985 ig_zg_sel=0.497985
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=13601 greedy=1 ids_best=1 selected=1 ids_scores: k0=0.025199, k1=0.000000, k2=0.000128, k3=0.004371, k5=1126.467447
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=13801 iz_avg=0.484564 iz_max=0.504541 iz_sel=0.460670 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.484564 ig_zg_max=0.504541 ig_zg_sel=0.460670
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=13801 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.000005, k1=0.000005, k2=0.000150, k3=0.000000, k5=0.000030
+[FactorizedSLDS EM] online update t=14000 window=[13201,14000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=3.516003
+[FactorizedSLDS EM] best_train_nll=3.516003
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=14001 iz_avg=0.302460 iz_max=0.319941 iz_sel=0.307174 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.302460 ig_zg_max=0.319941 ig_zg_sel=0.307174
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=14001 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.000390, k1=0.020688, k2=0.000000, k3=0.004149, k5=27.858505
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=14201 iz_avg=0.242623 iz_max=0.313327 iz_sel=0.237095 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.242623 ig_zg_max=0.313327 ig_zg_sel=0.237095
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=14201 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.190344, k2=0.054862, k3=0.025004, k5=66.417830
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=14401 iz_avg=0.470056 iz_max=0.505078 iz_sel=0.505078 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.470056 ig_zg_max=0.505078 ig_zg_sel=0.505078
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=14401 greedy=1 ids_best=1 selected=1 ids_scores: k0=0.002684, k1=0.000000, k2=0.002161, k3=0.000160, k5=119.067469
+[FactorizedSLDS EM] online update t=14500 window=[13701,14500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=3.331465
+[FactorizedSLDS EM] best_train_nll=3.331465
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=14601 iz_avg=0.264621 iz_max=0.290430 iz_sel=0.263114 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.264621 ig_zg_max=0.290430 ig_zg_sel=0.263114
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=14601 greedy=1 ids_best=1 selected=1 ids_scores: k0=0.006823, k1=0.000000, k2=0.000003, k3=0.000004, k5=1621.431461
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=14801 iz_avg=0.216939 iz_max=0.252979 iz_sel=0.224497 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.216939 ig_zg_max=0.252979 ig_zg_sel=0.224497
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=14801 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.003397, k1=0.044871, k2=0.001171, k3=0.000000, k5=9413.227969
+[FactorizedSLDS EM] online update t=15000 window=[14201,15000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=4.145998
+[FactorizedSLDS EM] best_train_nll=4.145998
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=15001 iz_avg=0.097581 iz_max=0.129344 iz_sel=0.126128 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.097581 ig_zg_max=0.129344 ig_zg_sel=0.126128
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=15001 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.273774, k2=0.217445, k3=0.008150, k5=3193.432334
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=15201 iz_avg=0.154408 iz_max=0.220074 iz_sel=0.220074 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.154408 ig_zg_max=0.220074 ig_zg_sel=0.220074
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=15201 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.181303, k1=0.039812, k2=0.024792, k3=0.000000, k5=230868.209074
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=15401 iz_avg=0.340230 iz_max=0.386980 iz_sel=0.385486 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.340230 ig_zg_max=0.386980 ig_zg_sel=0.385486
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=15401 greedy=1 ids_best=1 selected=1 ids_scores: k0=0.988488, k1=0.000000, k2=0.138978, k3=0.119398, k5=126164.029522
+[FactorizedSLDS EM] online update t=15500 window=[14701,15500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=3.698083
+[FactorizedSLDS EM] best_train_nll=3.698083
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=15601 iz_avg=0.157859 iz_max=0.181558 iz_sel=0.181558 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.157859 ig_zg_max=0.181558 ig_zg_sel=0.181558
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=15601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.332733, k2=0.028833, k3=0.000155, k5=17830.244207
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=15801 iz_avg=0.103518 iz_max=0.134961 iz_sel=0.115705 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.103518 ig_zg_max=0.134961 ig_zg_sel=0.115705
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=15801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.006517, k1=0.417928, k2=0.000000, k3=0.000048, k5=74663.084551
+[FactorizedSLDS EM] online update t=16000 window=[15201,16000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=3.165204
+[FactorizedSLDS EM] best_train_nll=3.165204
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=16001 iz_avg=0.397750 iz_max=0.456991 iz_sel=0.380827 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.397750 ig_zg_max=0.456991 ig_zg_sel=0.380827
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=16001 greedy=1 ids_best=1 selected=1 ids_scores: k0=2.549114, k1=0.000000, k2=0.557457, k3=0.857887, k5=119393.150518
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=16201 iz_avg=0.057565 iz_max=0.082838 iz_sel=0.077979 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.057565 ig_zg_max=0.082838 ig_zg_sel=0.077979
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=16201 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.001407, k1=0.643697, k2=0.003847, k3=0.000000, k5=403568.456804
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=16401 iz_avg=0.072361 iz_max=0.132016 iz_sel=0.066862 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.072361 ig_zg_max=0.132016 ig_zg_sel=0.066862
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=16401 greedy=1 ids_best=1 selected=1 ids_scores: k0=59.184153, k1=0.000000, k2=4.588207, k3=15.965822, k5=1409209.211295
+[FactorizedSLDS EM] online update t=16500 window=[15701,16500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=4.579673
+[FactorizedSLDS EM] best_train_nll=4.579673
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=16601 iz_avg=0.080184 iz_max=0.108706 iz_sel=0.108706 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.080184 ig_zg_max=0.108706 ig_zg_sel=0.108706
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=16601 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.330005, k1=0.009216, k2=0.013840, k3=0.000000, k5=379829.161803
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=16801 iz_avg=0.145517 iz_max=0.183787 iz_sel=0.183787 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.145517 ig_zg_max=0.183787 ig_zg_sel=0.183787
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=16801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=3.991774, k2=0.038769, k3=0.168097, k5=31825.632511
+[FactorizedSLDS EM] online update t=17000 window=[16201,17000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=3.040299
+[FactorizedSLDS EM] best_train_nll=3.040299
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=17001 iz_avg=0.147965 iz_max=0.191748 iz_sel=0.191748 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.147965 ig_zg_max=0.191748 ig_zg_sel=0.191748
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=17001 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.038995, k1=0.083435, k2=0.000000, k3=0.002607, k5=45851.407609
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=17201 iz_avg=0.114381 iz_max=0.139302 iz_sel=0.117023 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.114381 ig_zg_max=0.139302 ig_zg_sel=0.117023
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=17201 greedy=1 ids_best=1 selected=1 ids_scores: k0=7.686019, k1=0.000000, k2=4.999314, k3=2.197833, k5=210713.689698
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=17401 iz_avg=0.095858 iz_max=0.146911 iz_sel=0.125680 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.095858 ig_zg_max=0.146911 ig_zg_sel=0.125680
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) no-g full t=17401 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.010916, k1=0.538807, k2=0.000000, k3=0.000803, k5=90680852.562639
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1 iz_avg=0.000530 iz_max=0.002260 iz_sel=0.002260 ig_g_avg=1.178018 ig_g_max=1.178073 ig_g_sel=1.177943 ig_zg_avg=1.178548 ig_zg_max=1.180333 ig_zg_sel=1.180202
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.026133, k1=0.054500, k2=0.000000, k3=0.001813, k5=0.055838
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=201 iz_avg=0.033327 iz_max=0.164196 iz_sel=0.164196 ig_g_avg=0.128361 ig_g_max=0.597786 ig_g_sel=0.597786 ig_zg_avg=0.161687 ig_zg_max=0.761982 ig_zg_sel=0.761982
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=201 greedy=2 ids_best=2 selected=2 ids_scores: k0=797028.654268, k1=750463.893467, k2=0.000000, k3=829148.048971, k5=769950.368274
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=401 iz_avg=0.033027 iz_max=0.164174 iz_sel=0.164174 ig_g_avg=0.151650 ig_g_max=0.683392 ig_g_sel=0.683392 ig_zg_avg=0.184677 ig_zg_max=0.847566 ig_zg_sel=0.847566
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=401 greedy=2 ids_best=2 selected=2 ids_scores: k0=786547.063580, k1=786490.899948, k2=0.000000, k3=748177.374484, k5=786501.701883
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=601 iz_avg=0.038521 iz_max=0.183815 iz_sel=0.183815 ig_g_avg=0.138361 ig_g_max=0.634102 ig_g_sel=0.634102 ig_zg_avg=0.176883 ig_zg_max=0.817917 ig_zg_sel=0.817917
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=601 greedy=2 ids_best=2 selected=2 ids_scores: k0=736436.103673, k1=732656.109471, k2=0.000000, k3=560121.345743, k5=742761.085173
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=801 iz_avg=0.033731 iz_max=0.162091 iz_sel=0.162091 ig_g_avg=0.134113 ig_g_max=0.612250 ig_g_sel=0.612250 ig_zg_avg=0.167844 ig_zg_max=0.774341 ig_zg_sel=0.774341
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=801 greedy=2 ids_best=2 selected=2 ids_scores: k0=680775.510130, k1=666761.452028, k2=0.000000, k3=757233.046224, k5=629616.253827
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1001 iz_avg=0.018030 iz_max=0.088083 iz_sel=0.088083 ig_g_avg=0.132751 ig_g_max=0.610342 ig_g_sel=0.610342 ig_zg_avg=0.150781 ig_zg_max=0.698425 ig_zg_sel=0.698425
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1001 greedy=2 ids_best=2 selected=2 ids_scores: k1=930796.524474, k2=0.000000, k3=930992.465028, k4=684200.631890, k5=803648.782136
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1201 iz_avg=0.028521 iz_max=0.135112 iz_sel=0.135112 ig_g_avg=0.140037 ig_g_max=0.636956 ig_g_sel=0.636956 ig_zg_avg=0.168558 ig_zg_max=0.772068 ig_zg_sel=0.772068
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1201 greedy=2 ids_best=2 selected=2 ids_scores: k1=679227.606725, k2=0.000000, k3=579240.857365, k4=637023.950576, k5=775473.233874
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1401 iz_avg=0.021907 iz_max=0.108024 iz_sel=0.108024 ig_g_avg=0.138934 ig_g_max=0.617241 ig_g_sel=0.617241 ig_zg_avg=0.160841 ig_zg_max=0.725266 ig_zg_sel=0.725266
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1401 greedy=2 ids_best=2 selected=2 ids_scores: k1=142924.200327, k2=0.000000, k3=154201.983967, k4=138477.006276, k5=154172.280382
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1601 iz_avg=0.027048 iz_max=0.133952 iz_sel=0.133952 ig_g_avg=0.132130 ig_g_max=0.608671 ig_g_sel=0.608671 ig_zg_avg=0.159178 ig_zg_max=0.742622 ig_zg_sel=0.742622
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1601 greedy=2 ids_best=2 selected=2 ids_scores: k1=658326.072671, k2=0.000000, k3=699885.654058, k4=638296.044409, k5=690818.715630
+[online-run] Router=FactorizedSLDS, eval_window=[1701,17419] (training_mode=n/a)
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1801 iz_avg=0.028325 iz_max=0.138912 iz_sel=0.138912 ig_g_avg=0.128049 ig_g_max=0.595184 ig_g_sel=0.595184 ig_zg_avg=0.156374 ig_zg_max=0.734095 ig_zg_sel=0.734095
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=1801 greedy=2 ids_best=2 selected=2 ids_scores: k1=352099.198313, k2=0.000000, k3=336163.645100, k4=284836.385315, k5=352881.942217
+[FactorizedSLDS EM] online update t=2000 window=[1201,2000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.371909
+[FactorizedSLDS EM] best_train_nll=1.371909
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2001 iz_avg=0.025645 iz_max=0.127381 iz_sel=0.127381 ig_g_avg=0.124046 ig_g_max=0.581521 ig_g_sel=0.581521 ig_zg_avg=0.149691 ig_zg_max=0.708902 ig_zg_sel=0.708902
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2001 greedy=2 ids_best=2 selected=2 ids_scores: k0=166072.454829, k1=180563.166502, k2=0.000000, k3=166008.465369, k5=180569.911432
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2201 iz_avg=0.022070 iz_max=0.107613 iz_sel=0.107613 ig_g_avg=0.120952 ig_g_max=0.552308 ig_g_sel=0.552308 ig_zg_avg=0.143023 ig_zg_max=0.659921 ig_zg_sel=0.659921
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2201 greedy=2 ids_best=2 selected=2 ids_scores: k0=59324.961409, k1=62365.143899, k2=0.000000, k3=51565.595233, k5=62368.153927
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2401 iz_avg=0.010477 iz_max=0.051466 iz_sel=0.051466 ig_g_avg=0.123199 ig_g_max=0.576690 ig_g_sel=0.576690 ig_zg_avg=0.133676 ig_zg_max=0.628156 ig_zg_sel=0.628156
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2401 greedy=2 ids_best=2 selected=2 ids_scores: k0=125116.014042, k1=140672.372122, k2=0.000000, k3=140726.120688, k5=140698.758170
+[FactorizedSLDS EM] online update t=2500 window=[1701,2500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.333087
+[FactorizedSLDS EM] best_train_nll=1.333087
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2601 iz_avg=0.017467 iz_max=0.087335 iz_sel=0.087335 ig_g_avg=0.115902 ig_g_max=0.529409 ig_g_sel=0.529409 ig_zg_avg=0.133369 ig_zg_max=0.616744 ig_zg_sel=0.616744
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2601 greedy=2 ids_best=2 selected=2 ids_scores: k0=117028.814348, k1=126787.394601, k2=0.000000, k3=126816.068564, k5=126790.390487
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2801 iz_avg=0.009455 iz_max=0.043354 iz_sel=0.043354 ig_g_avg=0.109477 ig_g_max=0.489548 ig_g_sel=0.489548 ig_zg_avg=0.118932 ig_zg_max=0.532902 ig_zg_sel=0.532902
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=2801 greedy=2 ids_best=2 selected=2 ids_scores: k0=35597.650359, k1=34696.564247, k2=0.000000, k3=38835.792529, k5=34851.849826
+[FactorizedSLDS EM] online update t=3000 window=[2201,3000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.497818
+[FactorizedSLDS EM] best_train_nll=1.497818
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=3001 iz_avg=0.050675 iz_max=0.228844 iz_sel=0.228844 ig_g_avg=0.128532 ig_g_max=0.528938 ig_g_sel=0.528938 ig_zg_avg=0.179207 ig_zg_max=0.757782 ig_zg_sel=0.757782
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=3001 greedy=2 ids_best=2 selected=2 ids_scores: k0=10420.210919, k1=10801.781152, k2=0.000000, k3=9284.977816, k5=13066.312947
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=3201 iz_avg=0.034437 iz_max=0.159960 iz_sel=0.159960 ig_g_avg=0.138745 ig_g_max=0.603426 ig_g_sel=0.603426 ig_zg_avg=0.173183 ig_zg_max=0.763386 ig_zg_sel=0.763386
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=3201 greedy=2 ids_best=2 selected=2 ids_scores: k0=11930.372886, k1=11973.613848, k2=0.000000, k3=9333.070528, k5=9513.996085
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=3401 iz_avg=0.044281 iz_max=0.212232 iz_sel=0.212232 ig_g_avg=0.167112 ig_g_max=0.674569 ig_g_sel=0.674569 ig_zg_avg=0.211394 ig_zg_max=0.886802 ig_zg_sel=0.886802
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=3401 greedy=2 ids_best=2 selected=2 ids_scores: k0=15566.606129, k1=15553.801659, k2=0.000000, k3=14421.006015, k5=13643.506705
+[FactorizedSLDS EM] online update t=3500 window=[2701,3500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.676236
+[FactorizedSLDS EM] best_train_nll=1.676236
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=3601 iz_avg=0.048743 iz_max=0.214134 iz_sel=0.214134 ig_g_avg=0.167945 ig_g_max=0.642694 ig_g_sel=0.642694 ig_zg_avg=0.216689 ig_zg_max=0.856829 ig_zg_sel=0.856829
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=3601 greedy=2 ids_best=2 selected=2 ids_scores: k0=98943.522489, k1=4712528.465425, k2=0.000000, k3=120188.447709, k5=304940637.188836
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=3801 iz_avg=0.063535 iz_max=0.260770 iz_sel=0.260770 ig_g_avg=0.137826 ig_g_max=0.579530 ig_g_sel=0.579530 ig_zg_avg=0.201361 ig_zg_max=0.840301 ig_zg_sel=0.840301
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=3801 greedy=2 ids_best=2 selected=2 ids_scores: k0=492.620057, k1=24483.373150, k2=0.000000, k3=547.471318, k5=1019611.166036
+[FactorizedSLDS EM] online update t=4000 window=[3201,4000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.690716
+[FactorizedSLDS EM] best_train_nll=1.690716
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=4001 iz_avg=0.059233 iz_max=0.194457 iz_sel=0.194457 ig_g_avg=0.161624 ig_g_max=0.596060 ig_g_sel=0.596060 ig_zg_avg=0.220857 ig_zg_max=0.790517 ig_zg_sel=0.790517
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=4001 greedy=2 ids_best=2 selected=2 ids_scores: k0=109.511540, k1=686834.615855, k2=0.000000, k3=200455.053748, k5=10432237.630257
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=4201 iz_avg=0.049436 iz_max=0.231575 iz_sel=0.231575 ig_g_avg=0.190977 ig_g_max=0.863200 ig_g_sel=0.863200 ig_zg_avg=0.240413 ig_zg_max=1.094775 ig_zg_sel=1.094775
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=4201 greedy=2 ids_best=2 selected=2 ids_scores: k0=5541.995247, k1=7614841.988949, k2=0.000000, k3=1817989.961276, k5=65330486.343486
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=4401 iz_avg=0.045222 iz_max=0.221750 iz_sel=0.221750 ig_g_avg=0.186691 ig_g_max=0.884400 ig_g_sel=0.884400 ig_zg_avg=0.231913 ig_zg_max=1.106149 ig_zg_sel=1.106149
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=4401 greedy=2 ids_best=2 selected=2 ids_scores: k0=31215.683816, k1=28274301.383710, k2=0.000000, k3=5751180.440146, k5=239531606.528471
+[FactorizedSLDS EM] online update t=4500 window=[3701,4500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.488076
+[FactorizedSLDS EM] best_train_nll=1.488076
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=4601 iz_avg=0.035388 iz_max=0.172827 iz_sel=0.172827 ig_g_avg=0.133059 ig_g_max=0.629077 ig_g_sel=0.629077 ig_zg_avg=0.168447 ig_zg_max=0.801904 ig_zg_sel=0.801904
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=4601 greedy=2 ids_best=2 selected=2 ids_scores: k0=17887.848225, k1=32181742.501471, k2=0.000000, k3=3064231.935190, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=4801 iz_avg=0.025441 iz_max=0.125857 iz_sel=0.125857 ig_g_avg=0.169851 ig_g_max=0.829438 ig_g_sel=0.829438 ig_zg_avg=0.195292 ig_zg_max=0.955295 ig_zg_sel=0.955295
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=4801 greedy=2 ids_best=2 selected=2 ids_scores: k0=46537.531756, k1=113954153.281493, k2=0.000000, k3=8940342.579959, k5=inf
+[FactorizedSLDS EM] online update t=5000 window=[4201,5000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.391681
+[FactorizedSLDS EM] best_train_nll=1.391681
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=5001 iz_avg=0.019111 iz_max=0.094035 iz_sel=0.094035 ig_g_avg=0.147453 ig_g_max=0.726687 ig_g_sel=0.726687 ig_zg_avg=0.166564 ig_zg_max=0.820721 ig_zg_sel=0.820721
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=5001 greedy=2 ids_best=2 selected=2 ids_scores: k0=285275.891431, k1=87461635.705781, k2=0.000000, k3=29312108.427320, k5=6588325047.046358
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=5201 iz_avg=0.026224 iz_max=0.130594 iz_sel=0.130594 ig_g_avg=0.147264 ig_g_max=0.729496 ig_g_sel=0.729496 ig_zg_avg=0.173488 ig_zg_max=0.860090 ig_zg_sel=0.860090
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=5201 greedy=2 ids_best=2 selected=2 ids_scores: k0=786507.016210, k1=254733276.307418, k2=0.000000, k3=90306657.151972, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=5401 iz_avg=0.024205 iz_max=0.120275 iz_sel=0.120275 ig_g_avg=0.145601 ig_g_max=0.723015 ig_g_sel=0.723015 ig_zg_avg=0.169806 ig_zg_max=0.843290 ig_zg_sel=0.843290
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=5401 greedy=2 ids_best=2 selected=2 ids_scores: k0=4380122.571500, k1=945461986.206625, k2=0.000000, k3=305471014.493736, k5=inf
+[FactorizedSLDS EM] online update t=5500 window=[4701,5500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.323636
+[FactorizedSLDS EM] best_train_nll=1.323636
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=5601 iz_avg=0.013738 iz_max=0.068014 iz_sel=0.068014 ig_g_avg=0.162414 ig_g_max=0.809561 ig_g_sel=0.809561 ig_zg_avg=0.176152 ig_zg_max=0.877575 ig_zg_sel=0.877575
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=5601 greedy=2 ids_best=2 selected=2 ids_scores: k0=119112963.753557, k1=280250785743.940613, k2=0.000000, k3=inf, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=5801 iz_avg=0.017538 iz_max=0.087667 iz_sel=0.087667 ig_g_avg=0.162213 ig_g_max=0.809244 ig_g_sel=0.809244 ig_zg_avg=0.179751 ig_zg_max=0.896911 ig_zg_sel=0.896911
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=5801 greedy=2 ids_best=2 selected=2 ids_scores: k0=1300036622.335044, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=inf
+[FactorizedSLDS EM] online update t=6000 window=[5201,6000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.459325
+[FactorizedSLDS EM] best_train_nll=1.459325
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=6001 iz_avg=0.025254 iz_max=0.126110 iz_sel=0.126110 ig_g_avg=0.124615 ig_g_max=0.622496 ig_g_sel=0.622496 ig_zg_avg=0.149869 ig_zg_max=0.748606 ig_zg_sel=0.748606
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=6001 greedy=2 ids_best=2 selected=2 ids_scores: k0=409012472.429935, k1=inf, k2=0.000000, k3=355967861570.153625, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=6201 iz_avg=0.027482 iz_max=0.137125 iz_sel=0.137125 ig_g_avg=0.147624 ig_g_max=0.737720 ig_g_sel=0.737720 ig_zg_avg=0.175106 ig_zg_max=0.874846 ig_zg_sel=0.874846
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=6201 greedy=2 ids_best=2 selected=2 ids_scores: k0=1322997257.416786, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=6401 iz_avg=0.045406 iz_max=0.225900 iz_sel=0.225900 ig_g_avg=0.108224 ig_g_max=0.540840 ig_g_sel=0.540840 ig_zg_avg=0.153630 ig_zg_max=0.766739 ig_zg_sel=0.766739
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=6401 greedy=2 ids_best=2 selected=2 ids_scores: k0=80518198.144822, k1=inf, k2=0.000000, k3=66501454007.934845, k5=1000000000000.000000
+[FactorizedSLDS EM] online update t=6500 window=[5701,6500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.436108
+[FactorizedSLDS EM] best_train_nll=1.436108
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=6601 iz_avg=0.018103 iz_max=0.090095 iz_sel=0.090095 ig_g_avg=0.143293 ig_g_max=0.716308 ig_g_sel=0.716308 ig_zg_avg=0.161397 ig_zg_max=0.806403 ig_zg_sel=0.806403
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=6601 greedy=2 ids_best=2 selected=2 ids_scores: k0=67656891083.366188, k1=inf, k2=0.000000, k3=inf, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=6801 iz_avg=0.028331 iz_max=0.141321 iz_sel=0.141321 ig_g_avg=0.098588 ig_g_max=0.492835 ig_g_sel=0.492835 ig_zg_avg=0.126918 ig_zg_max=0.634156 ig_zg_sel=0.634156
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=6801 greedy=2 ids_best=2 selected=2 ids_scores: k0=25910555347.716087, k1=inf, k2=0.000000, k3=618295351153.695801, k5=1000000000000.000000
+[FactorizedSLDS EM] online update t=7000 window=[6201,7000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.479177
+[FactorizedSLDS EM] best_train_nll=1.479177
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=7001 iz_avg=0.021610 iz_max=0.107864 iz_sel=0.107864 ig_g_avg=0.157457 ig_g_max=0.787204 ig_g_sel=0.787204 ig_zg_avg=0.179067 ig_zg_max=0.895068 ig_zg_sel=0.895068
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=7001 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=7201 iz_avg=0.022141 iz_max=0.110317 iz_sel=0.110317 ig_g_avg=0.136403 ig_g_max=0.681963 ig_g_sel=0.681963 ig_zg_avg=0.158544 ig_zg_max=0.792279 ig_zg_sel=0.792279
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=7201 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=7401 iz_avg=0.016437 iz_max=0.082129 iz_sel=0.082129 ig_g_avg=0.133708 ig_g_max=0.668503 ig_g_sel=0.668503 ig_zg_avg=0.150145 ig_zg_max=0.750631 ig_zg_sel=0.750631
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=7401 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=inf, k5=inf
+[FactorizedSLDS EM] online update t=7500 window=[6701,7500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.558592
+[FactorizedSLDS EM] best_train_nll=1.558592
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=7601 iz_avg=0.006570 iz_max=0.032722 iz_sel=0.032722 ig_g_avg=0.124038 ig_g_max=0.620167 ig_g_sel=0.620167 ig_zg_avg=0.130608 ig_zg_max=0.652889 ig_zg_sel=0.652889
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=7601 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=7801 iz_avg=0.040868 iz_max=0.204176 iz_sel=0.204176 ig_g_avg=0.103566 ig_g_max=0.517823 ig_g_sel=0.517823 ig_zg_avg=0.144434 ig_zg_max=0.721999 ig_zg_sel=0.721999
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=7801 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=1000000000000.000000
+[FactorizedSLDS EM] online update t=8000 window=[7201,8000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.550247
+[FactorizedSLDS EM] best_train_nll=1.550247
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=8001 iz_avg=0.025855 iz_max=0.129236 iz_sel=0.129236 ig_g_avg=0.103928 ig_g_max=0.519633 ig_g_sel=0.519633 ig_zg_avg=0.129783 ig_zg_max=0.648869 ig_zg_sel=0.648869
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=8001 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=8201 iz_avg=0.019659 iz_max=0.098293 iz_sel=0.098293 ig_g_avg=0.106244 ig_g_max=0.531214 ig_g_sel=0.531214 ig_zg_avg=0.125903 ig_zg_max=0.629507 ig_zg_sel=0.629507
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=8201 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=8401 iz_avg=0.044612 iz_max=0.222669 iz_sel=0.222669 ig_g_avg=0.096905 ig_g_max=0.484521 ig_g_sel=0.484521 ig_zg_avg=0.141516 ig_zg_max=0.707189 ig_zg_sel=0.707189
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=8401 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[FactorizedSLDS EM] online update t=8500 window=[7701,8500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.364197
+[FactorizedSLDS EM] best_train_nll=1.364197
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=8601 iz_avg=0.015407 iz_max=0.076761 iz_sel=0.076761 ig_g_avg=0.106839 ig_g_max=0.534194 ig_g_sel=0.534194 ig_zg_avg=0.122246 ig_zg_max=0.610956 ig_zg_sel=0.610956
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=8601 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=8801 iz_avg=0.021838 iz_max=0.109034 iz_sel=0.109034 ig_g_avg=0.091576 ig_g_max=0.457878 ig_g_sel=0.457878 ig_zg_avg=0.113414 ig_zg_max=0.566913 ig_zg_sel=0.566913
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=8801 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=inf
+[FactorizedSLDS EM] online update t=9000 window=[8201,9000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.425749
+[FactorizedSLDS EM] best_train_nll=1.425749
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=9001 iz_avg=0.031747 iz_max=0.158039 iz_sel=0.158039 ig_g_avg=0.091157 ig_g_max=0.455782 ig_g_sel=0.455782 ig_zg_avg=0.122903 ig_zg_max=0.613822 ig_zg_sel=0.613822
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=9001 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=9201 iz_avg=0.022359 iz_max=0.111741 iz_sel=0.111741 ig_g_avg=0.099321 ig_g_max=0.496603 ig_g_sel=0.496603 ig_zg_avg=0.121679 ig_zg_max=0.608344 ig_zg_sel=0.608344
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=9201 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=inf, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=9401 iz_avg=0.024727 iz_max=0.123145 iz_sel=0.123145 ig_g_avg=0.089208 ig_g_max=0.446041 ig_g_sel=0.446041 ig_zg_avg=0.113935 ig_zg_max=0.569185 ig_zg_sel=0.569185
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=9401 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=inf
+[FactorizedSLDS EM] online update t=9500 window=[8701,9500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.438843
+[FactorizedSLDS EM] best_train_nll=1.438843
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=9601 iz_avg=0.031041 iz_max=0.154141 iz_sel=0.154141 ig_g_avg=0.101125 ig_g_max=0.505625 ig_g_sel=0.505625 ig_zg_avg=0.132166 ig_zg_max=0.659766 ig_zg_sel=0.659766
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=9601 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=9801 iz_avg=0.025819 iz_max=0.128900 iz_sel=0.128900 ig_g_avg=0.082560 ig_g_max=0.412800 ig_g_sel=0.412800 ig_zg_avg=0.108379 ig_zg_max=0.541700 ig_zg_sel=0.541700
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=9801 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=inf
+[FactorizedSLDS EM] online update t=10000 window=[9201,10000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.323497
+[FactorizedSLDS EM] best_train_nll=1.323497
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=10001 iz_avg=0.031295 iz_max=0.156201 iz_sel=0.156201 ig_g_avg=0.098055 ig_g_max=0.490273 ig_g_sel=0.490273 ig_zg_avg=0.129350 ig_zg_max=0.646474 ig_zg_sel=0.646474
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=10001 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=10201 iz_avg=0.040092 iz_max=0.200217 iz_sel=0.200217 ig_g_avg=0.087783 ig_g_max=0.438916 ig_g_sel=0.438916 ig_zg_avg=0.127875 ig_zg_max=0.639134 ig_zg_sel=0.639134
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=10201 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=10401 iz_avg=0.042132 iz_max=0.210572 iz_sel=0.210572 ig_g_avg=0.090038 ig_g_max=0.450191 ig_g_sel=0.450191 ig_zg_avg=0.132171 ig_zg_max=0.660763 ig_zg_sel=0.660763
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=10401 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=inf
+[FactorizedSLDS EM] online update t=10500 window=[9701,10500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.206691
+[FactorizedSLDS EM] best_train_nll=1.206691
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=10601 iz_avg=0.034972 iz_max=0.174376 iz_sel=0.174376 ig_g_avg=0.116665 ig_g_max=0.583324 ig_g_sel=0.583324 ig_zg_avg=0.151637 ig_zg_max=0.757701 ig_zg_sel=0.757701
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=10601 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=10801 iz_avg=0.065138 iz_max=0.325572 iz_sel=0.325572 ig_g_avg=0.086786 ig_g_max=0.433932 ig_g_sel=0.433932 ig_zg_avg=0.151925 ig_zg_max=0.759504 ig_zg_sel=0.759504
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=10801 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=inf
+[FactorizedSLDS EM] online update t=11000 window=[10201,11000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.243102
+[FactorizedSLDS EM] best_train_nll=1.243102
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=11001 iz_avg=0.035903 iz_max=0.179412 iz_sel=0.179412 ig_g_avg=0.086021 ig_g_max=0.430106 ig_g_sel=0.430106 ig_zg_avg=0.121925 ig_zg_max=0.609519 ig_zg_sel=0.609519
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=11001 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=11201 iz_avg=0.039941 iz_max=0.199628 iz_sel=0.199628 ig_g_avg=0.089150 ig_g_max=0.445748 ig_g_sel=0.445748 ig_zg_avg=0.129091 ig_zg_max=0.645377 ig_zg_sel=0.645377
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=11201 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=11401 iz_avg=0.033340 iz_max=0.166561 iz_sel=0.166561 ig_g_avg=0.100604 ig_g_max=0.503020 ig_g_sel=0.503020 ig_zg_avg=0.133945 ig_zg_max=0.669581 ig_zg_sel=0.669581
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=11401 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[FactorizedSLDS EM] online update t=11500 window=[10701,11500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.293491
+[FactorizedSLDS EM] best_train_nll=1.293491
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=11601 iz_avg=0.054146 iz_max=0.270480 iz_sel=0.270480 ig_g_avg=0.153828 ig_g_max=0.769141 ig_g_sel=0.769141 ig_zg_avg=0.207974 ig_zg_max=1.039622 ig_zg_sel=1.039622
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=11601 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=11801 iz_avg=0.041448 iz_max=0.207125 iz_sel=0.207125 ig_g_avg=0.140534 ig_g_max=0.702670 ig_g_sel=0.702670 ig_zg_avg=0.181982 ig_zg_max=0.909796 ig_zg_sel=0.909796
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=11801 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=inf
+[FactorizedSLDS EM] online update t=12000 window=[11201,12000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.040986
+[FactorizedSLDS EM] best_train_nll=1.040986
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=12001 iz_avg=0.020184 iz_max=0.100616 iz_sel=0.100616 ig_g_avg=0.131148 ig_g_max=0.655739 ig_g_sel=0.655739 ig_zg_avg=0.151332 ig_zg_max=0.756355 ig_zg_sel=0.756355
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=12001 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=12201 iz_avg=0.042586 iz_max=0.212863 iz_sel=0.212863 ig_g_avg=0.101647 ig_g_max=0.508235 ig_g_sel=0.508235 ig_zg_avg=0.144233 ig_zg_max=0.721098 ig_zg_sel=0.721098
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=12201 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=12401 iz_avg=0.038608 iz_max=0.193033 iz_sel=0.193033 ig_g_avg=0.099017 ig_g_max=0.495085 ig_g_sel=0.495085 ig_zg_avg=0.137625 ig_zg_max=0.688117 ig_zg_sel=0.688117
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=12401 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=inf, k5=inf
+[FactorizedSLDS EM] online update t=12500 window=[11701,12500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=0.918273
+[FactorizedSLDS EM] best_train_nll=0.918273
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=12601 iz_avg=0.042267 iz_max=0.210715 iz_sel=0.210715 ig_g_avg=0.122352 ig_g_max=0.611758 ig_g_sel=0.611758 ig_zg_avg=0.164619 ig_zg_max=0.822473 ig_zg_sel=0.822473
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=12601 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=12801 iz_avg=0.057625 iz_max=0.288038 iz_sel=0.288038 ig_g_avg=0.095415 ig_g_max=0.477076 ig_g_sel=0.477076 ig_zg_avg=0.153041 ig_zg_max=0.765114 ig_zg_sel=0.765114
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=12801 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=inf
+[FactorizedSLDS EM] online update t=13000 window=[12201,13000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=0.935928
+[FactorizedSLDS EM] best_train_nll=0.935928
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=13001 iz_avg=0.015112 iz_max=0.075350 iz_sel=0.075350 ig_g_avg=0.157243 ig_g_max=0.786215 ig_g_sel=0.786215 ig_zg_avg=0.172355 ig_zg_max=0.861566 ig_zg_sel=0.861566
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=13001 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=13201 iz_avg=0.029757 iz_max=0.148710 iz_sel=0.148710 ig_g_avg=0.158878 ig_g_max=0.794389 ig_g_sel=0.794389 ig_zg_avg=0.188635 ig_zg_max=0.943099 ig_zg_sel=0.943099
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=13201 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=inf, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=13401 iz_avg=0.043730 iz_max=0.218216 iz_sel=0.218216 ig_g_avg=0.154991 ig_g_max=0.774956 ig_g_sel=0.774956 ig_zg_avg=0.198722 ig_zg_max=0.993172 ig_zg_sel=0.993172
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=13401 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[FactorizedSLDS EM] online update t=13500 window=[12701,13500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.076821
+[FactorizedSLDS EM] best_train_nll=1.076821
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=13601 iz_avg=0.015483 iz_max=0.077108 iz_sel=0.077108 ig_g_avg=0.188480 ig_g_max=0.942399 ig_g_sel=0.942399 ig_zg_avg=0.203963 ig_zg_max=1.019506 ig_zg_sel=1.019506
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=13601 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=13801 iz_avg=0.477771 iz_max=0.651879 iz_sel=0.273260 ig_g_avg=0.000000 ig_g_max=0.000000 ig_g_sel=0.000000 ig_zg_avg=0.477771 ig_zg_max=0.651879 ig_zg_sel=0.273260
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=13801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.000038, k1=0.013550, k2=0.000000, k3=1.355420, k5=0.027726
+[FactorizedSLDS EM] online update t=14000 window=[13201,14000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.021257
+[FactorizedSLDS EM] best_train_nll=1.021257
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=14001 iz_avg=0.036567 iz_max=0.182305 iz_sel=0.182305 ig_g_avg=0.139562 ig_g_max=0.697811 ig_g_sel=0.697811 ig_zg_avg=0.176129 ig_zg_max=0.880116 ig_zg_sel=0.880116
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=14001 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=14201 iz_avg=0.005352 iz_max=0.026679 iz_sel=0.026679 ig_g_avg=0.146789 ig_g_max=0.733945 ig_g_sel=0.733945 ig_zg_avg=0.152141 ig_zg_max=0.760625 ig_zg_sel=0.760625
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=14201 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=14401 iz_avg=0.015922 iz_max=0.079505 iz_sel=0.079505 ig_g_avg=0.150460 ig_g_max=0.752300 ig_g_sel=0.752300 ig_zg_avg=0.166382 ig_zg_max=0.831805 ig_zg_sel=0.831805
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=14401 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[FactorizedSLDS EM] online update t=14500 window=[13701,14500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=0.949204
+[FactorizedSLDS EM] best_train_nll=0.949204
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=14601 iz_avg=0.008912 iz_max=0.043563 iz_sel=0.043563 ig_g_avg=0.156081 ig_g_max=0.780406 ig_g_sel=0.780406 ig_zg_avg=0.164993 ig_zg_max=0.823970 ig_zg_sel=0.823970
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=14601 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=14801 iz_avg=0.019912 iz_max=0.099170 iz_sel=0.099170 ig_g_avg=0.178805 ig_g_max=0.894024 ig_g_sel=0.894024 ig_zg_avg=0.198717 ig_zg_max=0.993194 ig_zg_sel=0.993194
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=14801 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=inf
+[FactorizedSLDS EM] online update t=15000 window=[14201,15000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.135745
+[FactorizedSLDS EM] best_train_nll=1.135745
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=15001 iz_avg=0.036185 iz_max=0.180708 iz_sel=0.180708 ig_g_avg=0.136984 ig_g_max=0.684918 ig_g_sel=0.684918 ig_zg_avg=0.173168 ig_zg_max=0.865626 ig_zg_sel=0.865626
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=15001 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=15201 iz_avg=0.006264 iz_max=0.031322 iz_sel=0.031322 ig_g_avg=0.166792 ig_g_max=0.833962 ig_g_sel=0.833962 ig_zg_avg=0.173057 ig_zg_max=0.865284 ig_zg_sel=0.865284
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=15201 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=inf, k2=0.000000, k3=inf, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=15401 iz_avg=0.014609 iz_max=0.072746 iz_sel=0.072746 ig_g_avg=0.172866 ig_g_max=0.864332 ig_g_sel=0.864332 ig_zg_avg=0.187476 ig_zg_max=0.937078 ig_zg_sel=0.937078
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=15401 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=1000000000000.000000, k2=0.000000, k3=1000000000000.000000, k5=inf
+[FactorizedSLDS EM] online update t=15500 window=[14701,15500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.115051
+[FactorizedSLDS EM] best_train_nll=1.115051
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=15601 iz_avg=0.003709 iz_max=0.018517 iz_sel=0.018517 ig_g_avg=0.114105 ig_g_max=0.570527 ig_g_sel=0.570527 ig_zg_avg=0.117815 ig_zg_max=0.589045 ig_zg_sel=0.589045
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=15601 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=inf, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=15801 iz_avg=0.014497 iz_max=0.071966 iz_sel=0.071966 ig_g_avg=0.129928 ig_g_max=0.649642 ig_g_sel=0.649642 ig_zg_avg=0.144426 ig_zg_max=0.721608 ig_zg_sel=0.721608
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=15801 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=1000000000000.000000
+[FactorizedSLDS EM] online update t=16000 window=[15201,16000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=0.958468
+[FactorizedSLDS EM] best_train_nll=0.958468
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=16001 iz_avg=0.022171 iz_max=0.110792 iz_sel=0.110792 ig_g_avg=0.122406 ig_g_max=0.612028 ig_g_sel=0.612028 ig_zg_avg=0.144576 ig_zg_max=0.722820 ig_zg_sel=0.722820
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=16001 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=16201 iz_avg=0.012484 iz_max=0.062180 iz_sel=0.062180 ig_g_avg=0.099557 ig_g_max=0.497787 ig_g_sel=0.497787 ig_zg_avg=0.112041 ig_zg_max=0.559966 ig_zg_sel=0.559966
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=16201 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=16401 iz_avg=0.047837 iz_max=0.239105 iz_sel=0.239105 ig_g_avg=0.134826 ig_g_max=0.674129 ig_g_sel=0.674129 ig_zg_avg=0.182663 ig_zg_max=0.913234 ig_zg_sel=0.913234
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=16401 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=inf
+[FactorizedSLDS EM] online update t=16500 window=[15701,16500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.144121
+[FactorizedSLDS EM] best_train_nll=1.144121
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=16601 iz_avg=0.015027 iz_max=0.075006 iz_sel=0.075006 ig_g_avg=0.113106 ig_g_max=0.565528 ig_g_sel=0.565528 ig_zg_avg=0.128132 ig_zg_max=0.640534 ig_zg_sel=0.640534
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=16601 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=inf, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=16801 iz_avg=0.064397 iz_max=0.321900 iz_sel=0.321900 ig_g_avg=0.108825 ig_g_max=0.544127 ig_g_sel=0.544127 ig_zg_avg=0.173223 ig_zg_max=0.866027 ig_zg_sel=0.866027
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=16801 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=inf
+[FactorizedSLDS EM] online update t=17000 window=[16201,17000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=0.959112
+[FactorizedSLDS EM] best_train_nll=0.959112
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=17001 iz_avg=0.012949 iz_max=0.064650 iz_sel=0.064650 ig_g_avg=0.082103 ig_g_max=0.410513 ig_g_sel=0.410513 ig_zg_avg=0.095052 ig_zg_max=0.475162 ig_zg_sel=0.475162
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=17001 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=1000000000000.000000, k2=0.000000, k3=inf, k5=inf
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=17201 iz_avg=0.005542 iz_max=0.027488 iz_sel=0.027488 ig_g_avg=0.095478 ig_g_max=0.477388 ig_g_sel=0.477388 ig_zg_avg=0.101020 ig_zg_max=0.504877 ig_zg_sel=0.504877
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=17201 greedy=2 ids_best=2 selected=2 ids_scores: k0=inf, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=17401 iz_avg=0.006843 iz_max=0.034042 iz_sel=0.034042 ig_g_avg=0.088076 ig_g_max=0.440382 ig_g_sel=0.440382 ig_zg_avg=0.094920 ig_zg_max=0.474424 ig_zg_sel=0.474424
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) partial t=17401 greedy=2 ids_best=2 selected=2 ids_scores: k0=1000000000000.000000, k1=inf, k2=0.000000, k3=1000000000000.000000, k5=1000000000000.000000
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1 iz_avg=0.000530 iz_max=0.002260 iz_sel=0.002260 ig_g_avg=1.178018 ig_g_max=1.178073 ig_g_sel=1.177943 ig_zg_avg=1.178548 ig_zg_max=1.180333 ig_zg_sel=1.180202
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.026133, k1=0.054500, k2=0.000000, k3=0.001813, k5=0.055838
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=201 iz_avg=0.142279 iz_max=0.155962 iz_sel=0.146980 ig_g_avg=0.676603 ig_g_max=0.677928 ig_g_sel=0.675703 ig_zg_avg=0.818882 ig_zg_max=0.833891 ig_zg_sel=0.822683
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=201 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.368676, k1=2.928543, k2=0.000000, k3=4045.129585, k5=841569.423335
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=401 iz_avg=0.194414 iz_max=0.225546 iz_sel=0.199140 ig_g_avg=0.993314 ig_g_max=0.993527 ig_g_sel=0.993260 ig_zg_avg=1.187728 ig_zg_max=1.219072 ig_zg_sel=1.192400
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=159.123962, k2=1850.396436, k3=49065.737547, k5=1410696.819015
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=601 iz_avg=0.240156 iz_max=0.274740 iz_sel=0.229817 ig_g_avg=0.821778 ig_g_max=0.822194 ig_g_sel=0.821679 ig_zg_avg=1.061934 ig_zg_max=1.096934 ig_zg_sel=1.051495
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=52.538867, k2=5608.331955, k3=91789.576426, k5=2147822.135133
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=801 iz_avg=0.180914 iz_max=0.220097 iz_sel=0.201223 ig_g_avg=0.752432 ig_g_max=0.753309 ig_g_sel=0.751871 ig_zg_avg=0.933346 ig_zg_max=0.973407 ig_zg_sel=0.953094
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.186482, k1=68.914905, k2=0.000000, k3=6311.982289, k5=721662.369946
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1001 iz_avg=0.148710 iz_max=0.187325 iz_sel=0.165256 ig_g_avg=0.718253 ig_g_max=0.718859 ig_g_sel=0.718859 ig_zg_avg=0.866963 ig_zg_max=0.906183 ig_zg_sel=0.884115
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1001 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=788.325436, k3=52280.116340, k4=0.098967, k5=1902752.081512
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1201 iz_avg=0.226944 iz_max=0.343669 iz_sel=0.225575 ig_g_avg=0.824013 ig_g_max=0.824351 ig_g_sel=0.824351 ig_zg_avg=1.050957 ig_zg_max=1.168020 ig_zg_sel=1.049926
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1201 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=695.663905, k3=39261.598979, k4=4.965660, k5=1850824.879521
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1401 iz_avg=0.184504 iz_max=0.200339 iz_sel=0.199607 ig_g_avg=0.783648 ig_g_max=0.784648 ig_g_sel=0.784648 ig_zg_avg=0.968152 ig_zg_max=0.984987 ig_zg_sel=0.984255
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1401 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=0.752056, k3=11.192987, k4=0.273283, k5=310128.033352
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1601 iz_avg=0.146182 iz_max=0.179933 iz_sel=0.179933 ig_g_avg=0.691702 ig_g_max=0.692614 ig_g_sel=0.692614 ig_zg_avg=0.837884 ig_zg_max=0.872547 ig_zg_sel=0.872547
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1601 greedy=1 ids_best=1 selected=1 ids_scores: k1=0.000000, k2=1.288294, k3=7757.124226, k4=3.612431, k5=1096006.647271
+[online-run] Router=FactorizedSLDS, eval_window=[1701,17419] (training_mode=n/a)
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1801 iz_avg=0.122766 iz_max=0.141001 iz_sel=0.123426 ig_g_avg=0.681908 ig_g_max=0.683353 ig_g_sel=0.682735 ig_zg_avg=0.804674 ig_zg_max=0.824354 ig_zg_sel=0.806161
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=1801 greedy=4 ids_best=4 selected=4 ids_scores: k1=4.959420, k2=0.021289, k3=73.119269, k4=0.000000, k5=384008.889035
+[FactorizedSLDS EM] online update t=2000 window=[1201,2000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=2.613571
+[FactorizedSLDS EM] best_train_nll=2.613571
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2001 iz_avg=0.088488 iz_max=0.151220 iz_sel=0.151220 ig_g_avg=0.713869 ig_g_max=0.892909 ig_g_sel=0.888146 ig_zg_avg=0.802357 ig_zg_max=1.044128 ig_zg_sel=1.039366
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2001 greedy=2 ids_best=2 selected=2 ids_scores: k0=211833.047592, k1=1.804413, k2=0.000000, k3=0.000000, k5=166437.918368
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2201 iz_avg=0.147376 iz_max=0.177320 iz_sel=0.162851 ig_g_avg=0.889651 ig_g_max=0.893281 ig_g_sel=0.887407 ig_zg_avg=1.037027 ig_zg_max=1.070601 ig_zg_sel=1.050259
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2201 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.007836, k1=0.520804, k2=0.000000, k3=0.000007, k5=72714.110889
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2401 iz_avg=0.121920 iz_max=0.138588 iz_sel=0.102257 ig_g_avg=0.893996 ig_g_max=0.897098 ig_g_sel=0.892123 ig_zg_avg=1.015915 ig_zg_max=1.035686 ig_zg_sel=0.994380
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2401 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.001762, k1=1.349558, k2=0.000000, k3=0.033730, k5=117586.185223
+[FactorizedSLDS EM] online update t=2500 window=[1701,2500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=1.241455
+[FactorizedSLDS EM] best_train_nll=1.241455
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2601 iz_avg=0.151599 iz_max=0.173287 iz_sel=0.127900 ig_g_avg=1.173062 ig_g_max=1.178068 ig_g_sel=1.171672 ig_zg_avg=1.324661 ig_zg_max=1.351355 ig_zg_sel=1.299572
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=1.895456, k2=0.002206, k3=0.095260, k5=84208.720028
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2801 iz_avg=0.242225 iz_max=0.294424 iz_sel=0.189970 ig_g_avg=1.254364 ig_g_max=1.256178 ig_g_sel=1.252665 ig_zg_avg=1.496589 ig_zg_max=1.550602 ig_zg_sel=1.442635
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=2801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.012508, k1=0.106442, k2=0.000000, k3=0.000070, k5=28925.896238
+[FactorizedSLDS EM] online update t=3000 window=[2201,3000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=-1.619360
+[FactorizedSLDS EM] best_train_nll=-1.619360
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=3001 iz_avg=0.328202 iz_max=0.397444 iz_sel=0.278973 ig_g_avg=1.888596 ig_g_max=1.900583 ig_g_sel=1.900583 ig_zg_avg=2.216799 ig_zg_max=2.298027 ig_zg_sel=2.179555
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=3001 greedy=1 ids_best=1 selected=1 ids_scores: k0=0.085403, k1=0.000000, k2=0.000649, k3=0.005672, k5=25947.619272
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=3201 iz_avg=0.359864 iz_max=0.401212 iz_sel=0.269763 ig_g_avg=1.874223 ig_g_max=1.889186 ig_g_sel=1.889186 ig_zg_avg=2.234086 ig_zg_max=2.290398 ig_zg_sel=2.158950
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=3201 greedy=1 ids_best=1 selected=1 ids_scores: k0=0.513578, k1=0.000000, k2=0.140856, k3=0.146343, k5=20991.526747
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=3401 iz_avg=0.322787 iz_max=0.371582 iz_sel=0.371582 ig_g_avg=1.981917 ig_g_max=1.988778 ig_g_sel=1.977251 ig_zg_avg=2.304704 ig_zg_max=2.360360 ig_zg_sel=2.348833
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=3401 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.001494, k1=0.340578, k2=0.000000, k3=0.000756, k5=37119.766217
+[FactorizedSLDS EM] online update t=3500 window=[2701,3500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=-3.321869
+[FactorizedSLDS EM] best_train_nll=-3.321869
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=3601 iz_avg=0.302813 iz_max=0.340112 iz_sel=0.280078 ig_g_avg=2.368226 ig_g_max=2.407663 ig_g_sel=2.367718 ig_zg_avg=2.671040 ig_zg_max=2.747775 ig_zg_sel=2.647797
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=3601 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.000693, k1=0.165568, k2=0.000250, k3=0.000000, k5=17610.439380
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=3801 iz_avg=0.373262 iz_max=0.433748 iz_sel=0.433748 ig_g_avg=1.726367 ig_g_max=1.801483 ig_g_sel=1.729981 ig_zg_avg=2.099629 ig_zg_max=2.235231 ig_zg_sel=2.163730
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=3801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.002536, k2=0.001369, k3=0.000004, k5=26.015316
+[FactorizedSLDS EM] online update t=4000 window=[3201,4000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=-3.929820
+[FactorizedSLDS EM] best_train_nll=-3.929820
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=4001 iz_avg=0.429872 iz_max=0.444151 iz_sel=0.426555 ig_g_avg=2.640533 ig_g_max=2.697900 ig_g_sel=2.573714 ig_zg_avg=3.070405 ig_zg_max=3.142051 ig_zg_sel=3.000269
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=4001 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.000618, k1=0.019004, k2=0.000000, k3=0.000007, k5=3647.179623
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=4201 iz_avg=0.446804 iz_max=0.509525 iz_sel=0.456400 ig_g_avg=2.677989 ig_g_max=2.734273 ig_g_sel=2.670362 ig_zg_avg=3.124793 ig_zg_max=3.243798 ig_zg_sel=3.126762
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=4201 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.011188, k1=0.001142, k2=0.000571, k3=0.000000, k5=7152.965138
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=4401 iz_avg=0.390178 iz_max=0.426009 iz_sel=0.386871 ig_g_avg=2.621035 ig_g_max=2.686735 ig_g_sel=2.628621 ig_zg_avg=3.011213 ig_zg_max=3.112744 ig_zg_sel=3.015492
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=4401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.086860, k2=0.000009, k3=0.000895, k5=4365.115934
+[FactorizedSLDS EM] online update t=4500 window=[3701,4500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=-4.907028
+[FactorizedSLDS EM] best_train_nll=-4.907028
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=4601 iz_avg=0.305368 iz_max=0.346598 iz_sel=0.343493 ig_g_avg=2.476949 ig_g_max=2.555595 ig_g_sel=2.511279 ig_zg_avg=2.782317 ig_zg_max=2.902193 ig_zg_sel=2.854771
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=4601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.009730, k2=0.000891, k3=0.000007, k5=528.137333
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=4801 iz_avg=0.317411 iz_max=0.350179 iz_sel=0.341695 ig_g_avg=2.428521 ig_g_max=2.521687 ig_g_sel=2.461571 ig_zg_avg=2.745931 ig_zg_max=2.871866 ig_zg_sel=2.803266
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=4801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.010894, k2=0.003830, k3=0.000065, k5=335.527473
+[FactorizedSLDS EM] online update t=5000 window=[4201,5000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=-6.443958
+[FactorizedSLDS EM] best_train_nll=-6.443958
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=5001 iz_avg=0.221095 iz_max=0.252066 iz_sel=0.252066 ig_g_avg=2.676435 ig_g_max=2.763472 ig_g_sel=2.679731 ig_zg_avg=2.897530 ig_zg_max=3.015538 ig_zg_sel=2.931797
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=5001 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.000000, k1=0.007031, k2=0.001483, k3=0.000000, k5=517.278709
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=5201 iz_avg=0.236632 iz_max=0.265804 iz_sel=0.265804 ig_g_avg=2.648273 ig_g_max=2.744817 ig_g_sel=2.652328 ig_zg_avg=2.884905 ig_zg_max=3.010620 ig_zg_sel=2.918132
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=5201 greedy=3 ids_best=3 selected=3 ids_scores: k0=0.000005, k1=0.004049, k2=0.001224, k3=0.000000, k5=395.096095
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=5401 iz_avg=0.281201 iz_max=0.328625 iz_sel=0.262191 ig_g_avg=2.736082 ig_g_max=2.824231 ig_g_sel=2.787506 ig_zg_avg=3.017282 ig_zg_max=3.152855 ig_zg_sel=3.049697
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=5401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.022550, k2=0.001400, k3=0.000142, k5=539.122345
+[FactorizedSLDS EM] online update t=5500 window=[4701,5500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=-6.528500
+[FactorizedSLDS EM] best_train_nll=-6.528500
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=5601 iz_avg=0.362644 iz_max=0.390033 iz_sel=0.366368 ig_g_avg=3.172042 ig_g_max=3.232265 ig_g_sel=3.013881 ig_zg_avg=3.534685 ig_zg_max=3.622298 ig_zg_sel=3.380249
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=5601 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.009771, k1=0.025454, k2=0.000000, k3=0.001923, k5=5383.306498
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=5801 iz_avg=0.316471 iz_max=0.331072 iz_sel=0.312410 ig_g_avg=3.222725 ig_g_max=3.268009 ig_g_sel=3.103384 ig_zg_avg=3.539196 ig_zg_max=3.599082 ig_zg_sel=3.415794
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=5801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.028026, k1=0.061339, k2=0.000000, k3=0.007098, k5=13588.200544
+[FactorizedSLDS EM] online update t=6000 window=[5201,6000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=-5.912978
+[FactorizedSLDS EM] best_train_nll=-5.912978
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=6001 iz_avg=0.253510 iz_max=0.266023 iz_sel=0.259165 ig_g_avg=3.093768 ig_g_max=3.181516 ig_g_sel=3.171296 ig_zg_avg=3.347277 ig_zg_max=3.447539 ig_zg_sel=3.430461
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=6001 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.039761, k2=0.000019, k3=0.000241, k5=1379.222427
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=6201 iz_avg=0.293016 iz_max=0.334669 iz_sel=0.334669 ig_g_avg=3.191145 ig_g_max=3.277999 ig_g_sel=2.940096 ig_zg_avg=3.484161 ig_zg_max=3.612668 ig_zg_sel=3.274765
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=6201 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.000943, k1=0.021430, k2=0.000000, k3=0.000571, k5=1739.421012
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=6401 iz_avg=0.361366 iz_max=0.397926 iz_sel=0.333221 ig_g_avg=2.767695 ig_g_max=2.900770 ig_g_sel=2.886436 ig_zg_avg=3.129061 ig_zg_max=3.298696 ig_zg_sel=3.219657
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=6401 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.004660, k2=0.000913, k3=0.000030, k5=115.628360
+[FactorizedSLDS EM] online update t=6500 window=[5701,6500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=-7.075178
+[FactorizedSLDS EM] best_train_nll=-7.075178
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=6601 iz_avg=0.206674 iz_max=0.263327 iz_sel=0.173956 ig_g_avg=3.409670 ig_g_max=3.476060 ig_g_sel=3.198472 ig_zg_avg=3.616344 ig_zg_max=3.739386 ig_zg_sel=3.372429
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=6601 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.005453, k1=0.059149, k2=0.000000, k3=0.001262, k5=7903.762277
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=6801 iz_avg=0.303136 iz_max=0.329945 iz_sel=0.302431 ig_g_avg=3.113034 ig_g_max=3.226625 ig_g_sel=3.223414 ig_zg_avg=3.416170 ig_zg_max=3.556570 ig_zg_sel=3.525845
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=6801 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=0.011961, k2=0.000891, k3=0.000002, k5=698.241715
+[FactorizedSLDS EM] online update t=7000 window=[6201,7000] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=-5.941167
+[FactorizedSLDS EM] best_train_nll=-5.941167
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=7001 iz_avg=0.200356 iz_max=0.259131 iz_sel=0.185286 ig_g_avg=3.455288 ig_g_max=3.508905 ig_g_sel=3.299283 ig_zg_avg=3.655644 ig_zg_max=3.768037 ig_zg_sel=3.484569
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=7001 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.028434, k1=0.234256, k2=0.000000, k3=0.001550, k5=47150.427257
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=7201 iz_avg=0.183841 iz_max=0.204185 iz_sel=0.155299 ig_g_avg=3.419328 ig_g_max=3.502875 ig_g_sel=3.181167 ig_zg_avg=3.603169 ig_zg_max=3.707059 ig_zg_sel=3.336466
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=7201 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.000542, k1=0.087903, k2=0.000000, k3=0.000460, k5=6593.950359
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=7401 iz_avg=0.260603 iz_max=0.310389 iz_sel=0.244019 ig_g_avg=3.483676 ig_g_max=3.543105 ig_g_sel=3.309354 ig_zg_avg=3.744279 ig_zg_max=3.853494 ig_zg_sel=3.553373
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=7401 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.027814, k1=0.117502, k2=0.000000, k3=0.002473, k5=29665.176074
+[FactorizedSLDS EM] online update t=7500 window=[6701,7500] n_em=1
+[FactorizedSLDS EM] iter 1/1 train_nll=-4.449328
+[FactorizedSLDS EM] best_train_nll=-4.449328
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=7601 iz_avg=0.014542 iz_max=0.018562 iz_sel=0.015120 ig_g_avg=2.717492 ig_g_max=2.769191 ig_g_sel=2.769191 ig_zg_avg=2.732034 ig_zg_max=2.787753 ig_zg_sel=2.784311
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=7601 greedy=0 ids_best=0 selected=0 ids_scores: k0=0.000000, k1=1.788725, k2=0.000448, k3=4.686268, k5=110515.917079
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=7801 iz_avg=0.147794 iz_max=0.162259 iz_sel=0.148383 ig_g_avg=3.217732 ig_g_max=3.270410 ig_g_sel=3.094832 ig_zg_avg=3.365526 ig_zg_max=3.432668 ig_zg_sel=3.243215
+[Exploration diag] L2D SLDS w/ $g_t$ attention (g_z) full t=7801 greedy=2 ids_best=2 selected=2 ids_scores: k0=0.003282, k1=0.279966, k2=0.000000, k3=0.007130, k5=30040.830364
+[FactorizedSLDS EM] online update t=8000 window=[7201,8000] n_em=1

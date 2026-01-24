@@ -1,0 +1,8 @@
+=================================================
+Job ID: 322160
+Node: xcnf6
+Start time: Sat Jan 24 08:25:58 PM +08 2026
+Working directory: /home/y/yuletian/TS_final/Time_Series_L2D
+=================================================
+Running ETTh1 hyperparameter sweep under Slurm (array)...
+ERROR: No run config for SLURM_ARRAY_TASK_ID=2
