@@ -1,6 +1,7 @@
 # %%
 # %matplotlib widget
 
+print("Starting imports...")
 import argparse
 import copy
 import json
@@ -12,27 +13,29 @@ import sys
 from typing import Optional
 import numpy as np
 
+print("Setting matplotlib backend to Agg (non-interactive)...")
+import matplotlib
+matplotlib.use("Agg")
+
+print("Importing environment modules...")
 from environment.etth1_env import ETTh1TimeSeriesEnv
 
-from models.router_model import SLDSIMMRouter, feature_phi
-from models.router_model_corr import SLDSIMMRouter_Corr, RecurrentSLDSIMMRouter_Corr
-from models.router_model_corr_em import SLDSIMMRouter_Corr_EM
+from models.router_model import feature_phi
+
 from environment.synthetic_env import SyntheticTimeSeriesEnv
 from models.l2d_baseline import L2D, L2D_SW
 from models.linucb_baseline import LinUCB
 from models.neuralucb_baseline import NeuralUCB
 from models.factorized_slds import FactorizedSLDS
 
-from router_eval import set_transition_log_config, register_transition_log_label
+print("Importing router_eval...")
+from router_eval import set_transition_log_config, register_transition_log_label, get_transition_log_config
 
+print("Importing plot_utils...")
 from plot_utils import (
     evaluate_routers_and_baselines,
-    analysis_late_arrival,
-    plot_time_series,
-    run_tri_cycle_corr_diagnostics,
-    plot_pruning_dynamics,
 )
-from horizon_planning import evaluate_horizon_planning
+print("All imports completed successfully.")
 
 try:
     import yaml  # type: ignore
@@ -210,8 +213,10 @@ def _run_pipeline_subprocess(payload: dict) -> None:
     config_path = payload["config_path"]
     exploration_mode = payload["exploration_mode"]
     disable_show = payload.get("disable_show", True)
+    device = payload.get("device", "cpu")  # Get device from payload
     env = os.environ.copy()
     env["FACTOR_EXPLORATION_MODE"] = exploration_mode
+    env["TORCH_DEVICE"] = device  # Pass device to subprocess
     if disable_show:
         env["FACTOR_DISABLE_PLOT_SHOW"] = "1"
     cmd = [sys.executable, os.path.abspath(__file__), "--config", config_path]
@@ -252,8 +257,10 @@ def _parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    print("Parsing arguments...")
     args = _parse_args()
     cfg = _load_config(args.config)
+    print("Configuring transition logging...")
     transition_log_cfg = cfg.get("transition_log", None)
     if transition_log_cfg is None:
         transition_log_cfg = cfg.get("debug", {}).get("transition_log", None)
@@ -266,19 +273,36 @@ if __name__ == "__main__":
         set_transition_log_config(transition_log_cfg)
     else:
         transition_log_cfg = None
+    print("Setting random seeds...")
     env_cfg = cfg.get("environment", {})
     seed_cfg = env_cfg.get("seed", 0)
     seed = int(seed_cfg) if seed_cfg is not None else 0
     np.random.seed(seed)
     random.seed(seed)
+
+    print("Configuring device (CPU/GPU)...")
+    # GPU device setup for neural networks
+    device = "cpu"  # Default to CPU
     try:  # pragma: no cover - torch is optional
         import torch  # type: ignore
 
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
+            device = "cuda"
+            print(f"GPU detected: {torch.cuda.get_device_name()}")
+            print(f"Using device: {device}")
+        else:
+            print("CUDA not available, using CPU")
     except Exception:
+        print("PyTorch not available, using CPU for all computations")
         pass
+
+    # Add device to configuration for neural network models
+    # Currently supports FactorizedSLDS (transition_device parameter)
+    # L2D, L2D_SW, NeuralUCB will be updated in future to support device parameter
+    cfg.setdefault("device", device)
+    os.environ["TORCH_DEVICE"] = device
 
     routers_cfg = cfg.get("routers", {})
     analysis_cfg = cfg.get("analysis", {}) or {}
@@ -323,6 +347,7 @@ if __name__ == "__main__":
                         "config_path": args.config,
                         "exploration_mode": mode,
                         "disable_show": disable_show,
+                        "device": device,  # Pass device to subprocess
                     }
                     for mode in exploration_modes
                 ]
@@ -342,7 +367,10 @@ if __name__ == "__main__":
     setting = env_cfg.get("setting", "easy_setting")
     data_source = env_cfg.get("data_source", "synthetic")
     # Default: universe of 5 experts indexed j=0,...,4.
-    N = int(env_cfg.get("num_experts"))   # experts
+    if data_source == "etth1":
+        N = int(len(env_cfg.get("enabled_experts")))   # experts
+    else:
+        N = int(env_cfg.get("num_experts"))   # experts
     # State dimension (= dim φ(x)); feature map in router_model.py currently
     # returns a 2D feature, so d must be compatible with that.
     d = int(env_cfg.get("state_dim"))
@@ -477,537 +505,11 @@ if __name__ == "__main__":
         np.asarray(pop_cov_cfg, dtype=float) if pop_cov_cfg is not None else None
     )
 
-    router_partial = SLDSIMMRouter(
-        num_experts=N,
-        num_regimes=M,
-        state_dim=d,
-        feature_fn=feature_phi,
-        A=A,
-        Q=Q,
-        R=R,
-        Pi=Pi,
-        beta=beta,
-        lambda_risk=lambda_risk,
-        feedback_mode="partial",
-        pop_mean=pop_mean,
-        pop_cov=pop_cov,
-        eps=eps_slds,
-    )
-
-    router_full = SLDSIMMRouter(
-        num_experts=N,
-        num_regimes=M,
-        state_dim=d,
-        feature_fn=feature_phi,
-        A=A,
-        Q=Q,
-        R=R,
-        Pi=Pi,
-        beta=beta,
-        lambda_risk=lambda_risk,
-        feedback_mode="full",
-        pop_mean=pop_mean,
-        pop_cov=pop_cov,
-        eps=eps_slds,
-    )
-
-    # --------------------------------------------------------
-    # Correlated-expert SLDS-IMM routers (shared factor model)
-    # --------------------------------------------------------
 
     staleness_threshold_cfg = routers_cfg.get("staleness_threshold", None)
     staleness_threshold = (
         int(staleness_threshold_cfg) if staleness_threshold_cfg is not None else None
     )
-    # Allow mode-specific overrides for the correlated router:
-    # routers.slds_imm_corr.partial_overrides and
-    # routers.slds_imm_corr.full_overrides.
-    # If these keys are absent, both partial and full routers share the same hyperparameters as
-    # in the original implementation.
-    slds_corr_partial_overrides = slds_corr_cfg.get("partial_overrides", {}) or {}
-    slds_corr_full_overrides = slds_corr_cfg.get("full_overrides", {}) or {}
-
-    '''
-    See Section 5: Parameter Optimization with Expectation-Maximization (EM)
-    E-step: Compute the expected sufficient statistics of the latent variables given the current parameters.
-    M-step: Maximize the expected complete-data log-likelihood with respect to the parameters 
-            using the statistics from the E-step.
-    '''
-    # Optional EM-capable correlated router configuration. If present,
-    # we build an additional pair of correlated routers that perform an
-    # EM-style update of dynamics/noise over an initial window.
-    slds_corr_em_cfg = routers_cfg.get("slds_imm_corr_em", {}) or {}
-    slds_corr_em_enabled = bool(slds_corr_em_cfg.get("enabled", True))
-    slds_corr_em_partial_overrides = slds_corr_em_cfg.get("partial_overrides", {}) or {}
-    slds_corr_em_full_overrides = slds_corr_em_cfg.get("full_overrides", {}) or {}
-
-    def _build_corr_router(
-        corr_base_cfg: dict,
-        overrides: dict,
-        feedback_mode: str,
-    ) -> SLDSIMMRouter_Corr:
-        # Merge base config with mode-specific overrides, ignoring the
-        # override containers themselves to avoid accidental reuse.
-        cfg_local = dict(corr_base_cfg)
-        cfg_local.update(overrides or {})
-        cfg_local.pop("partial_overrides", None)
-        cfg_local.pop("full_overrides", None)
-
-        # Dimensions can be overridden under routers.slds_imm_corr[…].
-        d_g_local = int(cfg_local.get("shared_dim", 1))   # shared-factor dimension
-        d_u_local = int(cfg_local.get("idiosyncratic_dim", d))  # idiosyncratic dim
-
-        # Exploration mode for correlated router: "greedy" (risk-adjusted)
-        # or "ids" (Information-Directed Sampling). Default: "greedy".
-        corr_exploration_mode_local = cfg_local.get("exploration_mode", "greedy")
-        # Feature mode for correlated router: "fixed" (use feature_phi) or
-        # "learnable" (online feature adaptation).
-        corr_feature_mode_local = cfg_local.get("feature_mode", "fixed")
-        corr_feature_lr_local = float(cfg_local.get("feature_learning_rate", 0.0))
-        corr_feature_freeze_after_cfg = cfg_local.get("feature_freeze_after", None)
-        corr_feature_freeze_after_local = (
-            int(corr_feature_freeze_after_cfg)
-            if corr_feature_freeze_after_cfg is not None
-            else None
-        )
-        corr_feature_log_interval_cfg = cfg_local.get("feature_log_interval", None)
-        corr_feature_log_interval_local = (
-            int(corr_feature_log_interval_cfg)
-            if corr_feature_log_interval_cfg is not None
-            else None
-        )
-        # Optional architecture for learnable features: "linear" or "mlp".
-        corr_feature_arch_local = cfg_local.get("feature_arch", "linear")
-        corr_feature_hidden_dim_cfg = cfg_local.get("feature_hidden_dim", None)
-        corr_feature_hidden_dim_local = (
-            int(corr_feature_hidden_dim_cfg)
-            if corr_feature_hidden_dim_cfg is not None
-            else None
-        )
-        corr_feature_activation_local = cfg_local.get("feature_activation", "tanh")
-
-        # Joint dynamics for correlated router:
-        # - A_gk, A_uk default to identity per regime (unless overridden),
-        # - Q_gk, Q_uk built from per-regime scales if full matrices not given.
-
-        A_g_cfg = cfg_local.get("A_g", None)
-        if A_g_cfg is not None:
-            A_g_local = np.asarray(A_g_cfg, dtype=float)
-        else:
-            A_g_local = np.tile(np.eye(d_g_local, dtype=float)[None, :, :], (M, 1, 1))
-
-        Q_g_cfg = cfg_local.get("Q_g", None)
-        if Q_g_cfg is not None:
-            Q_g_local = np.asarray(Q_g_cfg, dtype=float)
-        else:
-            q_g_scales_cfg = cfg_local.get("Q_g_scales", None)
-            if q_g_scales_cfg is None:
-                if M == 2:
-                    q_g_scales_cfg = [0.01, 0.05]
-                else:
-                    q_g_scales_cfg = 0.01
-            q_g_arr = np.asarray(q_g_scales_cfg, dtype=float)
-            if q_g_arr.shape == ():
-                q_g_arr = np.full(M, float(q_g_arr), dtype=float)
-            elif q_g_arr.shape == (M,):
-                pass
-            elif q_g_arr.size == 2 and M > 2:
-                qg_broadcast = np.empty(M, dtype=float)
-                qg_broadcast[0] = float(q_g_arr[0])
-                qg_broadcast[1:] = float(q_g_arr[1])
-                q_g_arr = qg_broadcast
-            else:
-                raise ValueError(
-                    "routers.slds_imm_corr.Q_g_scales must be a scalar, a list "
-                    "of length num_regimes, or a length-2 list [qg_0, qg_other] "
-                    "when num_regimes > 2."
-                )
-            Q_g_local = np.zeros((M, d_g_local, d_g_local), dtype=float)
-            for k in range(M):
-                Q_g_local[k] = q_g_arr[k] * np.eye(d_g_local, dtype=float)
-
-        A_u_cfg = cfg_local.get("A_u", None)
-        if A_u_cfg is not None:
-            A_u_local = np.asarray(A_u_cfg, dtype=float)
-        else:
-            A_u_local = np.tile(np.eye(d_u_local, dtype=float)[None, :, :], (M, 1, 1))
-
-        Q_u_cfg = cfg_local.get("Q_u", None)
-        if Q_u_cfg is not None:
-            Q_u_local = np.asarray(Q_u_cfg, dtype=float)
-        else:
-            q_u_scales_cfg = cfg_local.get("Q_u_scales", None)
-            if q_u_scales_cfg is None:
-                if M == 2:
-                    q_u_scales_cfg = [0.01, 0.1]
-                else:
-                    q_u_scales_cfg = 0.01
-            q_u_arr = np.asarray(q_u_scales_cfg, dtype=float)
-            if q_u_arr.shape == ():
-                q_u_arr = np.full(M, float(q_u_arr), dtype=float)
-            elif q_u_arr.shape == (M,):
-                pass
-            elif q_u_arr.size == 2 and M > 2:
-                qu_broadcast = np.empty(M, dtype=float)
-                qu_broadcast[0] = float(q_u_arr[0])
-                qu_broadcast[1:] = float(q_u_arr[1])
-                q_u_arr = qu_broadcast
-            else:
-                raise ValueError(
-                    "routers.slds_imm_corr.Q_u_scales must be a scalar, a list "
-                    "of length num_regimes, or a length-2 list [qu_0, qu_other] "
-                    "when num_regimes > 2."
-                )
-            Q_u_local = np.zeros((M, d_u_local, d_u_local), dtype=float)
-            for k in range(M):
-                Q_u_local[k] = q_u_arr[k] * np.eye(d_u_local, dtype=float)
-
-        # Shared-factor loadings B: either provided explicitly as a full
-        # tensor or generated from a single intercept loading value.
-        B_cfg = cfg_local.get("B", None)
-        if B_cfg is not None:
-            B_local = np.asarray(B_cfg, dtype=float)
-        else:
-            load = float(cfg_local.get("B_intercept_load", 1.0))
-            B_local = np.zeros((N, d_u_local, d_g_local), dtype=float)
-            for j in range(N):
-                B_local[j, 0, 0] = load
-
-        # Optional priors and numerical stabilizer for SLDSIMMRouter_Corr
-        eps_corr_local = float(cfg_local.get("eps", 1e-8))
-        g_mean0_cfg = cfg_local.get("g_mean0", None)
-        g_cov0_cfg = cfg_local.get("g_cov0", None)
-        u_mean0_cfg = cfg_local.get("u_mean0", None)
-        u_cov0_cfg = cfg_local.get("u_cov0", None)
-
-        g_mean0_local = (
-            np.asarray(g_mean0_cfg, dtype=float) if g_mean0_cfg is not None else None
-        )
-        g_cov0_local = (
-            np.asarray(g_cov0_cfg, dtype=float) if g_cov0_cfg is not None else None
-        )
-        u_mean0_local = (
-            np.asarray(u_mean0_cfg, dtype=float) if u_mean0_cfg is not None else None
-        )
-        u_cov0_local = (
-            np.asarray(u_cov0_cfg, dtype=float) if u_cov0_cfg is not None else None
-        )
-
-        # Observation noise: optionally override the base SLDS R with
-        # a correlated-router-specific scalar or full matrix.
-        R_cfg_local = cfg_local.get("R", None)
-        if R_cfg_local is not None:
-            R_local = np.asarray(R_cfg_local, dtype=float)
-        else:
-            r_scalar_local = cfg_local.get("R_scalar", None)
-            if r_scalar_local is not None:
-                R_local = np.full((M, N), float(r_scalar_local), dtype=float)
-            else:
-                R_local = R
-
-        return SLDSIMMRouter_Corr(
-            num_experts=N,
-            num_regimes=M,
-            shared_dim=d_g_local,
-            idiosyncratic_dim=d_u_local,
-            feature_fn=feature_phi,
-            A_g=A_g_local,
-            Q_g=Q_g_local,
-            A_u=A_u_local,
-            Q_u=Q_u_local,
-            B=B_local,
-            R=R_local,
-            Pi=Pi,
-            beta=beta,
-            lambda_risk=lambda_risk,
-            staleness_threshold=staleness_threshold,
-            exploration_mode=corr_exploration_mode_local,
-            feature_mode=corr_feature_mode_local,
-            feature_learning_rate=corr_feature_lr_local,
-            feature_freeze_after=corr_feature_freeze_after_local,
-            feature_log_interval=corr_feature_log_interval_local,
-            feedback_mode=feedback_mode,
-            eps=eps_corr_local,
-            g_mean0=g_mean0_local,
-            g_cov0=g_cov0_local,
-            u_mean0=u_mean0_local,
-            u_cov0=u_cov0_local,
-            feature_arch=corr_feature_arch_local,
-            feature_hidden_dim=corr_feature_hidden_dim_local,
-            feature_activation=corr_feature_activation_local,
-            seed=seed,
-            context_dim=d,
-        )
-    
-    # --------------------------------------------------------
-    # EM-capable Correlated-expert SLDS-IMM routers
-    # --------------------------------------------------------
-
-    def _build_corr_router_em(
-        corr_base_cfg: dict,
-        overrides: dict,
-        feedback_mode: str,
-    ) -> SLDSIMMRouter_Corr_EM:
-        """
-        Build an EM-capable correlated router. Configuration follows the
-        same structure as routers.slds_imm_corr[…], with additional
-        keys:
-          - em_tk: cutoff time index for EM window (required),
-          - em_min_weight: minimum effective weight per regime,
-          - em_verbose: whether to log after the M-step.
-        """
-        cfg_local = dict(corr_base_cfg)
-        cfg_local.update(overrides or {})
-        cfg_local.pop("partial_overrides", None)
-        cfg_local.pop("full_overrides", None)
-
-        d_g_local = int(cfg_local.get("shared_dim", 1))
-        d_u_local = int(cfg_local.get("idiosyncratic_dim", d))
-
-        corr_exploration_mode_local = cfg_local.get("exploration_mode", "greedy")
-        corr_feature_mode_local = cfg_local.get("feature_mode", "fixed")
-        corr_feature_lr_local = float(cfg_local.get("feature_learning_rate", 0.0))
-        corr_feature_freeze_after_cfg = cfg_local.get("feature_freeze_after", None)
-        corr_feature_freeze_after_local = (
-            int(corr_feature_freeze_after_cfg)
-            if corr_feature_freeze_after_cfg is not None
-            else None
-        )
-        corr_feature_log_interval_cfg = cfg_local.get("feature_log_interval", None)
-        corr_feature_log_interval_local = (
-            int(corr_feature_log_interval_cfg)
-            if corr_feature_log_interval_cfg is not None
-            else None
-        )
-        corr_feature_arch_local = cfg_local.get("feature_arch", "linear")
-        corr_feature_hidden_dim_cfg = cfg_local.get("feature_hidden_dim", None)
-        corr_feature_hidden_dim_local = (
-            int(corr_feature_hidden_dim_cfg)
-            if corr_feature_hidden_dim_cfg is not None
-            else None
-        )
-        corr_feature_activation_local = cfg_local.get("feature_activation", "tanh")
-
-        A_g_cfg = cfg_local.get("A_g", None)
-        if A_g_cfg is not None:
-            A_g_local = np.asarray(A_g_cfg, dtype=float)
-        else:
-            A_g_local = np.tile(np.eye(d_g_local, dtype=float)[None, :, :], (M, 1, 1))
-
-        Q_g_cfg = cfg_local.get("Q_g", None)
-        if Q_g_cfg is not None:
-            Q_g_local = np.asarray(Q_g_cfg, dtype=float)
-        else:
-            q_g_scales_cfg = cfg_local.get("Q_g_scales", None)
-            if q_g_scales_cfg is None:
-                if M == 2:
-                    q_g_scales_cfg = [0.01, 0.05]
-                else:
-                    q_g_scales_cfg = 0.01
-            q_g_arr = np.asarray(q_g_scales_cfg, dtype=float)
-            if q_g_arr.shape == ():
-                q_g_arr = np.full(M, float(q_g_arr), dtype=float)
-            elif q_g_arr.shape == (M,):
-                pass
-            elif q_g_arr.size == 2 and M > 2:
-                qg_broadcast = np.empty(M, dtype=float)
-                qg_broadcast[0] = float(q_g_arr[0])
-                qg_broadcast[1:] = float(q_g_arr[1])
-                q_g_arr = qg_broadcast
-            else:
-                raise ValueError(
-                    "routers.slds_imm_corr_em.Q_g_scales must be a scalar, a list "
-                    "of length num_regimes, or a length-2 list [qg_0, qg_other] "
-                    "when num_regimes > 2."
-                )
-            Q_g_local = np.zeros((M, d_g_local, d_g_local), dtype=float)
-            for k in range(M):
-                Q_g_local[k] = q_g_arr[k] * np.eye(d_g_local, dtype=float)
-
-        A_u_cfg = cfg_local.get("A_u", None)
-        if A_u_cfg is not None:
-            A_u_local = np.asarray(A_u_cfg, dtype=float)
-        else:
-            A_u_local = np.tile(np.eye(d_u_local, dtype=float)[None, :, :], (M, 1, 1))
-
-        Q_u_cfg = cfg_local.get("Q_u", None)
-        if Q_u_cfg is not None:
-            Q_u_local = np.asarray(Q_u_cfg, dtype=float)
-        else:
-            q_u_scales_cfg = cfg_local.get("Q_u_scales", None)
-            if q_u_scales_cfg is None:
-                if M == 2:
-                    q_u_scales_cfg = [0.01, 0.1]
-                else:
-                    q_u_scales_cfg = 0.01
-            q_u_arr = np.asarray(q_u_scales_cfg, dtype=float)
-            if q_u_arr.shape == ():
-                q_u_arr = np.full(M, float(q_u_arr), dtype=float)
-            elif q_u_arr.shape == (M,):
-                pass
-            elif q_u_arr.size == 2 and M > 2:
-                qu_broadcast = np.empty(M, dtype=float)
-                qu_broadcast[0] = float(q_u_arr[0])
-                qu_broadcast[1:] = float(q_u_arr[1])
-                q_u_arr = qu_broadcast
-            else:
-                raise ValueError(
-                    "routers.slds_imm_corr_em.Q_u_scales must be a scalar, a list "
-                    "of length num_regimes, or a length-2 list [qu_0, qu_other] "
-                    "when num_regimes > 2."
-                )
-            Q_u_local = np.zeros((M, d_u_local, d_u_local), dtype=float)
-            for k in range(M):
-                Q_u_local[k] = q_u_arr[k] * np.eye(d_u_local, dtype=float)
-
-        B_cfg = cfg_local.get("B", None)
-        if B_cfg is not None:
-            B_local = np.asarray(B_cfg, dtype=float)
-        else:
-            load = float(cfg_local.get("B_intercept_load", 1.0))
-            B_local = np.zeros((N, d_u_local, d_g_local), dtype=float)
-            for j in range(N):
-                B_local[j, 0, 0] = load
-
-        eps_corr_local = float(cfg_local.get("eps", 1e-8))
-        g_mean0_cfg = cfg_local.get("g_mean0", None)
-        g_cov0_cfg = cfg_local.get("g_cov0", None)
-        u_mean0_cfg = cfg_local.get("u_mean0", None)
-        u_cov0_cfg = cfg_local.get("u_cov0", None)
-
-        g_mean0_local = (
-            np.asarray(g_mean0_cfg, dtype=float) if g_mean0_cfg is not None else None
-        )
-        g_cov0_local = (
-            np.asarray(g_cov0_cfg, dtype=float) if g_cov0_cfg is not None else None
-        )
-        u_mean0_local = (
-            np.asarray(u_mean0_cfg, dtype=float) if u_mean0_cfg is not None else None
-        )
-        u_cov0_local = (
-            np.asarray(u_cov0_cfg, dtype=float) if u_cov0_cfg is not None else None
-        )
-
-        R_cfg_local = cfg_local.get("R", None)
-        if R_cfg_local is not None:
-            R_local = np.asarray(R_cfg_local, dtype=float)
-        else:
-            r_scalar_local = cfg_local.get("R_scalar", None)
-            if r_scalar_local is not None:
-                R_local = np.full((M, N), float(r_scalar_local), dtype=float)
-            else:
-                R_local = R
-
-        em_tk_cfg = cfg_local.get("em_tk", None)
-        em_tk_local = int(em_tk_cfg) if em_tk_cfg is not None else None
-        em_min_weight_local = float(cfg_local.get("em_min_weight", 1e-6))
-        em_verbose_local = bool(cfg_local.get("em_verbose", False))
-
-        # Optional feature-learning schedule across phases. Any of these
-        # keys can be omitted to fall back to the defaults coded inside
-        # SLDSIMMRouter_Corr_EM.
-        phase0_t_end_cfg = cfg_local.get("phase0_t_end", None)
-        phase0_t_end_local = (
-            int(phase0_t_end_cfg) if phase0_t_end_cfg is not None else None
-        )
-        feature_lr_phase0_cfg = cfg_local.get("feature_lr_phase0", None)
-        feature_lr_phase0_local = (
-            float(feature_lr_phase0_cfg)
-            if feature_lr_phase0_cfg is not None
-            else None
-        )
-        feature_lr_phase1_cfg = cfg_local.get("feature_lr_phase1", None)
-        feature_lr_phase1_local = (
-            float(feature_lr_phase1_cfg)
-            if feature_lr_phase1_cfg is not None
-            else None
-        )
-        feature_lr_phase2_cfg = cfg_local.get("feature_lr_phase2", None)
-        feature_lr_phase2_local = (
-            float(feature_lr_phase2_cfg)
-            if feature_lr_phase2_cfg is not None
-            else 0.0
-        )
-
-        if em_tk_local is None:
-            raise ValueError(
-                "routers.slds_imm_corr_em requires an 'em_tk' key specifying "
-                "the cutoff time index for EM learning."
-            )
-
-        router_em = SLDSIMMRouter_Corr_EM(
-            num_experts=N,
-            num_regimes=M,
-            shared_dim=d_g_local,
-            idiosyncratic_dim=d_u_local,
-            feature_fn=feature_phi,
-            A_g=A_g_local,
-            Q_g=Q_g_local,
-            A_u=A_u_local,
-            Q_u=Q_u_local,
-            B=B_local,
-            R=R_local,
-            Pi=Pi,
-            beta=beta,
-            lambda_risk=lambda_risk,
-            staleness_threshold=staleness_threshold,
-            exploration_mode=corr_exploration_mode_local,
-            feature_mode=corr_feature_mode_local,
-            feature_learning_rate=corr_feature_lr_local,
-            feature_freeze_after=corr_feature_freeze_after_local,
-            feature_log_interval=corr_feature_log_interval_local,
-            feedback_mode=feedback_mode,
-            eps=eps_corr_local,
-            g_mean0=g_mean0_local,
-            g_cov0=g_cov0_local,
-            u_mean0=u_mean0_local,
-            u_cov0=u_cov0_local,
-            feature_arch=corr_feature_arch_local,
-            feature_hidden_dim=corr_feature_hidden_dim_local,
-            feature_activation=corr_feature_activation_local,
-            seed=seed,
-            em_tk=em_tk_local,
-            em_min_weight=em_min_weight_local,
-            em_verbose=em_verbose_local,
-            phase0_t_end=phase0_t_end_local,
-            feature_lr_phase0=feature_lr_phase0_local,
-            feature_lr_phase1=feature_lr_phase1_local,
-            feature_lr_phase2=feature_lr_phase2_local,
-            context_dim=d,
-        )
-        # Enable EM accumulation from the start of the run; for
-        # expanding-window protocols, router_eval will toggle this flag.
-        router_em.training_mode = True
-        return router_em
-
-    # Build mode-specific correlated routers. If no overrides are
-    # provided, both fall back to the same configuration.
-    router_partial_corr = None
-    router_full_corr = None
-    if slds_corr_enabled:
-        router_partial_corr = _build_corr_router(
-            slds_corr_cfg, slds_corr_partial_overrides, feedback_mode="partial"
-        )
-        router_full_corr = _build_corr_router(
-            slds_corr_cfg, slds_corr_full_overrides, feedback_mode="full"
-        )
-
-    # Optional EM-style correlated routers (distinct from the base
-    # correlated routers above). If routers.slds_imm_corr_em is empty,
-    # these remain None and are omitted from evaluation.
-    router_partial_corr_em = None
-    router_full_corr_em = None
-    if slds_corr_em_cfg and slds_corr_em_enabled:
-        router_partial_corr_em = _build_corr_router_em(
-            slds_corr_em_cfg,
-            slds_corr_em_partial_overrides,
-            feedback_mode="partial",
-        )
-        router_full_corr_em = _build_corr_router_em(
-            slds_corr_em_cfg,
-            slds_corr_em_full_overrides,
-            feedback_mode="full",
-        )
 
     # L2D baselines (configurable MLP/RNN, with and without sliding window)
     alpha_l2d = _resolve_vector(l2d_cfg.get("alpha", 1.0), 1.0, N)
@@ -1030,6 +532,7 @@ if __name__ == "__main__":
         window_size=int(l2d_cfg.get("window_size", 1)),
         seed=seed,
         context_dim=d,
+        # Note: device parameter will be added when L2D model supports it
     )
 
     l2d_sw_baseline = None
@@ -1055,12 +558,12 @@ if __name__ == "__main__":
             window_size=window_size_sw,
             seed=seed,
             context_dim=d,
+            # Note: device parameter will be added when L2D_SW model supports it
         )
 
     # --------------------------------------------------------
     # Four UCB-style baselines routers
     # --------------------------------------------------------
-
     def _resolve_feedback_mode(cfg: dict, default: str = "both") -> str:
         mode = str(cfg.get("feedback_mode", default)).lower()
         if mode in ("partial", "full", "both"):
@@ -1069,7 +572,7 @@ if __name__ == "__main__":
             return "both"
         return default
 
-    # LinUCB baselines (partial/full, configurable)
+    # LinUCB baselines (partial and full feedback)
     linucb_partial = None
     linucb_full = None
     if linucb_cfg:
@@ -1167,6 +670,11 @@ if __name__ == "__main__":
     factorized_linear_label = "L2D SLDS"
     base_transition_mode = None
     extra_transition_mode = None
+
+    # Default values for parallel execution variables
+    # parallel_exploration = False
+    # parallel_workers = None
+
     if factorized_slds_enabled:
         M_fact = int(factorized_slds_cfg.get("num_regimes", M))
         # Use shared dim from config or same logic as correlated router
@@ -1205,7 +713,7 @@ if __name__ == "__main__":
         transition_activation = str(
             factorized_slds_cfg.get("transition_activation", "tanh")
         )
-        transition_device = factorized_slds_cfg.get("transition_device", None)
+        transition_device = factorized_slds_cfg.get("transition_device", device)  # Use detected device as default
         transition_mode_cfg = str(
             factorized_slds_cfg.get("transition_mode", "attention")
         ).lower()
@@ -1533,18 +1041,19 @@ if __name__ == "__main__":
         T_env = None if T_raw is None else int(T_raw)
         csv_path = env_cfg.get("csv_path", "data/ETTh1.csv")
         target_column = env_cfg.get("target_column", "OT")
+        enabled_experts = env_cfg.get("enabled_experts", None)
 
         env = ETTh1TimeSeriesEnv(
             csv_path=csv_path,
             target_column=target_column,
-            num_experts=N,
-            num_regimes=M,
+            enabled_experts=enabled_experts,
             T=T_env,
             seed=int(env_cfg.get("seed", 42)),
             unavailable_expert_idx=env_cfg.get("unavailable_expert_idx", None),
             unavailable_intervals=env_cfg.get("unavailable_intervals", None),
             arrival_expert_idx=env_cfg.get("arrival_expert_idx", None),
             arrival_intervals=env_cfg.get("arrival_intervals", None),
+            use_rich_context=env_cfg.get("use_rich_context", False),
             context_columns=env_cfg.get("context_columns", None),
             context_lags=env_cfg.get("context_lags", None),
             include_time_features=env_cfg.get("include_time_features", False),
@@ -1555,15 +1064,6 @@ if __name__ == "__main__":
             normalization_mode=env_cfg.get("normalization_mode", "zscore"),
             feature_expansions=env_cfg.get("feature_expansions", None),
             lag_diff_pairs=env_cfg.get("lag_diff_pairs", None),
-            expert_archs=env_cfg.get("expert_archs", None),
-            nn_expert_type=env_cfg.get("nn_expert_type", None),
-            rnn_hidden_dim=env_cfg.get("rnn_hidden_dim", 8),
-            rnn_spectral_radius=env_cfg.get("rnn_spectral_radius", 0.9),
-            rnn_ridge=env_cfg.get("rnn_ridge", 1e-3),
-            rnn_washout=env_cfg.get("rnn_washout", 5),
-            rnn_input_scale=env_cfg.get("rnn_input_scale", 0.5),
-            rnn_share_reservoir=env_cfg.get("rnn_share_reservoir", True),
-            expert_pred_noise_std=env_cfg.get("expert_pred_noise_std", None),
         )
     else:
         # Synthetic environment with dynamic expert availability.
@@ -1591,12 +1091,12 @@ if __name__ == "__main__":
         if data_seed_cfg is not None:
             np.random.seed(seed)
             random.seed(seed)
-    env.analysis_window = int(env_cfg.get("analysis_window", 500))
     # Visualization-only settings for plots.
     env.plot_shift = int(cfg.get("plot_shift", 1))
     env.plot_target = str(cfg.get("plot_target", "y")).lower()
-    if bool(cfg.get("plot_synth_preview", False)):
-        plot_time_series(env)
+    # Plotting disabled
+    # if bool(cfg.get("plot_synth_preview", False)):
+    #     plot_time_series(env)
 
     em_data_cache = {}
 
@@ -1737,6 +1237,8 @@ if __name__ == "__main__":
         if em_tk is not None:
             dst.em_tk = int(em_tk)
 
+
+
     def _configure_factorized_online_em(
         router: Optional[FactorizedSLDS],
     ) -> None:
@@ -1829,22 +1331,6 @@ if __name__ == "__main__":
                 obj.transition_log_cfg = transition_log_cfg
                 obj.transition_log_label = label
 
-        if router_partial is not None and router_partial is not router_partial_no_g:
-            _register_transition_logger(router_partial, "SLDS-IMM partial")
-        if router_full is not None and router_full is not router_full_no_g:
-            _register_transition_logger(router_full, "SLDS-IMM full")
-        if router_partial_corr is not None:
-            _register_transition_logger(router_partial_corr, "Corr SLDS-IMM partial")
-        if router_full_corr is not None:
-            _register_transition_logger(router_full_corr, "Corr SLDS-IMM full")
-        if router_partial_corr_em is not None:
-            _register_transition_logger(
-                router_partial_corr_em, "Corr SLDS-IMM EM partial"
-            )
-        if router_full_corr_em is not None:
-            _register_transition_logger(
-                router_full_corr_em, "Corr SLDS-IMM EM full"
-            )
         for run in factorized_runs:
             rp_no_g = run.get("router_partial_no_g")
             rf_no_g = run.get("router_full_no_g")
@@ -1986,8 +1472,6 @@ if __name__ == "__main__":
             fact_router_full,
             fact_router_partial_linear,
             fact_router_full_linear,
-            router_partial_corr_em,
-            router_full_corr_em,
         ):
             if r is None:
                 continue
@@ -2088,95 +1572,8 @@ if __name__ == "__main__":
                     planning_snapshot_t=snap_t,
                     planning_snapshots=snap_dict,
                 )
-                tri_cfg = analysis_cfg.get("tri_cycle_corr", {}) or {}
-                if tri_cfg.get("enabled", False):
-                    run_idx_cfg = tri_cfg.get("run_index", None)
-                    run_mode_cfg = tri_cfg.get("exploration_mode", None)
-                    if run_idx_cfg is not None and int(run_idx_cfg) != run_idx:
-                        continue
-                    if run_mode_cfg is not None and str(run_mode_cfg) != str(
-                        run.get("exploration_mode")
-                    ):
-                        continue
-                    router_key = str(tri_cfg.get("router", "factorized_full")).lower()
-                    router_map = {
-                        "factorized_full": run.get("fact_router_full"),
-                        "factorized_partial": run.get("fact_router_partial"),
-                        "no_g_full": run.get("router_full_no_g"),
-                        "no_g_partial": run.get("router_partial_no_g"),
-                        "factorized_full_linear": run.get("fact_router_full_linear"),
-                        "factorized_partial_linear": run.get("fact_router_partial_linear"),
-                    }
-                    tri_router = router_map.get(router_key)
-                    if tri_router is None:
-                        print(
-                            f"[tri-cycle] Router '{router_key}' unavailable for analysis."
-                        )
-                        continue
-                    out_dir = str(
-                        tri_cfg.get("out_dir", "out/tri_cycle_corr")
-                    )
-                    run_tri_cycle_corr_diagnostics(
-                        env=env,
-                        router=tri_router,
-                        router_no_g=run.get("router_full_no_g"),
-                        router_no_g_partial=run.get("router_partial_no_g"),
-                        router_no_g_full=run.get("router_full_no_g"),
-                        router_partial=run.get("fact_router_partial"),
-                        router_full=run.get("fact_router_full"),
-                        linucb_partial=linucb_partial_run,
-                        linucb_full=linucb_full_run,
-                        neuralucb_partial=neuralucb_partial_run,
-                        neuralucb_full=neuralucb_full_run,
-                        l2d_baseline=l2d_run,
-                        l2d_sw_baseline=l2d_sw_run,
-                        label=str(tri_cfg.get("label", run.get("factorized_label", "L2D SLDS w/ $g_t$"))),
-                        out_dir=out_dir,
-                        show_plots=bool(tri_cfg.get("show_plots", False)),
-                        save_plots=bool(tri_cfg.get("save_plots", True)),
-                        save_png=bool(tri_cfg.get("save_png", True)),
-                        save_pdf=bool(tri_cfg.get("save_pdf", True)),
-                        pairs=tri_cfg.get("pairs", None),
-                        t_start=int(tri_cfg.get("t_start", 1)),
-                        t_end=tri_cfg.get("t_end", None),
-                        corr_smooth_window=int(tri_cfg.get("corr_smooth_window", 1)),
-                        transfer_probe=tri_cfg.get("transfer_probe", None),
-                    )
-                prune_cfg = analysis_cfg.get("pruning", {}) or {}
-                if prune_cfg.get("enabled", False):
-                    run_idx_cfg = prune_cfg.get("run_index", None)
-                    run_mode_cfg = prune_cfg.get("exploration_mode", None)
-                    if run_idx_cfg is not None and int(run_idx_cfg) != run_idx:
-                        continue
-                    if run_mode_cfg is not None and str(run_mode_cfg) != str(
-                        run.get("exploration_mode")
-                    ):
-                        continue
-                    router_full = run.get("fact_router_full")
-                    router_no_g = run.get("router_full_no_g")
-                    if router_full is None or router_no_g is None:
-                        print("[pruning] Required routers unavailable; skipping.")
-                        continue
-                    expert_idx_cfg = prune_cfg.get("expert_idx", None)
-                    if expert_idx_cfg is None:
-                        print("[pruning] expert_idx not configured; skipping.")
-                        continue
-                    out_dir = str(prune_cfg.get("out_dir", "out/pruning"))
-                    rolling_window = int(prune_cfg.get("rolling_window", 100))
-                    plot_pruning_dynamics(
-                        env=env,
-                        router_full=router_full,
-                        router_no_g=router_no_g,
-                        expert_idx=int(expert_idx_cfg),
-                        rolling_window=rolling_window,
-                        out_dir=out_dir,
-                        show_plots=bool(prune_cfg.get("show_plots", False)),
-                        save_plots=bool(prune_cfg.get("save_plots", True)),
-                        save_png=bool(prune_cfg.get("save_png", True)),
-                        save_pdf=bool(prune_cfg.get("save_pdf", True)),
-                        label_full=str(prune_cfg.get("label_full", run.get("factorized_label", "L2D SLDS w/ $g_t$"))),
-                        label_no_g=str(prune_cfg.get("label_no_g", "L2D SLDS w/t $g_t$")),
-                    )
+                # Plotting disabled - all tri-cycle and pruning diagnostics removed
+                pass
     else:
         evaluate_routers_and_baselines(
             env,
@@ -2258,76 +1655,76 @@ if __name__ == "__main__":
     # Horizon-H planning from a given time t
     # --------------------------------------------------------
 
-    # Build expert prediction functions for planning
-    def experts_predict_factory(env_):
-        def f(j: int):
-            return lambda x: env_.expert_predict(j, x)
-        return [f(j) for j in range(env_.num_experts)]
-
-    experts_predict = experts_predict_factory(env)
-
-    # Simple context update: x_{t+1} := y_hat (recursive forecasting)
-    def context_update(x: np.ndarray, y_hat: float) -> np.ndarray:
-        return np.array([y_hat], dtype=float)
-
-    # Take current context at t0 and plan H steps ahead, and evaluate.
-    t0_cfg = int(horizon_cfg.get("t0", 175))
-    H = int(horizon_cfg.get("H", 5))
-    planning_method = str(horizon_cfg.get("method", "regressive"))
-    scenario_generator_cfg = horizon_cfg.get("scenario_generator", {}) or {}
-    if "seed" not in scenario_generator_cfg:
-        scenario_generator_cfg = dict(scenario_generator_cfg)
-        scenario_generator_cfg["seed"] = seed
-    delta = float(horizon_cfg.get("delta", 0.1))
-    online_start_t = (
-        planning_online_start_t
-        if planning_online_start_t is not None
-        else horizon_cfg.get("online_start_t", None)
-    )
-    t0 = int(planning_snapshot_t) if planning_snapshot_t is not None else int(t0_cfg)
-    if t0 != int(t0_cfg):
-        print(
-            f"[Horizon planning] Adjusted t0 from {t0_cfg} to {t0} "
-            f"to start after EM."
-        )
-
-    snapshot_keys = []
-    if router_partial is not None:
-        snapshot_keys.append("router_partial")
-    if router_full is not None:
-        snapshot_keys.append("router_full")
-    if fact_router_partial is not None:
-        snapshot_keys.append("fact_router_partial")
-    if fact_router_full is not None:
-        snapshot_keys.append("fact_router_full")
-    if fact_router_partial_linear is not None:
-        snapshot_keys.append("fact_router_partial_linear")
-    if fact_router_full_linear is not None:
-        snapshot_keys.append("fact_router_full_linear")
-    use_snapshots = (
-        planning_snapshots is not None
-        and snapshot_keys
-        and all(key in planning_snapshots for key in snapshot_keys)
-    )
-    if use_snapshots:
-        router_partial = planning_snapshots.get("router_partial", router_partial)
-        router_full = planning_snapshots.get("router_full", router_full)
-        fact_router_partial = planning_snapshots.get(
-            "fact_router_partial", fact_router_partial
-        )
-        fact_router_full = planning_snapshots.get(
-            "fact_router_full", fact_router_full
-        )
-        fact_router_partial_linear = planning_snapshots.get(
-            "fact_router_partial_linear", fact_router_partial_linear
-        )
-        fact_router_full_linear = planning_snapshots.get(
-            "fact_router_full_linear", fact_router_full_linear
-        )
-        print(
-            f"[Horizon planning] Using stored router snapshots at t={t0} "
-            f"to avoid re-fitting."
-        )
+    # # Build expert prediction functions for planning
+    # def experts_predict_factory(env_):
+    #     def f(j: int):
+    #         return lambda x: env_.expert_predict(j, x)
+    #     return [f(j) for j in range(env_.num_experts)]
+    #
+    # experts_predict = experts_predict_factory(env)
+    #
+    # # Simple context update: x_{t+1} := y_hat (recursive forecasting)
+    # def context_update(x: np.ndarray, y_hat: float) -> np.ndarray:
+    #     return np.array([y_hat], dtype=float)
+    #
+    # # Take current context at t0 and plan H steps ahead, and evaluate.
+    # t0_cfg = int(horizon_cfg.get("t0", 175))
+    # H = int(horizon_cfg.get("H", 5))
+    # planning_method = str(horizon_cfg.get("method", "regressive"))
+    # scenario_generator_cfg = horizon_cfg.get("scenario_generator", {}) or {}
+    # if "seed" not in scenario_generator_cfg:
+    #     scenario_generator_cfg = dict(scenario_generator_cfg)
+    #     scenario_generator_cfg["seed"] = seed
+    # delta = float(horizon_cfg.get("delta", 0.1))
+    # online_start_t = (
+    #     planning_online_start_t
+    #     if planning_online_start_t is not None
+    #     else horizon_cfg.get("online_start_t", None)
+    # )
+    # t0 = int(planning_snapshot_t) if planning_snapshot_t is not None else int(t0_cfg)
+    # if t0 != int(t0_cfg):
+    #     print(
+    #         f"[Horizon planning] Adjusted t0 from {t0_cfg} to {t0} "
+    #         f"to start after EM."
+    #     )
+    #
+    # snapshot_keys = []
+    # if router_partial is not None:
+    #     snapshot_keys.append("router_partial")
+    # if router_full is not None:
+    #     snapshot_keys.append("router_full")
+    # if fact_router_partial is not None:
+    #     snapshot_keys.append("fact_router_partial")
+    # if fact_router_full is not None:
+    #     snapshot_keys.append("fact_router_full")
+    # if fact_router_partial_linear is not None:
+    #     snapshot_keys.append("fact_router_partial_linear")
+    # if fact_router_full_linear is not None:
+    #     snapshot_keys.append("fact_router_full_linear")
+    # use_snapshots = (
+    #     planning_snapshots is not None
+    #     and snapshot_keys
+    #     and all(key in planning_snapshots for key in snapshot_keys)
+    # )
+    # if use_snapshots:
+    #     router_partial = planning_snapshots.get("router_partial", router_partial)
+    #     router_full = planning_snapshots.get("router_full", router_full)
+    #     fact_router_partial = planning_snapshots.get(
+    #         "fact_router_partial", fact_router_partial
+    #     )
+    #     fact_router_full = planning_snapshots.get(
+    #         "fact_router_full", fact_router_full
+    #     )
+    #     fact_router_partial_linear = planning_snapshots.get(
+    #         "fact_router_partial_linear", fact_router_partial_linear
+    #     )
+    #     fact_router_full_linear = planning_snapshots.get(
+    #         "fact_router_full_linear", fact_router_full_linear
+    #     )
+    #     print(
+    #         f"[Horizon planning] Using stored router snapshots at t={t0} "
+    #         f"to avoid re-fitting."
+    #     )
 
     # evaluate_horizon_planning(
     #     env=env,

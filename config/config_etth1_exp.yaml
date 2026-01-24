@@ -1,0 +1,303 @@
+plot_shift: 1
+plot_target: "y"
+plot_synth_preview: true
+
+transition_log:
+  enabled: true
+  print: false
+  precision: 4
+  stride: 1
+  print_wlin_blin: false
+  plot: true
+  plot_show: true
+  plot_save: true
+  plot_na: true
+  online_only: true
+  plot_only_ours: true
+  plot_entropy: true
+
+environment:
+  # Main experiment environment for ETTh1 (oil temperature as target).
+  # We reuse the same router code as for the synthetic environment, but
+  # the data now comes from a real-world dataset.
+#  T: 1000 # total 17536 time steps
+  data_source: etth1
+  csv_path: data/ETTh1.csv
+  target_column: OT
+
+  # Expert configuration: flexible enable/disable system
+  # Available expert types:
+  # - ar1_low_var: AR(1) with low variance (base model)
+  # - ar1_high_var: AR(1) with higher variance
+  # - nn_early: NN trained on early portion of data
+  # - nn_late: NN trained on late portion of data
+  # - ar2_segment1: AR(2) trained on first data segment
+  # - ar2_segment2: AR(2) trained on second data segment
+
+  # Method 1: Enable specific expert types by name
+  enabled_experts:
+    - ar1_low_var
+    - ar1_high_var
+    - nn_early
+    - nn_late
+    - ar2_segment1
+    - ar2_segment2
+
+  # State dimension d = dim φ(x). The current feature map returns 1D features.
+  # When using advanced context features below, update this to match the total
+  # context dimension.
+  state_dim: 1
+
+  seed: 42
+
+  # Advanced context features control
+  # Set use_rich_context: true to enable multi-dimensional context features.
+  # When false, uses simple lag-1 context (x_t = y_{t-1}, state_dim=1).
+  # When true, you can configure the features below and update state_dim accordingly.
+  use_rich_context: false
+
+  # Advanced context features (only used when use_rich_context: true)
+  # These features allow building rich multi-dimensional context for experts.
+  # When enabled, update state_dim to match the total dimension.
+
+  # Example: Use additional columns from the CSV as context features
+  context_columns in ETTh1: [HULL, MUFL, LULL]
+
+  # Example: Include multiple lagged values of the target
+  # ETTh1 is hourly data, so lag 24 = 1 day, lag 168 = 1 week
+  # context_lags: [1, 24, 168]
+
+  # Example: Include time features (hour, day of week, month)
+  # These are encoded as sin/cos pairs for cyclical representation
+  # include_time_features: false
+  # time_features: [hour, dayofweek, month]
+
+  # Example: Apply feature expansions to create derived features
+  # - squared: x^2 for each base feature
+  # - diff1: first-order differences x_t - x_{t-1}
+  # - lag_diff: differences between specific lag pairs
+  # feature_expansions: [squared, diff1, lag_diff]
+  # lag_diff_pairs: [[1, 24], [1, 168], [24, 168]]
+
+  # Example: Normalize context features to zero mean and unit variance
+  # This is useful when mixing features with different scales
+  # normalize_context: false
+  # normalization_window: 12000  # Use first N points for statistics
+  # normalization_mode: zscore
+
+  # ============================================================================
+  # Example 1: Moderate rich context configuration
+  # ============================================================================
+  # Use multiple lags and time features for better temporal modeling
+  # Uncomment to enable:
+
+  context_lags: [1, 24, 168]  # 3 features (1hr, 1day, 1week)
+  include_time_features: true
+  time_features: [hour, dayofweek]  # 4 features (2 sin/cos pairs)
+  normalize_context: true
+  normalization_window: 6000
+
+  # Expected performance: Better capture of daily and weekly patterns
+
+  # ============================================================================
+  # Example 2: Full rich context configuration with all features
+  # ============================================================================
+  # Maximum context richness with covariates, lags, time, and expansions
+  # Uncomment to enable:
+  #
+
+  # context_columns: [HUFL, HULL, MUFL, MULL, LUFL, LULL]  # 6 covariate features
+  # context_lags: [1, 24, 168]  # 3 lag features
+  # include_time_features: true
+  # time_features: [hour, dayofweek, month]  # 6 time features (3 sin/cos pairs)
+  # feature_expansions: [squared, diff1, lag_diff]  # Derived features
+  # lag_diff_pairs: [[1, 24], [1, 168], [24, 168]]  # 3 lag difference features
+  # normalize_context: true
+  # normalization_window: 12000
+  # state_dim: 48  # Total: 6 + 3 + 6 + (6+3+6)*2 (squared+diff1) + 3 = 48
+
+  # Expected performance: Maximum expressiveness but requires more data
+
+  # ============================================================================
+  # Example 3: Minimal rich context with just additional lags
+  # ============================================================================
+  # Simple extension of lag-1 context with multi-lag features
+  # Uncomment to enable:
+
+  # context_lags: [1, 24]  # Just 2 lags
+  # state_dim: 2
+
+  # Expected performance: Better than lag-1, captures daily patterns
+
+  # Expert availability controls. In this ETTh1 experiment we introduce
+  # multiple experts whose availability switches over time:
+  #   - Expert at index 0 is unavailable on several disjoint intervals.
+  #   - Experts at indices 3 and 2 arrive late and are only available on
+  #     specified arrival intervals.
+
+  # At most 2 unavailable experts and at most 2 arriving experts can be specified.
+  unavailable_expert_idx: [2, 3]
+  unavailable_intervals:
+    - []
+    - []
+  arrival_expert_idx: [4, 5]
+  arrival_intervals:
+    # We banned both expert 4 and 5 since they dominate others.
+    - []
+    - []
+
+  analysis_window: 500
+  analysis_adoption_threshold: 0.5
+
+routers:
+  beta: 0.0
+  staleness_threshold: null
+
+  factorized_slds:
+    enabled: true
+    num_regimes: 5
+    shared_dim: 2
+    idiosyncratic_dim: 1
+    delta_max: 250
+    R_scalar: 0.0009
+    A_g:
+      - [[0.95, 0.0], [0.0, 0.95]]
+      - [[0.95, 0.0], [0.0, 0.95]]
+      - [[0.95, 0.0], [0.0, 0.95]]
+      - [[0.95, 0.0], [0.0, 0.95]]
+      - [[0.95, 0.0], [0.0, 0.95]]
+    A_u:
+      - [[0.95]]
+      - [[0.95]]
+      - [[0.95]]
+      - [[0.95]]
+      - [[0.95]]
+    Q_g:
+      - [[0.2, 0.0], [0.0, 0.01]]
+      - [[0.01, 0.0], [0.0, 0.2]]
+      - [[0.1, 0.0], [0.0, 0.05]]
+      - [[0.05, 0.0], [0.0, 0.1]]
+      - [[0.15, 0.0], [0.0, 0.02]]
+    Q_u:
+      - [[0.015]]
+      - [[0.015]]
+      - [[0.02]]
+      - [[0.02]]
+      - [[0.01]]
+    Q_u_scales: [0.015, 0.015, 0.02, 0.02, 0.01]
+    exploration: ["g_z"]
+    exploration_mc_samples: 100  # Increased from default 25 to encourage more exploration
+    exploration_diag_enabled: true
+    exploration_diag_stride: 200
+    exploration_diag_samples: 50
+    exploration_diag_print: true
+
+    em_enabled: true
+    em_offline_full_feedback: true
+    em_tk: 1700
+    em_n: 3
+    em_samples: 20
+    em_burn_in: 100
+    em_use_validation: true
+    em_val_strategy: "rolling"
+    em_val_fraction: 0.4
+    em_val_roll_len: 100
+    em_val_roll_splits: 2
+    em_val_roll_stride: null
+    em_val_len: null
+    em_theta_lr: 0.01
+    em_theta_steps: 10
+    em_print_val_loss: true
+    em_eps_n: 1.0e-3
+
+    em_online_enabled: true
+    em_online_window: 600
+    em_online_period: 300
+    em_online_n: 1
+    em_online_samples: 20
+    em_online_burn_in: 3
+    em_online_theta_lr: 0.001
+    em_online_theta_steps: 1
+    em_online_eps_n: 1.0e-3
+    em_online_print_val_loss: true
+    em_online_start_t: null
+
+    transition_mode: "attention"
+
+baselines:
+  l2d:
+    arch: "mlp"
+    learning_rate: 0.001
+    hidden_dim: 4
+    window_size: 1
+    alpha: 1.0
+    beta: null
+
+  l2d_sw:
+    arch: "rnn"
+    learning_rate: 0.001
+    hidden_dim: 4
+    window_size: 200
+    alpha: 1.0
+    beta: null
+
+  linucb:
+    alpha_ucb: 5
+    l2_reg: 1.0
+    feedback_mode: "partial"
+
+  neural_ucb:
+    alpha_ucb: 5
+    lambda_reg: 1.0
+    hidden_dim: 16
+    nn_learning_rate: 0.001
+    feedback_mode: "partial"
+
+analysis:
+  baselines_train_from_start: true
+  tri_cycle_corr:
+    enabled: false
+    router: "factorized_full"
+    out_dir: "out/tri_cycle_corr"
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true
+    pairs: [[0, 1], [2, 3]]
+    corr_smooth_window: 25
+    transfer_probe:
+      enabled: true
+      target_expert: 1
+      source_expert: 0
+      compare_no_g: true
+      show_truth: true
+    expert_structure_baselines: true
+
+  pruning:
+    enabled: true
+    expert_idx: 1
+    rolling_window: 100
+    out_dir: "out/pruning"
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true
+
+
+horizon_planning:
+  # Start horizon planning after EM warm-start.
+  t0: 1650
+
+  H: 50
+  method: "100_monte_carlo"
+
+  # Coverage tolerance for active-set scheduling.
+  delta: 0.05
+
+  scenario_generator:
+    type: "oracle_ar1"
+    ar_coef: 0.8
+    use_true_regime: true
+    sigma0: 1
+    q_scale: 1
+    noise_scale: 1

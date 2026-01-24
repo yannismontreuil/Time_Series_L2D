@@ -328,6 +328,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         if A_arr.shape == (d, d):
             return np.stack([A_arr for _ in range(self.M)])
         if A_arr.shape != (self.M, d, d):
+            print(A_arr.shape)
             raise ValueError("A must have shape (M, d, d).")
         return A_arr
 
@@ -1184,14 +1185,14 @@ class FactorizedSLDS(SLDSIMMRouter):
             for m in range(self.M):
                 mu_u_m = mu_u_pred[k][m]
                 Sigma_u_m = Sigma_u_pred[k][m]
-                b_m = float(phi @ mu_u_m)
-                s_m = float(phi @ (Sigma_u_m @ phi)) + self._get_R(m, k)
+                b_m = float(np.squeeze(phi @ mu_u_m))
+                s_m = float(np.squeeze(phi @ (Sigma_u_m @ phi))) + self._get_R(m, k)
                 s_m = max(s_m, self.eps)
                 if self.d_g > 0:
                     mu_g_m = mu_g_pred[m]
                     Sigma_g_m = Sigma_g_pred[m]
-                    mean_m = float(h @ mu_g_m) + b_m
-                    signal = float(h @ (Sigma_g_m @ h))
+                    mean_m = float(np.squeeze(h @ mu_g_m)) + b_m
+                    signal = float(np.squeeze(h @ (Sigma_g_m @ h)))
                     signal = max(signal, 0.0)
                 else:
                     mean_m = b_m
@@ -1678,8 +1679,8 @@ class FactorizedSLDS(SLDSIMMRouter):
             H_u = phi.reshape(1, self.d_phi)
             H = np.concatenate([H_g, H_u], axis=1)
 
-            pred_mean = float(H @ joint_mu)
-            pred_var = float(H @ joint_Sigma @ H.T) + self._get_R(m, k)
+            pred_mean = float(np.squeeze(H @ joint_mu))
+            pred_var = float(np.squeeze(H @ joint_Sigma @ H.T)) + self._get_R(m, k)
             pred_var = max(pred_var, self.eps)
 
             K = (joint_Sigma @ H.T) / pred_var
@@ -2148,8 +2149,8 @@ class FactorizedSLDS(SLDSIMMRouter):
             for m in range(self.M):
                 mu_u_m = mu_u_pred[k][m]
                 Sigma_u_m = Sigma_u_pred[k][m]
-                mean_modes[m] = float(phi @ mu_u_m)
-                noise = float(phi @ (Sigma_u_m @ phi)) + self._get_R(m, k)
+                mean_modes[m] = float(np.squeeze(phi @ mu_u_m))
+                noise = float(np.squeeze(phi @ (Sigma_u_m @ phi))) + self._get_R(m, k)
                 var_modes[m] = max(noise, self.eps)
             return mean_modes, var_modes
 
@@ -2159,9 +2160,9 @@ class FactorizedSLDS(SLDSIMMRouter):
             Sigma_g_m = Sigma_g_pred[m]
             mu_u_m = mu_u_pred[k][m]
             Sigma_u_m = Sigma_u_pred[k][m]
-            mean_modes[m] = float(phi @ (Bk @ mu_g_m + mu_u_m))
-            signal = float(phi @ (Bk @ (Sigma_g_m @ (Bk.T @ phi))))
-            noise = float(phi @ (Sigma_u_m @ phi)) + self._get_R(m, k)
+            mean_modes[m] = float(np.squeeze(phi @ (Bk @ mu_g_m + mu_u_m)))
+            signal = float(np.squeeze(phi @ (Bk @ (Sigma_g_m @ (Bk.T @ phi)))))
+            noise = float(np.squeeze(phi @ (Sigma_u_m @ phi))) + self._get_R(m, k)
             var_modes[m] = max(signal + noise, self.eps)
         return mean_modes, var_modes
 
@@ -2689,10 +2690,10 @@ class FactorizedSLDS(SLDSIMMRouter):
             if obs_mask[t]:
                 H_t = H_seq[t]
                 R_t = float(R_seq[t])
-                S = float(H_t @ P_pred[t] @ H_t.T + R_t)
+                S = float(np.squeeze(H_t @ P_pred[t] @ H_t.T)) + R_t
                 S = max(S, self.eps)
                 K = (P_pred[t] @ H_t.T) / S
-                innovation = float(y_seq[t] - H_t @ m_pred[t])
+                innovation = float(np.squeeze(y_seq[t] - H_t @ m_pred[t]))
                 m_filt[t] = m_pred[t] + (K.flatten() * innovation)
                 P_filt[t] = P_pred[t] - K @ H_t @ P_pred[t]
                 P_filt[t] = 0.5 * (P_filt[t] + P_filt[t].T) + self.eps * np.eye(d)
@@ -2755,10 +2756,10 @@ class FactorizedSLDS(SLDSIMMRouter):
                 for i in range(len(y_t)):
                     H_row = np.asarray(H_t[i], dtype=float).reshape(1, d)
                     R_val = float(R_t[i])
-                    S = float(H_row @ P_t @ H_row.T + R_val)
+                    S = float(np.squeeze(H_row @ P_t @ H_row.T)) + R_val
                     S = max(S, self.eps)
                     K = (P_t @ H_row.T) / S
-                    innovation = float(y_t[i] - H_row @ m_t)
+                    innovation = float(np.squeeze(y_t[i] - H_row @ m_t))
                     m_t = m_t + (K.flatten() * innovation)
                     P_t = P_t - K @ H_row @ P_t
                     P_t = 0.5 * (P_t + P_t.T) + self.eps * np.eye(d)
@@ -2823,7 +2824,7 @@ class FactorizedSLDS(SLDSIMMRouter):
                 for k in available_sets[t]:
                     k = int(k)
                     Bk = self._ensure_B(k)
-                    mean_shared = float(phi_t @ (Bk @ g_prev[t] + u_prev[k][t]))
+                    mean_shared = float(np.squeeze(phi_t @ (Bk @ g_prev[t] + u_prev[k][t])))
                     for m in range(self.M):
                         var = self._get_R(m, k)
                         log_emission[t, m] += self._gaussian_logpdf(
@@ -2832,7 +2833,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             else:
                 k = int(actions[t])
                 Bk = self._ensure_B(k)
-                mean_shared = float(phi_t @ (Bk @ g_prev[t] + u_prev[k][t]))
+                mean_shared = float(np.squeeze(phi_t @ (Bk @ g_prev[t] + u_prev[k][t])))
                 for m in range(self.M):
                     var = self._get_R(m, k)
                     log_emission[t, m] = self._gaussian_logpdf(
@@ -3190,7 +3191,7 @@ class FactorizedSLDS(SLDSIMMRouter):
                         phi_t = phi_seq[t]
                         H_seq_u[t] = phi_t.reshape(1, self.d_phi)
                         R_seq_u[t] = self._get_R(int(z_seq[t]), k)
-                        y_seq_u[t] = float(resid_val - phi_t @ (Bk @ g_seq[t]))
+                        y_seq_u[t] = float(np.squeeze(resid_val - phi_t @ (Bk @ g_seq[t])))
                         obs_mask_u[t] = True
                     u_seq[k] = self._kalman_sample(
                         A_seq_u,
@@ -3419,7 +3420,7 @@ class FactorizedSLDS(SLDSIMMRouter):
                                 continue
                             g_t = g_samples[s, t]
                             u_t = u_samples[k][s, t]
-                            resid = float(resid_val - phi_t @ (Bk @ g_t + u_t))
+                            resid = float(np.squeeze(resid_val - phi_t @ (Bk @ g_t + u_t)))
                             num += (resid ** 2) / S
                             denom += 1.0 / S
                     if denom <= epsilon_N:

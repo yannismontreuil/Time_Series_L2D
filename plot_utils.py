@@ -412,6 +412,7 @@ def plot_time_series(
 
     plt.tight_layout()
     plt.show()
+    plt.close(fig)
 
     # Plot expert availability over time (1 = available, 0 = not available)
     avail = getattr(env, "availability", None)
@@ -447,6 +448,7 @@ def plot_time_series(
         axes[-1].set_xlabel("Time $t$")
         plt.tight_layout()
         plt.show()
+        plt.close(fig3)
 
 
 def evaluate_routers_and_baselines(
@@ -2069,6 +2071,7 @@ def evaluate_routers_and_baselines(
 
     plt.tight_layout()
     plt.show()
+    plt.close(fig)
 
     transition_cfg = get_transition_log_config()
     if transition_cfg is not None and transition_cfg.get("plot", False):
@@ -2216,6 +2219,7 @@ def evaluate_routers_and_baselines(
         ax_reg.legend(loc="upper left")
         plt.tight_layout()
         plt.show()
+        plt.close(fig_reg)
 
     # Plot the expert index chosen over time for each router and baseline,
     # together with expert availability (0 = not available, 1 = available).
@@ -2496,6 +2500,7 @@ def evaluate_routers_and_baselines(
 
     plt.tight_layout()
     plt.show()
+    plt.close(fig2)
 
     tri_cfg = analysis_cfg.get("tri_cycle_corr", {}) if analysis_cfg else {}
     if tri_cfg.get("expert_structure_baselines", False):

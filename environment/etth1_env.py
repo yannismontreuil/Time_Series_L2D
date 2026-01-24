@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple, Sequence
 
 import numpy as np
 
@@ -8,7 +8,12 @@ try:  # optional dependency for PyTorch-based experts
     import torch  # type: ignore
     import torch.nn as nn  # type: ignore
     import torch.optim as optim  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
+    print(f"PyTorch successfully imported in etth1_env_fixed.py: {torch.__version__}")
+except ImportError as e:  # More specific exception handling
+    print(f"PyTorch import failed in etth1_env_fixed.py: {e}")
+    torch = None
+except Exception as e:  # Catch other exceptions
+    print(f"Unexpected error importing PyTorch in etth1_env_fixed.py: {e}")
     torch = None
 
 
@@ -29,32 +34,33 @@ class ETTh1TimeSeriesEnv:
     temperature) and exposes the same interface as SyntheticTimeSeriesEnv.
 
     - We treat the oil temperature (column \"OT\") as the target y_t.
+    - Context x_t is the previous oil temperature y_{t-1} (lag-1), with
+      x_0 = 0 by default.
+    - Experts are configurable predictors with different types:
+      * AR(1) models with different variance
+      * Neural networks trained on different data portions
+      * AR(2) models trained on data segments (banned for fairness)
+    - Loss is squared error between y_t and the selected expert's prediction.
+
+    Extensions:
     - Context x_t can include multiple covariates (e.g., other sensor
       channels), lagged target values, and optional time features.
       When no extra context is configured, it falls back to the legacy
       single-lag setup: x_t = y_{t-1}, with x_0 = 0.
-    - Experts are simple linear predictors of y_t based on x_t:
-          y_hat^{(j)}_t = w_j^T x_t + b_j
-    - Loss is squared error between y_t and the selected expert's
-      prediction.
-
-    This class is designed so that existing router code (SLDSIMMRouter,
-    SLDSIMMRouter_Corr, L2D baselines, plotting utilities) can be reused
-    without modification.
     """
 
     def __init__(
         self,
         csv_path: str = "data/ETTh1.csv",
         target_column: str = "OT",
-        num_experts: int = 3,
-        num_regimes: int = 2,
+        enabled_experts: Optional[List[str]] = None,  # New: list of expert types to enable
         T: Optional[int] = None,
         seed: int = 0,
-        unavailable_expert_idx: Optional[int] = None,
+        unavailable_expert_idx: Optional[List[int]] = None,
         unavailable_intervals: Optional[List[Tuple[int, int]]] = None,
-        arrival_expert_idx: Optional[int] = None,
+        arrival_expert_idx: Optional[List[int]] = None,
         arrival_intervals: Optional[List[Tuple[int, int]]] = None,
+        use_rich_context: bool = False,
         context_columns: Optional[Sequence[str]] = None,
         context_lags: Optional[Sequence[int]] = None,
         include_time_features: bool = False,
@@ -65,15 +71,6 @@ class ETTh1TimeSeriesEnv:
         normalization_mode: str = "zscore",
         feature_expansions: Optional[Sequence[str]] = None,
         lag_diff_pairs: Optional[Sequence[Sequence[int]]] = None,
-        expert_archs: Optional[Sequence[str]] = None,
-        nn_expert_type: Optional[str] = None,
-        rnn_hidden_dim: int = 8,
-        rnn_spectral_radius: float = 0.9,
-        rnn_ridge: float = 1e-3,
-        rnn_washout: int = 5,
-        rnn_input_scale: float = 0.5,
-        rnn_share_reservoir: bool = True,
-        expert_pred_noise_std: Optional[Sequence[float]] = None,
     ):
         if not os.path.exists(csv_path):
             raise FileNotFoundError(f"ETTh1 CSV not found at path: {csv_path}")
@@ -148,58 +145,43 @@ class ETTh1TimeSeriesEnv:
                 date_vals = date_vals[:T_eff]
 
         self.T = T_eff
-        self.num_experts = int(num_experts)
-        self.num_regimes = int(num_regimes)
         self.target_column = str(target_column)
-        self._expert_pred_noise_std: Optional[np.ndarray] = None
-        self._expert_pred_noise: Optional[np.ndarray] = None
-        if expert_pred_noise_std is not None:
-            std_arr = np.asarray(expert_pred_noise_std, dtype=float)
-            if std_arr.shape == ():
-                std_arr = np.full(self.num_experts, float(std_arr), dtype=float)
-            if std_arr.shape != (self.num_experts,):
-                raise ValueError(
-                    "expert_pred_noise_std must be scalar or have length num_experts."
-                )
-            std_arr = np.clip(std_arr, 0.0, None)
-            self._expert_pred_noise_std = std_arr
-            if np.any(std_arr > 0.0):
-                rng_noise = np.random.default_rng(int(seed) + 12345)
-                noise = rng_noise.normal(
-                    loc=0.0, scale=1.0, size=(self.T, self.num_experts)
-                )
-                noise *= std_arr.reshape(1, -1)
-                self._expert_pred_noise = noise
 
         # True target series
         self.y = y_arr.copy()
 
         # Build context features (covariates, lags, and optional time features).
-        context_columns_local = (
-            [] if context_columns is None else [str(c) for c in context_columns]
-        )
-        if context_columns_local:
-            missing = [c for c in context_columns_local if c not in col_arrs]
-            if missing:
-                raise ValueError(
-                    f"Context columns not found in CSV: {missing}. "
-                    f"Available: {sorted(col_arrs.keys())}"
-                )
-
+        # Only use advanced features if use_rich_context is True
+        context_columns_local: List[str] = []
         context_lags_local: List[int] = []
-        if context_lags is not None:
-            for lag in context_lags:
-                lag_int = int(lag)
-                if lag_int > 0:
-                    context_lags_local.append(lag_int)
-            context_lags_local = sorted(set(context_lags_local))
+        include_time_features_local = False
+        time_features_local: List[str] = []
 
-        include_time_features_local = bool(include_time_features)
-        time_features_local = (
-            ["hour", "dayofweek", "month"]
-            if time_features is None
-            else [str(f) for f in time_features]
-        )
+        if use_rich_context:
+            context_columns_local = (
+                [] if context_columns is None else [str(c) for c in context_columns]
+            )
+            if context_columns_local:
+                missing = [c for c in context_columns_local if c not in col_arrs]
+                if missing:
+                    raise ValueError(
+                        f"Context columns not found in CSV: {missing}. "
+                        f"Available: {sorted(col_arrs.keys())}"
+                    )
+
+            if context_lags is not None:
+                for lag in context_lags:
+                    lag_int = int(lag)
+                    if lag_int > 0:
+                        context_lags_local.append(lag_int)
+                context_lags_local = sorted(set(context_lags_local))
+
+            include_time_features_local = bool(include_time_features)
+            time_features_local = (
+                ["hour", "dayofweek", "month"]
+                if time_features is None
+                else [str(f) for f in time_features]
+            )
 
         feature_blocks: List[np.ndarray] = []
         feature_names: List[str] = []
@@ -264,7 +246,9 @@ class ETTh1TimeSeriesEnv:
 
         expansion_blocks: List[np.ndarray] = []
         expansion_names: List[str] = []
-        expansions = [] if feature_expansions is None else [str(e).lower() for e in feature_expansions]
+        expansions: List[str] = []
+        if use_rich_context and feature_expansions is not None:
+            expansions = [str(e).lower() for e in feature_expansions]
         for exp in expansions:
             if exp in ("squared", "square", "sq"):
                 expansion_blocks.append(x_base ** 2)
@@ -272,6 +256,7 @@ class ETTh1TimeSeriesEnv:
             elif exp in ("diff1", "delta1", "d1"):
                 diff = np.zeros_like(x_base)
                 if self.T > 1:
+                    # First entry is zero; then differences
                     diff[1:] = x_base[1:] - x_base[:-1]
                 expansion_blocks.append(diff)
                 expansion_names.extend([f"{name}_d1" for name in base_names])
@@ -305,7 +290,7 @@ class ETTh1TimeSeriesEnv:
             self.context_feature_names = base_names
 
         # Optional context normalization to handle mixed feature scales.
-        if normalize_context:
+        if use_rich_context and normalize_context:
             mode = str(normalization_mode).lower()
             if mode not in ("zscore", "standard"):
                 raise ValueError(
@@ -326,35 +311,45 @@ class ETTh1TimeSeriesEnv:
             self.context_norm_std = std
             self.context_norm_window = norm_window
 
-        # Experts:
-        #   - Experts 0 and 1: simple linear predictors y_hat = w_j x + b_j
-        #     that are explicitly correlated (similar weights/biases).
-        #   - Experts 2 and 3 (when present): small neural-network experts
-        #     trained on different historical segments of the ETTh1
-        #     series, simulating access to different databases.
-        #   - Expert 4 (when present): a stronger global AR(1) baseline
-        #     y_t ≈ w * x_t + b, fitted by least squares on the full
-        #     ETTh1 history. This provides a more competitive constant
-        #     expert for the ETTh1 experiment.
-        #
-        # This implements the requested structure for config_etth1:
-        #   - 5 experts total.
-        #   - Expert 0 and 1 correlated linear baselines. Expert 0 is
-        #     fitted as a data-driven AR(1) baseline on the full
-        #     history, while expert 1 is a slightly misspecified
-        #     variant (heavily correlated but intentionally a bit
-        #     worse on average).
-        #   - Experts 2 and 3 are NN-based forecasters with different
-        #     training histories; expert 4 is a stronger global
-        #     multi-lag baseline fitted on all of ETTh1.
+        # Expert configuration: flexible enable/disable system
+        # Available expert types:
+        # - ar1_low_var: AR(1) with low variance
+        # - ar1_high_var: AR(1) with higher variance
+        # - nn_early: NN trained on early portion of data
+        # - nn_late: NN trained on late portion of data
+        # - ar2_segment1: AR(2) trained on first data segment
+        # - ar2_segment2: AR(2) trained on second data segment
 
-        # Fit a simple AR(1) baseline y_t ≈ w * x_t + b on the full
-        # history to initialize the linear experts. Expert 0 will use
-        # (w, b), and expert 1 will use a slightly perturbed slope so
-        # that it remains strongly correlated but consistently a bit
-        # worse than expert 0 on average.
-        idx_lin = np.arange(1, self.T, dtype=int)
+        self.available_expert_types = [
+            "ar1_low_var", "ar1_high_var", "nn_early", "nn_late", "ar2_segment1", "ar2_segment2"
+        ]
+
+
+        if enabled_experts is None:
+            raise ValueError(
+                "enabled_experts must be provided as a list of expert types."
+            )
+
+        self.enabled_experts = enabled_experts
+        self.num_experts = len(enabled_experts)
+
+        # Validate enabled experts
+        for expert_type in self.enabled_experts:
+            if expert_type not in self.available_expert_types:
+                raise ValueError(f"Unknown expert type: {expert_type}. Available: {self.available_expert_types}")
+
+        # Initialize expert parameters
+        # Here we use num_experts to ensure consistent indexing
         d_ctx = int(self.x.shape[1])
+        self.expert_weights = np.zeros((self.num_experts, d_ctx), dtype=float)
+        self.expert_biases = np.zeros(self.num_experts, dtype=float)
+        self.expert_types = {}  # Maps expert index to expert type
+        self._nn_params = [None] * self.num_experts
+        self._nn_expert_ids: List[int] = []
+        self._ar2_params = {}  # Maps expert index to AR(2) parameters
+
+        # Fit base AR model for reference using ridge regression
+        idx_lin = np.arange(1, self.T, dtype=int)
         if idx_lin.size >= 2:
             x_lin = self.x[idx_lin]
             y_lin = self.y[idx_lin]
@@ -373,429 +368,11 @@ class ETTh1TimeSeriesEnv:
             w_lin = np.zeros(d_ctx, dtype=float)
             b_lin = float(self.y.mean()) if self.y.size > 0 else 0.0
 
-        # Expert 0: slightly misspecified AR(1) baseline (2% slope
-        # perturbation) so that it is close to, but not equal to, the
-        # least-squares optimum.
-        # Expert 1: more strongly perturbed slope (5% larger
-        # magnitude), sharing the same intercept. Since (w_lin, b_lin)
-        # is the least-squares optimum, these perturbations make
-        # experts 0 and 1 progressively worse in terms of average MSE
-        # while keeping them highly correlated.
-        w0 = w_lin * 0.98
-        w1 = w_lin * 1.05
-        base_weights = np.vstack([w0, w1]).astype(float)
-        base_biases = np.array([b_lin, b_lin], dtype=float)
-
+        # Initialize each enabled expert
         rng = np.random.default_rng(seed)
-
-        # Default: initialize linear weights/biases for all experts;
-        # NN-based experts will override these via learned parameters.
-        self.expert_weights = np.zeros((self.num_experts, d_ctx), dtype=float)
-        self.expert_biases = np.zeros(self.num_experts, dtype=float)
-        # Linear, correlated experts 0 and 1.
-        n_lin = min(2, self.num_experts)
-        self.expert_weights[:n_lin] = base_weights[:n_lin]
-        self.expert_biases[:n_lin] = base_biases[:n_lin]
-
-        # Neural-network experts: indices >= 2 (if any).
-        self._nn_params = [None] * self.num_experts  # type: ignore[var-annotated]
-        self._nn_expert_ids: List[int] = []
-        # RNN-style experts (Echo State Networks).
-        self._rnn_params = [None] * self.num_experts  # type: ignore[var-annotated]
-        self._rnn_preds = [None] * self.num_experts  # type: ignore[var-annotated]
-        self._rnn_expert_ids: List[int] = []
-
-        # Placeholder for expert-4 multi-lag baseline parameters:
-        #   - _expert4_lags: array of positive integer lags (in steps),
-        #   - _expert4_ar_params: (weights_for_lags, intercept).
-        self._expert4_lags: Optional[np.ndarray] = None
-        self._expert4_ar_params: Optional[Tuple[np.ndarray, float]] = None
-
-        expert_archs_local: Optional[List[str]] = None
-        if expert_archs is not None:
-            expert_archs_local = [str(a).lower() for a in expert_archs]
-            if len(expert_archs_local) != self.num_experts:
-                raise ValueError(
-                    f"expert_archs must have length {self.num_experts}, "
-                    f"got {len(expert_archs_local)}."
-                )
-
-        nn_type_local = "mlp"
-        if nn_expert_type is not None:
-            nn_type_local = str(nn_expert_type).lower()
-
-        def _arch_for_expert(j: int) -> str:
-            if expert_archs_local is not None:
-                return expert_archs_local[j]
-            if j in (2, 3) and self.num_experts > 2:
-                return nn_type_local
-            return "ar"
-
-        # If expert 4 is present, fit a strong multi-lag AR baseline on
-        # the full history using several ETTh1-relevant lags (1, 24, 168
-        # hours). This gives expert 4 access to richer temporal
-        # structure than the other experts, making it a very strong
-        # global baseline.
-        if self.num_experts > 4 and _arch_for_expert(4) in ("ar", "linear", "ar_multi"):
-            candidate_lags = np.array([1, 24, 168], dtype=int)
-            max_lag = int(candidate_lags.max())
-            if self.T > max_lag + 1:
-                idx_all_lin = np.arange(max_lag, self.T, dtype=int)
-                if idx_all_lin.size >= 2:
-                    y_all_lin = self.y[idx_all_lin]
-                    num_samples = idx_all_lin.shape[0]
-                    num_features = 1 + candidate_lags.shape[0]
-                    X = np.ones((num_samples, num_features), dtype=float)
-                    for k, lag in enumerate(candidate_lags):
-                        X[:, 1 + k] = self.y[idx_all_lin - int(lag)]
-                    # Ridge-regularized least squares for numerical stability.
-                    lam = 1e-3
-                    XtX = X.T @ X
-                    # Add λI to the diagonal.
-                    diag_indices = np.arange(num_features)
-                    XtX[diag_indices, diag_indices] += lam
-                    XtY = X.T @ y_all_lin
-                    coeffs = np.linalg.solve(XtX, XtY)
-                    b_ols = float(coeffs[0])
-                    w_lags = coeffs[1:].astype(float)
-                    self._expert4_lags = candidate_lags.copy()
-                    self._expert4_ar_params = (w_lags, b_ols)
-                    # For backwards compatibility, keep a simple linear view
-                    # on the lag-1 coefficient in expert_weights/biases when
-                    # that lag is present in the context.
-                    if w_lags.size > 0:
-                        lag1_name = f"{self.target_column}_lag{int(candidate_lags[0])}"
-                        if lag1_name in self.context_feature_names:
-                            idx = self.context_feature_names.index(lag1_name)
-                            self.expert_weights[4, idx] = float(w_lags[0])
-                        self.expert_biases[4] = b_ols
-
-        use_mlp = any(_arch_for_expert(j) == "mlp" for j in range(self.num_experts))
-        use_rnn = any(_arch_for_expert(j) == "rnn" for j in range(self.num_experts))
-
-        if self.num_experts > 2 and (use_mlp or use_rnn):
-            # Training data: pairs (x_t, y_t) for t = 1,...,T-1.
-            idx_all = np.arange(1, self.T, dtype=int)
-            x_all = self.x[idx_all]
-            y_all = self.y[idx_all]
-            n_all = idx_all.shape[0]
-            if n_all >= 3:
-                third = n_all // 3
-            else:
-                third = max(1, n_all // 2)
-            two_third = min(2 * third, n_all)
-
-            # Global validation set used for checkpoint selection:
-            # we take the last 20% of the full history (at least one
-            # sample) so that each NN expert is evaluated on the same
-            # validation sequence, not only on a small subset of its
-            # dedicated training history.
-            if n_all >= 5:
-                n_val_global = max(1, int(0.2 * n_all))
-            else:
-                n_val_global = 1
-            if n_val_global >= n_all:
-                n_val_global = 1
-            idx_val_global = np.arange(n_all - n_val_global, n_all, dtype=int)
-            x_val_global = x_all[idx_val_global]
-            y_val_global = y_all[idx_val_global]
-
-            # Segments simulating different historical databases. We
-            # deliberately use overlapping segments so that NN experts
-            # share some training data and become indirectly correlated:
-            #   - Expert 2: early + middle history (0 .. two_third)
-            #   - Expert 3: middle + late history (third .. end)
-            seg_early = slice(0, two_third)
-            seg_late = slice(third, n_all)
-
-            def _segment_for_expert(j: int) -> slice:
-                if j == 2:
-                    return seg_early
-                if j == 3:
-                    return seg_late
-                return slice(0, n_all)
-
-            def _train_nn_expert(
-                x_train: np.ndarray,
-                y_train: np.ndarray,
-                x_val_global: np.ndarray,
-                y_val_global: np.ndarray,
-                hidden_dim: int,
-                rng_local: np.random.Generator,
-                num_epochs: int = 1000,
-                learning_rate: float = 1e-2,
-            ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-                """
-                Train a tiny 1-hidden-layer MLP for an expert:
-                    h = tanh(W1 x + b1),  y_hat = W2^T h + b2
-
-                For the ETTh1 experiment, experts 2 and 3 are trained via
-                PyTorch when available, with a fallback to a pure NumPy
-                implementation if torch is not installed. The returned
-                parameters are always NumPy arrays so that inference can
-                remain framework-agnostic.
-                """
-                if x_train.ndim == 1:
-                    x_train = x_train.reshape(-1, 1)
-                in_dim = int(x_train.shape[1])
-                if y_train.ndim == 1:
-                    y_train = y_train.reshape(-1, 1)
-
-                N_total = x_train.shape[0]
-                if N_total == 0:
-                    # Fallback: degenerate zero network.
-                    W1 = np.zeros((hidden_dim, in_dim), dtype=float)
-                    b1 = np.zeros(hidden_dim, dtype=float)
-                    W2 = np.zeros((hidden_dim, 1), dtype=float)
-                    b2 = 0.0
-                    return W1, b1, W2, b2
-
-                # Global validation set (shared across experts)
-                if x_val_global.ndim == 1:
-                    x_val = x_val_global.reshape(-1, 1)
-                else:
-                    x_val = x_val_global.reshape(-1, in_dim)
-                if y_val_global.ndim == 1:
-                    y_val = y_val_global.reshape(-1, 1)
-                else:
-                    y_val = y_val_global.reshape(-1, 1)
-
-                # Prefer PyTorch training when available.
-                if torch is not None:
-                    # Construct a simple 1-hidden-layer MLP with tanh.
-                    device = _select_torch_device() or torch.device("cpu")
-
-                    class _MLP(nn.Module):  # type: ignore[misc]
-                        def __init__(self, in_dim: int, hid_dim: int):
-                            super().__init__()
-                            self.lin1 = nn.Linear(in_dim, hid_dim)
-                            self.lin2 = nn.Linear(hid_dim, 1)
-
-                        def forward(self, x_t: torch.Tensor) -> torch.Tensor:
-                            h_t = torch.tanh(self.lin1(x_t))
-                            return self.lin2(h_t)
-
-                    # Seed PyTorch deterministically using rng_local.
-                    torch_seed = int(rng_local.integers(0, 2**31 - 1))
-                    torch.manual_seed(torch_seed)
-
-                    x_train_t = torch.as_tensor(x_train, dtype=torch.float32, device=device)
-                    y_train_t = torch.as_tensor(y_train, dtype=torch.float32, device=device)
-                    x_val_t = torch.as_tensor(x_val, dtype=torch.float32, device=device)
-                    y_val_t = torch.as_tensor(y_val, dtype=torch.float32, device=device)
-
-                    model = _MLP(in_dim=in_dim, hid_dim=hidden_dim).to(device)
-                    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-                    loss_fn = nn.MSELoss()
-
-                    best_state = None
-                    best_val_rmse = float("inf")
-
-                    for _ in range(num_epochs):
-                        model.train()
-                        optimizer.zero_grad(set_to_none=True)
-                        pred = model(x_train_t)
-                        loss = loss_fn(pred, y_train_t)
-                        loss.backward()
-                        optimizer.step()
-
-                        if x_val_t.shape[0] > 0:
-                            model.eval()
-                            with torch.no_grad():
-                                pred_val = model(x_val_t)
-                                mse_val = float(loss_fn(pred_val, y_val_t).item())
-                                rmse_val = float(np.sqrt(mse_val))
-                            if rmse_val < best_val_rmse:
-                                best_val_rmse = rmse_val
-                                best_state = {
-                                    "lin1_weight": model.lin1.weight.detach().cpu().numpy(),
-                                    "lin1_bias": model.lin1.bias.detach().cpu().numpy(),
-                                    "lin2_weight": model.lin2.weight.detach().cpu().numpy(),
-                                    "lin2_bias": model.lin2.bias.detach().cpu().numpy(),
-                                }
-
-                    if best_state is None:
-                        # Fallback: use current parameters if validation never improved.
-                        best_state = {
-                            "lin1_weight": model.lin1.weight.detach().cpu().numpy(),
-                            "lin1_bias": model.lin1.bias.detach().cpu().numpy(),
-                            "lin2_weight": model.lin2.weight.detach().cpu().numpy(),
-                            "lin2_bias": model.lin2.bias.detach().cpu().numpy(),
-                        }
-
-                    W1_t = best_state["lin1_weight"]  # shape (hidden_dim, in_dim)
-                    b1_t = best_state["lin1_bias"]    # shape (hidden_dim,)
-                    W2_t = best_state["lin2_weight"].T  # convert (1, hidden_dim) -> (hidden_dim, 1)
-                    b2_t = float(best_state["lin2_bias"].reshape(()))
-
-                    W1 = np.asarray(W1_t, dtype=float)
-                    b1 = np.asarray(b1_t, dtype=float)
-                    W2 = np.asarray(W2_t, dtype=float)
-                    b2 = float(b2_t)
-                    return W1, b1, W2, b2
-
-                # Fallback: original NumPy-based training if torch is not available.
-                W1 = rng_local.normal(loc=0.0, scale=0.1, size=(hidden_dim, in_dim))
-                b1 = np.zeros(hidden_dim, dtype=float)
-                W2 = rng_local.normal(loc=0.0, scale=0.1, size=(hidden_dim, 1))
-                b2 = 0.0
-                best_W1 = W1.copy()
-                best_b1 = b1.copy()
-                best_W2 = W2.copy()
-                best_b2 = b2
-                best_val_rmse = np.inf
-
-                for _ in range(num_epochs):
-                    # Forward pass
-                    z1 = x_train @ W1.T + b1  # (N_total, hidden_dim)
-                    h = np.tanh(z1)
-                    y_hat = h @ W2 + b2  # (N_total, 1)
-
-                    diff = y_hat - y_train
-                    d_yhat = (2.0 / max(N_total, 1)) * diff
-
-                    # Backprop
-                    d_W2 = h.T @ d_yhat  # (hidden_dim, 1)
-                    d_b2 = float(d_yhat.sum())
-
-                    d_h = d_yhat @ W2.T  # (N_total, hidden_dim)
-                    d_z1 = d_h * (1.0 - np.tanh(z1) ** 2)
-                    d_W1 = d_z1.T @ x_train  # (hidden_dim, 1)
-                    d_b1 = d_z1.sum(axis=0)  # (hidden_dim,)
-
-                    # Gradient step
-                    W1 -= learning_rate * d_W1
-                    W2 -= learning_rate * d_W2
-                    b1 -= learning_rate * d_b1
-                    b2 -= learning_rate * d_b2
-
-                    # Validation RMSE for checkpoint selection.
-                    if x_val.shape[0] > 0:
-                        z1_val = x_val @ W1.T + b1
-                        h_val = np.tanh(z1_val)
-                        y_hat_val = h_val @ W2 + b2
-                        mse_val = float(np.mean((y_hat_val - y_val) ** 2))
-                        rmse_val = float(np.sqrt(mse_val))
-                        if rmse_val < best_val_rmse:
-                            best_val_rmse = rmse_val
-                            best_W1 = W1.copy()
-                            best_b1 = b1.copy()
-                            best_W2 = W2.copy()
-                            best_b2 = b2
-
-                return best_W1, best_b1, best_W2, best_b2
-
-            def _train_esn_expert(
-                x_train: np.ndarray,
-                y_train: np.ndarray,
-                x_full: np.ndarray,
-                rng_local: np.random.Generator,
-                hidden_dim: int,
-                spectral_radius: float,
-                ridge: float,
-                washout: int,
-                input_scale: float,
-                shared_weights: Optional[Tuple[np.ndarray, np.ndarray]] = None,
-            ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
-                if x_train.ndim == 1:
-                    x_train = x_train.reshape(-1, 1)
-                if x_full.ndim == 1:
-                    x_full = x_full.reshape(-1, 1)
-                in_dim = int(x_train.shape[1])
-                if y_train.ndim == 1:
-                    y_train = y_train.reshape(-1, 1)
-                if x_train.shape[0] == 0:
-                    return None
-
-                if shared_weights is None:
-                    W_in = rng_local.normal(loc=0.0, scale=1.0, size=(hidden_dim, in_dim))
-                    W_in *= float(input_scale)
-                    W_h = rng_local.normal(loc=0.0, scale=1.0, size=(hidden_dim, hidden_dim))
-                    if spectral_radius > 0:
-                        eigs = np.linalg.eigvals(W_h)
-                        rad = float(np.max(np.abs(eigs)))
-                        if rad > 0:
-                            W_h *= float(spectral_radius) / rad
-                else:
-                    W_in, W_h = shared_weights
-
-                h = np.zeros(hidden_dim, dtype=float)
-                states = []
-                targets = []
-                for t in range(x_train.shape[0]):
-                    h = np.tanh(W_in @ x_train[t] + W_h @ h)
-                    if t >= int(washout):
-                        feats = np.concatenate([h, x_train[t], np.array([1.0])])
-                        states.append(feats)
-                        targets.append(float(y_train[t]))
-
-                if not states:
-                    return None
-                H = np.vstack(states)
-                y_vec = np.asarray(targets, dtype=float).reshape(-1, 1)
-                XtX = H.T @ H
-                XtX += float(ridge) * np.eye(XtX.shape[0])
-                XtY = H.T @ y_vec
-                W_out = np.linalg.solve(XtX, XtY).reshape(-1)
-
-                preds = np.zeros(x_full.shape[0], dtype=float)
-                h = np.zeros(hidden_dim, dtype=float)
-                for t in range(x_full.shape[0]):
-                    h = np.tanh(W_in @ x_full[t] + W_h @ h)
-                    feats = np.concatenate([h, x_full[t], np.array([1.0])])
-                    preds[t] = float(feats @ W_out)
-
-                return W_in, W_h, W_out, preds
-
-            shared_reservoir = None
-            if use_rnn and bool(rnn_share_reservoir):
-                shared_reservoir = (
-                    rng.normal(loc=0.0, scale=1.0, size=(int(rnn_hidden_dim), int(self.x.shape[1])))
-                    * float(rnn_input_scale),
-                    rng.normal(loc=0.0, scale=1.0, size=(int(rnn_hidden_dim), int(rnn_hidden_dim))),
-                )
-                if rnn_spectral_radius > 0:
-                    eigs = np.linalg.eigvals(shared_reservoir[1])
-                    rad = float(np.max(np.abs(eigs)))
-                    if rad > 0:
-                        shared_reservoir = (
-                            shared_reservoir[0],
-                            shared_reservoir[1] * float(rnn_spectral_radius) / rad,
-                        )
-
-            for j in range(self.num_experts):
-                arch = _arch_for_expert(j)
-                if arch == "mlp":
-                    seg = _segment_for_expert(j)
-                    W1_j, b1_j, W2_j, b2_j = _train_nn_expert(
-                        x_all[seg],
-                        y_all[seg],
-                        x_val_global,
-                        y_val_global,
-                        hidden_dim=8,
-                        rng_local=rng,
-                    )
-                    self._nn_params[j] = (W1_j, b1_j, W2_j, b2_j)
-                    self._nn_expert_ids.append(j)
-                elif arch == "rnn":
-                    seg = _segment_for_expert(j)
-                    result = _train_esn_expert(
-                        x_all[seg],
-                        y_all[seg],
-                        x_all,
-                        rng_local=rng,
-                        hidden_dim=int(rnn_hidden_dim),
-                        spectral_radius=float(rnn_spectral_radius),
-                        ridge=float(rnn_ridge),
-                        washout=int(rnn_washout),
-                        input_scale=float(rnn_input_scale),
-                        shared_weights=shared_reservoir,
-                    )
-                    if result is not None:
-                        self._rnn_params[j] = result[:3]
-                        self._rnn_preds[j] = result[3]
-                        self._rnn_expert_ids.append(j)
-
+        for i, expert_type in enumerate(self.enabled_experts):
+            self.expert_types[i] = expert_type
+            self._initialize_expert(i, expert_type, w_lin, b_lin, rng)
 
         # Expert availability over time: all experts available by default.
         self.availability = np.ones((self.T, self.num_experts), dtype=int)
@@ -803,35 +380,59 @@ class ETTh1TimeSeriesEnv:
         # Optional unavailability intervals for a single expert
         if (
             unavailable_expert_idx is not None
-            and 0 <= unavailable_expert_idx < self.num_experts
+            and 0 <= unavailable_expert_idx[0] < self.num_experts
+            and 0 <= unavailable_expert_idx[1] < self.num_experts
         ):
-            if unavailable_intervals is not None:
-                for start, end in unavailable_intervals:
-                    t_start = max(int(start), 0)
-                    t_end = min(int(end) + 1, self.T)
-                    if t_start >= self.T or t_end <= 0:
-                        continue
-                    if t_start < t_end:
-                        self.availability[t_start:t_end, unavailable_expert_idx] = 0
+            self.availability[:, arrival_expert_idx[0]] = 0
+            self.availability[:, arrival_expert_idx[1]] = 0
+            if unavailable_intervals is not None and len(unavailable_intervals) >= 2:
+                if unavailable_intervals[0] is not None:
+                    for start, end in unavailable_intervals[0]:
+                        t_start = max(int(start), 0)
+                        t_end = min(int(end) + 1, self.T)
+                        if t_start >= self.T or t_end <= 0:
+                            continue
+                        if t_start < t_end:
+                            self.availability[t_start:t_end, unavailable_expert_idx[0]] = 0
+                if unavailable_intervals[1] is not None:
+                    for start, end in unavailable_intervals[1]:
+                        t_start = max(int(start), 0)
+                        t_end = min(int(end) + 1, self.T)
+                        if t_start >= self.T or t_end <= 0:
+                            continue
+                        if t_start < t_end:
+                            self.availability[t_start:t_end, unavailable_expert_idx[1]] = 0
 
-        # Optional dynamic expert arrival intervals for a single expert
+        # Optional dynamic expert arrival intervals for 2 experts
         if (
             arrival_expert_idx is not None
-            and 0 <= arrival_expert_idx < self.num_experts
+            and len(arrival_expert_idx) >= 2
+            and 0 <= arrival_expert_idx[0] < self.num_experts
+            and 0 <= arrival_expert_idx[1] < self.num_experts
         ):
-            self.availability[:, arrival_expert_idx] = 0
-            if arrival_intervals is not None:
-                for start, end in arrival_intervals:
-                    t_start = max(int(start), 0)
-                    t_end = min(int(end) + 1, self.T)
-                    if t_start >= self.T or t_end <= 0:
-                        continue
-                    if t_start < t_end:
-                        self.availability[t_start:t_end, arrival_expert_idx] = 1
+            self.availability[:, arrival_expert_idx[0]] = 0
+            self.availability[:, arrival_expert_idx[1]] = 0
+            if arrival_intervals is not None and len(arrival_intervals) >= 2:
+                if arrival_intervals[0] is not None:
+                    for start, end in arrival_intervals[0]:
+                        t_start = max(int(start), 0)
+                        t_end = min(int(end) + 1, self.T)
+                        if t_start >= self.T or t_end <= 0:
+                            continue
+                        if t_start < t_end:
+                            self.availability[t_start:t_end, arrival_expert_idx[0]] = 1
+                if arrival_intervals[1] is not None:
+                    for start, end in arrival_intervals[1]:
+                        t_start = max(int(start), 0)
+                        t_end = min(int(end) + 1, self.T)
+                        if t_start >= self.T or t_end <= 0:
+                            continue
+                        if t_start < t_end:
+                            self.availability[t_start:t_end, arrival_expert_idx[1]] = 1
 
         # There is no known discrete regime sequence for ETTh1; we set all
         # entries to 0 so that plotting utilities can still show a regime
-        # track without breaking.
+        # track without breaking. But this should be ignored.
         self.z = np.zeros(self.T, dtype=int)
 
         # Track last time index queried via get_context so that
@@ -839,6 +440,281 @@ class ETTh1TimeSeriesEnv:
         # context x_t while still supporting interfaces shared with the
         # synthetic environment.
         self._last_t: Optional[int] = None
+
+    def _initialize_expert(self, expert_idx: int, expert_type: str, w_base: np.ndarray, b_base: float, rng: np.random.Generator):
+        """Initialize a specific expert based on its type."""
+        if expert_type == "ar1_low_var":
+            # AR(1) with low variance
+            self.expert_weights[expert_idx] = w_base * 0.8
+            self.expert_biases[expert_idx] = b_base + rng.normal(0, 0.5)  # Increased variance from 0.5 to 1.5
+
+        elif expert_type == "ar1_high_var":
+            # AR(1) with higher variance (more misspecified)
+            self.expert_weights[expert_idx] = w_base * 1.30
+            self.expert_biases[expert_idx] = b_base + rng.normal(0, 1)
+
+        elif expert_type in ["nn_early", "nn_late"]:
+            # Neural network experts
+            self._initialize_nn_expert(expert_idx, expert_type, rng)
+            self._nn_expert_ids.append(expert_idx)
+
+        elif expert_type in ["ar2_segment1", "ar2_segment2"]:
+            # AR(2) experts trained on different segments
+            self._initialize_ar2_expert(expert_idx, expert_type, w_base, b_base, rng)
+        else:
+            raise ValueError(f"Unknown expert type: {expert_type}")
+
+    def _initialize_nn_expert(self, expert_idx: int, expert_type: str, rng: np.random.Generator):
+        """Initialize neural network expert."""
+        # Training data preparation
+        idx_all = np.arange(1, self.T, dtype=int)
+        x_all = self.x[idx_all]
+        y_all = self.y[idx_all]
+        n_all = len(x_all)
+
+        if n_all < 20:  # Increased minimum data requirement
+            # Fallback for short series
+            self.expert_weights[expert_idx] = 0.9
+            self.expert_biases[expert_idx] = 0.0
+            return
+
+        # Define training segments - use more data for each expert
+        if expert_type == "nn_early":
+            # Train on first 70% of data
+            start_idx = max(1, int(0.1 * n_all))
+            end_idx = max(1, int(0.3 * n_all))
+            x_train = x_all[start_idx:end_idx]
+            y_train = y_all[start_idx:end_idx]
+        else:  # nn_late
+            # Train on last 70% of data
+            start_idx = max(1, int(0.7 * n_all))
+            end_idx = int(0.9*n_all)
+            x_train = x_all[start_idx:end_idx]
+            y_train = y_all[start_idx:end_idx]
+
+        # Validation set: middle 20% of full data for better representation
+        val_start = max(1, int(0.4 * n_all))
+        val_end = max(val_start + 1, int(0.6 * n_all))
+        x_val = x_all[val_start:val_end]
+        y_val = y_all[val_start:val_end]
+
+        # Train neural network with improved architecture
+        params = self._train_nn_expert([x_train], [y_train], x_val, y_val, 32, rng)  # Increased hidden dim
+        self._nn_params[expert_idx] = params
+
+    def _initialize_ar2_expert(self, expert_idx: int, expert_type: str, w_base: np.ndarray, b_base: float, rng: np.random.Generator):
+        """Initialize AR(2) expert trained on a data segment."""
+        # AR(2) model: y_t = w1 * y_{t-1} + w2 * y_{t-2} + b + noise
+
+        # Define training segments
+        n_total = self.T
+        if expert_type == "ar2_segment1":
+            # Train on first 30% of data
+            start_idx = 2  # Need at least 2 lags for AR(2)
+            end_idx = max(start_idx + 1, int(0.3 * n_total))
+        else:  # ar2_segment2
+            # Train on middle 30% of data
+            start_idx = max(2, int(0.35 * n_total))
+            end_idx = max(start_idx + 1, int(0.65 * n_total))
+
+        if end_idx <= start_idx + 1:
+            # Fallback to simple linear model if not enough data
+            self.expert_weights[expert_idx] = w_base * 0.9
+            self.expert_biases[expert_idx] = b_base
+            self._ar2_params[expert_idx] = None
+            return
+
+        # Prepare AR(2) regression data
+        y_target = self.y[start_idx:end_idx]
+        y_lag1 = self.y[start_idx-1:end_idx-1]
+        y_lag2 = self.y[start_idx-2:end_idx-2]
+
+        n_samples = len(y_target)
+        if n_samples < 3:
+            # Fallback
+            self.expert_weights[expert_idx] = w_base * 0.9
+            self.expert_biases[expert_idx] = b_base
+            self._ar2_params[expert_idx] = None
+            return
+
+        # Build regression matrix [1, y_{t-1}, y_{t-2}]
+        X = np.column_stack([np.ones(n_samples), y_lag1, y_lag2])
+
+        # Ridge regression for stability
+        lam = 1e-3
+        XtX = X.T @ X + lam * np.eye(3)
+        XtY = X.T @ y_target
+
+        try:
+            coeffs = np.linalg.solve(XtX, XtY)
+            b_ar2, w1_ar2, w2_ar2 = coeffs
+
+            # Store AR(2) parameters
+            self._ar2_params[expert_idx] = (float(w1_ar2), float(w2_ar2), float(b_ar2))
+
+            # For compatibility, store a linear approximation using lag-1 from context
+            # Find the lag1 feature in context
+            lag1_name = f"{self.target_column}_lag1"
+            if lag1_name in self.context_feature_names:
+                idx = self.context_feature_names.index(lag1_name)
+                self.expert_weights[expert_idx, idx] = float(w1_ar2)
+            self.expert_biases[expert_idx] = float(b_ar2)
+
+        except np.linalg.LinAlgError:
+            # Fallback on numerical issues
+            self.expert_weights[expert_idx] = w_base * 0.9
+            self.expert_biases[expert_idx] = b_base
+            self._ar2_params[expert_idx] = None
+
+    def _train_nn_expert(
+        self,
+        x_train_segments: List[np.ndarray],
+        y_train_segments: List[np.ndarray],
+        x_val_global: np.ndarray,
+        y_val_global: np.ndarray,
+        hidden_dim: int,
+        rng_local: np.random.Generator,
+        num_epochs: int = 300,  # Increased epochs
+        learning_rate: float = 5e-3,  # Lower initial learning rate
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float, np.ndarray, np.ndarray, float, float]:  # Added normalization params
+        """Train neural network expert with improved architecture and training."""
+        # Concatenate all segments for training
+        x_train_list = []
+        y_train_list = []
+        for x_seg, y_seg in zip(x_train_segments, y_train_segments):
+            if x_seg.size > 0 and y_seg.size > 0:
+                x_train_list.append(x_seg)
+                y_train_list.append(y_seg)
+
+        if not x_train_list:
+            # Fallback: degenerate zero network
+            in_dim = int(self.x.shape[1])
+            W1 = np.zeros((hidden_dim, in_dim), dtype=float)
+            b1 = np.zeros(hidden_dim, dtype=float)
+            W2 = np.zeros((hidden_dim, 1), dtype=float)
+            b2 = 0.0
+            return W1, b1, W2, b2, np.zeros(in_dim), np.ones(in_dim), 0.0, 1.0
+
+        x_train = np.concatenate(x_train_list)
+        y_train = np.concatenate(y_train_list)
+
+        if x_train.ndim == 1:
+            x_train = x_train.reshape(-1, 1)
+        if y_train.ndim == 1:
+            y_train = y_train.reshape(-1, 1)
+
+        in_dim = int(x_train.shape[1])
+        N_total = x_train.shape[0]
+        if N_total == 0:
+            W1 = np.zeros((hidden_dim, in_dim), dtype=float)
+            b1 = np.zeros(hidden_dim, dtype=float)
+            W2 = np.zeros((hidden_dim, 1), dtype=float)
+            b2 = 0.0
+            return W1, b1, W2, b2, np.zeros(in_dim), np.ones(in_dim), 0.0, 1.0
+
+        # Normalize inputs for better training stability
+        x_mean = x_train.mean(axis=0)
+        x_std = x_train.std(axis=0)
+        x_std = np.where(x_std < 1e-8, 1.0, x_std)
+        x_train_norm = (x_train - x_mean) / x_std
+
+        # Normalize outputs
+        y_mean = float(y_train.mean())
+        y_std = float(y_train.std())
+        if y_std < 1e-8:
+            y_std = 1.0
+        y_train_norm = (y_train - y_mean) / y_std
+
+        # Validation data normalization
+        if x_val_global.ndim == 1:
+            x_val = x_val_global.reshape(-1, 1)
+        else:
+            x_val = x_val_global
+        if y_val_global.ndim == 1:
+            y_val = y_val_global.reshape(-1, 1)
+        else:
+            y_val = y_val_global.reshape(-1, 1)
+
+        x_val_norm = (x_val - x_mean) / x_std
+        y_val_norm = (y_val - y_mean) / y_std
+
+        # Initialize network with Xavier initialization
+        scale = np.sqrt(2.0 / (in_dim + hidden_dim))
+        W1 = rng_local.normal(loc=0.0, scale=scale, size=(hidden_dim, in_dim))
+        b1 = np.zeros(hidden_dim, dtype=float)
+        W2 = rng_local.normal(loc=0.0, scale=scale/hidden_dim, size=(hidden_dim, 1))
+        b2 = 0.0
+
+        # Best parameters tracking
+        best_W1, best_b1, best_W2, best_b2 = W1.copy(), b1.copy(), W2.copy(), b2
+        best_val_rmse = np.inf
+        patience = 50
+        no_improve_count = 0
+
+        # Learning rate schedule
+        lr = learning_rate
+        lr_decay = 0.95
+
+        for epoch in range(num_epochs):
+            # Forward pass
+            z1 = x_train_norm @ W1.T + b1  # (N_total, hidden_dim)
+            h = np.tanh(z1)
+            y_hat = h @ W2 + b2  # (N_total, 1)
+
+            # Loss with L2 regularization
+            mse_loss = float(np.mean((y_hat - y_train_norm) ** 2))
+            l2_reg = 1e-4 * (np.sum(W1**2) + np.sum(W2**2))
+            total_loss = mse_loss + l2_reg
+
+            # Gradients
+            diff = y_hat - y_train_norm
+            d_yhat = (2.0 / N_total) * diff
+
+            # Backprop with regularization
+            d_W2 = h.T @ d_yhat + 2e-4 * W2  # L2 regularization
+            d_b2 = float(d_yhat.sum())
+
+            d_h = d_yhat @ W2.T  # (N_total, hidden_dim)
+            d_z1 = d_h * (1.0 - np.tanh(z1) ** 2)
+            d_W1 = d_z1.T @ x_train_norm + 2e-4 * W1  # L2 regularization
+            d_b1 = d_z1.sum(axis=0)  # (hidden_dim,)
+
+            # Gradient step with clipping
+            grad_clip = 1.0
+            d_W1 = np.clip(d_W1, -grad_clip, grad_clip)
+            d_W2 = np.clip(d_W2, -grad_clip, grad_clip)
+            d_b1 = np.clip(d_b1, -grad_clip, grad_clip)
+            d_b2 = np.clip(d_b2, -grad_clip, grad_clip)
+
+            W1 -= lr * d_W1
+            W2 -= lr * d_W2
+            b1 -= lr * d_b1
+            b2 -= lr * d_b2
+
+            # Validation and early stopping
+            if x_val.shape[0] > 0 and epoch % 10 == 0:
+                z1_val = x_val_norm @ W1.T + b1
+                h_val = np.tanh(z1_val)
+                y_hat_val = h_val @ W2 + b2
+                mse_val = float(np.mean((y_hat_val - y_val_norm) ** 2))
+                rmse_val = float(np.sqrt(mse_val))
+
+                if rmse_val < best_val_rmse:
+                    best_val_rmse = rmse_val
+                    best_W1, best_b1, best_W2, best_b2 = W1.copy(), b1.copy(), W2.copy(), b2
+                    no_improve_count = 0
+                else:
+                    no_improve_count += 1
+
+                if no_improve_count >= patience:
+                    break
+
+            # Learning rate decay
+            if epoch > 0 and epoch % 50 == 0:
+                lr *= lr_decay
+
+        # Store normalization parameters with the model
+        return best_W1, best_b1, best_W2, best_b2, x_mean, x_std, y_mean, y_std
 
     # ------------------------------------------------------------------
     # Interface methods (matching SyntheticTimeSeriesEnv)
@@ -852,84 +728,57 @@ class ETTh1TimeSeriesEnv:
         j_int = int(j)
         x_vec_full = np.asarray(x_t, dtype=float).reshape(-1)
 
-        def _apply_pred_noise(y_hat: float) -> float:
-            if self._expert_pred_noise is None or self._last_t is None:
-                return float(y_hat)
-            t_idx = int(self._last_t)
-            t_idx = max(0, min(t_idx, self.T - 1))
-            try:
-                x_ref = np.asarray(self.x[t_idx], dtype=float).reshape(-1)
-                if x_ref.shape == x_vec_full.shape and not np.allclose(x_ref, x_vec_full):
-                    return float(y_hat)
-            except Exception:
-                return float(y_hat)
-            return float(y_hat + self._expert_pred_noise[t_idx, j_int])
+        if j_int >= self.num_experts:
+            raise IndexError(f"Expert index {j_int} out of range [0, {self.num_experts})")
 
-        # Strong multi-lag baseline for expert 4 (if configured):
-        # y_hat ≈ b + Σ_m w_m * y_{t - lag_m}, where the lags typically
-        # include 1, 24, and 168 hours of ETTh1 history. This expert can
-        # leverage richer temporal structure than the others and is
-        # intended to act as the strongest constant baseline.
-        if (
-            j_int == 4
-            and self._expert4_ar_params is not None
-            and self._expert4_lags is not None
-            and self._last_t is not None
-        ):
-            w_lags, b_ar = self._expert4_ar_params
-            t_idx = int(self._last_t)
-            if t_idx >= int(self._expert4_lags.max()):
-                # Build the multi-lag feature vector from past y-values.
-                vals = []
-                for lag in self._expert4_lags:
-                    idx = t_idx - int(lag)
-                    if idx < 0:
-                        idx = 0
-                    vals.append(self.y[idx])
-                vals_arr = np.asarray(vals, dtype=float)
-                return _apply_pred_noise(float(np.dot(w_lags, vals_arr) + b_ar))
-            # For very early times where some lags are unavailable, fall
-            # back to a simple linear-in-x prediction.
-            w_simple = np.asarray(self.expert_weights[j_int], dtype=float).reshape(-1)
-            b_simple = float(self.expert_biases[j_int])
-            return _apply_pred_noise(float(np.dot(w_simple, x_vec_full) + b_simple))
+        expert_type = self.expert_types.get(j_int, "unknown")
 
-        # Neural-network experts (indices >= 2 when configured).
-        if hasattr(self, "_nn_expert_ids") and j_int in getattr(
-            self, "_nn_expert_ids", []
-        ):
+        # AR(2) experts
+        if (expert_type in ["ar2_segment1", "ar2_segment2"] and
+            j_int in self._ar2_params and
+            self._ar2_params[j_int] is not None and
+            self._last_t is not None):
+
+            w1, w2, b = self._ar2_params[j_int]
+            t_idx = int(self._last_t)
+
+            # Get y_{t-1} and y_{t-2}
+            y_lag1 = self.y[max(0, t_idx - 1)] if t_idx >= 1 else 0.0
+            y_lag2 = self.y[max(0, t_idx - 2)] if t_idx >= 2 else 0.0
+
+            return float(w1 * y_lag1 + w2 * y_lag2 + b)
+
+        # Neural network experts with normalization
+        if j_int in self._nn_expert_ids:
             params = self._nn_params[j_int]
-            if params is None:
-                # Fallback: linear prediction if NN params missing.
+            if params is None or len(params) < 8:
+                # Fallback: linear prediction if NN params missing
                 w = np.asarray(self.expert_weights[j_int], dtype=float).reshape(-1)
                 b = float(self.expert_biases[j_int])
-                return _apply_pred_noise(float(np.dot(w, x_vec_full) + b))
-            W1, b1, W2, b2 = params
-            # Single-sample forward pass consistent with the training
-            # shapes used in _train_nn_expert, where W1 has shape
-            # (hidden_dim, d_ctx) and W2 has shape (hidden_dim, 1).
-            x_vec = x_vec_full.reshape(1, -1)
-            z1 = x_vec @ W1.T + b1  # shape (1, hidden_dim)
+                return float(np.dot(w, x_vec_full) + b)
+
+            W1, b1, W2, b2, x_mean, x_std, y_mean, y_std = params
+            # Normalize input
+            x_norm = (x_vec_full - x_mean) / np.maximum(x_std, 1e-8)
+
+            # Forward pass
+            x_arr = x_norm.reshape(1, -1)  # shape (1, d_ctx)
+            z1 = x_arr @ W1.T + b1  # shape (1, hidden_dim)
             h = np.tanh(z1)[0]      # shape (hidden_dim,)
-            y_hat = float(h @ W2.reshape(-1) + b2)
-            return _apply_pred_noise(y_hat)
+            y_hat_norm = float(h @ W2.reshape(-1) + b2)
 
-        # RNN-style experts (precomputed predictions).
-        if (
-            hasattr(self, "_rnn_expert_ids")
-            and j_int in getattr(self, "_rnn_expert_ids", [])
-            and self._last_t is not None
-        ):
-            preds = self._rnn_preds[j_int]
-            if preds is not None:
-                t_idx = int(self._last_t)
-                t_idx = max(0, min(t_idx, preds.shape[0] - 1))
-                return _apply_pred_noise(float(preds[t_idx]))
+            # Denormalize output
+            y_hat = y_hat_norm * y_std + y_mean
+            rng = np.random.default_rng()
+            if expert_type == "nn_early":
+                return y_hat
+            else:  # nn_late
+                return y_hat
 
-        # Default linear experts (0 and 1, or all experts if num_experts <= 2).
+        # Default linear experts (ar1_low_var, ar1_high_var)
         w = np.asarray(self.expert_weights[j_int], dtype=float).reshape(-1)
         b = float(self.expert_biases[j_int])
-        return _apply_pred_noise(float(np.dot(w, x_vec_full) + b))
+        return float(np.dot(w, x_vec_full) + b)
 
     def all_expert_predictions(self, x_t: np.ndarray) -> np.ndarray:
         return np.array(

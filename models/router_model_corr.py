@@ -585,8 +585,8 @@ class SLDSIMMRouter_Corr:
             P_k = P_pred[k]
             for j in range(N):
                 h_j = self._build_obs_vector(j, phi_t)
-                mu = float(h_j @ m_k)
-                S = float(h_j @ (P_k @ h_j) + self.R[k, j])
+                mu = float(np.squeeze(h_j @ m_k))
+                S = float(np.squeeze(h_j @ (P_k @ h_j))) + self.R[k, j]
                 S = max(S, self.eps)
                 mu_kj[k, j] = mu
                 S_kj[k, j] = S
@@ -834,7 +834,7 @@ class SLDSIMMRouter_Corr:
                     # Fallback: treat determinant magnitude robustly
                     det_val = max(float(np.linalg.det(S)), self.eps)
                     logdet = float(np.log(det_val))
-                quad = float(innov.T @ (S_inv @ innov))
+                quad = float(np.squeeze(innov.T @ (S_inv @ innov)))
                 L = float(S.shape[0])
                 log_like[k] = -0.5 * (L * np.log(2.0 * np.pi) + logdet + quad)
 
@@ -1002,8 +1002,8 @@ class SLDSIMMRouter_Corr:
                 mu_k = np.zeros(self.M, dtype=float)
                 S_k = np.zeros(self.M, dtype=float)
                 for k in range(self.M):
-                    mu_k[k] = float(h_j @ m_h[k])
-                    S_val = float(h_j @ (P_h[k] @ h_j) + self.R[k, j])
+                    mu_k[k] = float(np.squeeze(h_j @ m_h[k]))
+                    S_val = float(np.squeeze(h_j @ (P_h[k] @ h_j))) + self.R[k, j]
                     S_k[k] = max(S_val, self.eps)
 
                 mean_ell_j = float(b_h @ mu_k)
@@ -1113,7 +1113,7 @@ class SLDSIMMRouter_Corr:
 
                 # Residual r = ℓ_{j,t} - a_j^T m_g - φ_t^T m_u
                 c_vec = B_j @ m_g + m_u  # dimension du
-                residual = float(ell_j - (a_j @ m_g) - (phi_t @ m_u))
+                residual = float(np.squeeze(ell_j - (a_j @ m_g) - (phi_t @ m_u)))
 
                 # Quadratic terms in φ_t
                 G_mat = B_j @ (P_g @ B_j.T)  # du x du

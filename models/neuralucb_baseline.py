@@ -108,8 +108,8 @@ class NeuralUCB:
         b_j = self.b_lin[j]
         A_inv = np.linalg.inv(A_j)
         theta_j = A_inv @ b_j
-        mu = float(theta_j @ h)
-        sigma_sq = float(h @ (A_inv @ h))
+        mu = float(np.squeeze(theta_j @ h))
+        sigma_sq = float(np.squeeze(h @ (A_inv @ h)))
         sigma = float(np.sqrt(max(sigma_sq, 0.0)))
         return mu, sigma
 
