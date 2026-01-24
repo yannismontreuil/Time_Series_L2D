@@ -20,7 +20,7 @@ environment:
   # Main experiment environment for ETTh1 (oil temperature as target).
   # We reuse the same router code as for the synthetic environment, but
   # the data now comes from a real-world dataset.
-  T: 8000 # total 17536 time steps
+#  T: 8000 # total 17536 time steps
   data_source: etth1
   csv_path: data/ETTh1.csv
   target_column: OT
@@ -112,7 +112,7 @@ routers:
 
     em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 800
+    em_tk: 1700
     em_n: 3
     em_samples: 10
     em_burn_in: 100
