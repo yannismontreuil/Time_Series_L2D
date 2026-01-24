@@ -20,14 +20,14 @@ environment:
   # Main experiment environment for ETTh1 (oil temperature as target).
   # We reuse the same router code as for the synthetic environment, but
   # the data now comes from a real-world dataset.
-  T: 10000 # total 17536 time steps
+#  T: 10000 # total 17536 time steps
   data_source: etth1
   csv_path: data/ETTh1.csv
   target_column: OT
 
 #  # Number of experts and regimes.
   num_experts: 4
-  num_regimes: 2
+  num_regimes: 4
 
   # State dimension d = dim φ(x). The current feature map returns 2D features.
   state_dim: 1
@@ -69,13 +69,16 @@ routers:
     A_g:
       - [[0.95, 0.0], [0.0, 0.95]]
       - [[0.95, 0.0], [0.0, 0.95]]
-    A_u:
-      - [[0.95]]
-      - [[0.95]]
+      - [[0.95, 0.0], [0.0, 0.95]]
+      - [[0.95, 0.0], [0.0, 0.95]]
+    A_u: null
+    A_u_scale: 0.95
     Q_g:
       - [[0.2, 0.0], [0.0, 0.01]]
       - [[0.01, 0.0], [0.0, 0.2]]
-    Q_u_scales: [0.015, 0.015]
+      - [[0.2, 0.0], [0.0, 0.01]]
+      - [[0.01, 0.0], [0.0, 0.2]]
+    Q_u_scales: [0.015, 0.015, 0.015, 0.015]
     exploration: ["g_z"]
     exploration_diag_enabled: true
     exploration_diag_stride: 200
