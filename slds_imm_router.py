@@ -42,7 +42,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 def _load_config(path: str = "config/config.yaml") -> dict:
     if not os.path.exists(path):
-        return {}
+        raise FileNotFoundError(f"Config file not found: {path}")
     with open(path, "r", encoding="utf-8") as f: # "r" means read mode
         text = f.read() # by default reads config.yaml
     if yaml is not None:

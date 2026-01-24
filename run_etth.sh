@@ -1,12 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=l2d_etth2
 #SBATCH --partition=long
-#SBATCH --output=logs/etth2_%j.out
-#SBATCH --error=logs/etth2_%j.err
+#SBATCH --output=logs/etth2_%A_%a.out
+#SBATCH --error=logs/etth2_%A_%a.err
 #SBATCH --nodes=1
-#SBATCH --mem=16G
-#SBATCH --cpus-per-task=1
-#SBATCH --time=24:00:00
+#SBATCH --mem=64G
+#SBATCH --cpus-per-task=8
+#SBATCH --time=2:00:00
+#SBATCH --array=0-2
 #SBATCH --nodelist=xcnf[6-25]
 #SBATCH --mail-user=yannis.montreuil@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
@@ -33,28 +34,35 @@ conda activate Routing_LLM
 # Ensure local package imports (ablation, utils, model, etc.) work
 export PYTHONPATH="${SLURM_SUBMIT_DIR}:${PYTHONPATH:-}"
 
-echo "Running ETTh2 hyperparameter sweep under Slurm..."
+echo "Running ETTh2 hyperparameter sweep under Slurm (array)..."
 
-BASE_CONFIG="config/config_etth2.yaml"
+BASE_CONFIG="${SLURM_SUBMIT_DIR}/config/config_etth2.yaml"
 RUN_DIR="${SLURM_SUBMIT_DIR}/out/etth2_sweep_${SLURM_JOB_ID}"
 mkdir -p "${RUN_DIR}"
 
 RUNS=(
-  "em_online_enabled=true em_online_window=200 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1
-  em_online_n=1 em_online_samples=10 em_online_burn_in=3"
-  "em_online_enabled=true em_online_window=400 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1
-  em_online_n=1 em_online_samples=20 em_online_burn_in=3"
-  "em_online_enabled=true em_online_window=800 em_online_period=500 em_online_theta_lr=0.002 em_online_theta_steps=1
-  em_online_n=1 em_online_samples=20 em_online_burn_in=5"
+  "em_online_enabled=true em_online_window=200 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1 em_online_n=1 em_online_samples=10 em_online_burn_in=3"
+  "em_online_enabled=true em_online_window=400 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1 em_online_n=1 em_online_samples=20 em_online_burn_in=3"
+  "em_online_enabled=true em_online_window=800 em_online_period=500 em_online_theta_lr=0.002 em_online_theta_steps=1 em_online_n=1 em_online_samples=20 em_online_burn_in=5"
 )
 
-run_id=0
-for run_cfg in "${RUNS[@]}"; do
-  run_id=$((run_id + 1))
-  cfg_out="${RUN_DIR}/config_etth2_online_${run_id}.yaml"
-  echo "-------------------------------------------------"
-  echo "Run ${run_id}: ${run_cfg}"
-  echo "Config: ${cfg_out}"
+if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+  echo "ERROR: SLURM_ARRAY_TASK_ID is not set. Submit with --array."
+  exit 1
+fi
+
+run_id=$((SLURM_ARRAY_TASK_ID + 1))
+run_cfg="${RUNS[$SLURM_ARRAY_TASK_ID]}"
+if [[ -z "${run_cfg}" ]]; then
+  echo "ERROR: No run config for SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+  exit 1
+fi
+
+cfg_out="${RUN_DIR}/config_etth2_online_${run_id}.yaml"
+echo "-------------------------------------------------"
+echo "Array task: ${SLURM_ARRAY_TASK_ID}"
+echo "Run ${run_id}: ${run_cfg}"
+echo "Config: ${cfg_out}"
 
   python - <<'PY' "${BASE_CONFIG}" "${cfg_out}" "${run_cfg}"
 import sys
@@ -96,9 +104,8 @@ with open(out_path, "w", encoding="utf-8") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
 PY
 
-  echo "Starting Python script..."
-  python -u slds_imm_router.py --config "${cfg_out}"
-done
+echo "Starting Python script..."
+python -u slds_imm_router.py --config "${cfg_out}"
 
 echo "================================================="
 echo "End time: $(date)"
