@@ -1,0 +1,19 @@
+\section{Related Work}
+L2D extends selective prediction \citep{Chow_1970, Bartlett_Wegkamp_2008, cortes, Geifman_El-Yaniv_2017, cao2022generalizing, cortes2024cardinalityaware}
+by allowing a learner to defer uncertain inputs to external experts \citep{madras2018predict, mozannar2021consistent, Verma2022LearningTD}.
+An important line of work develops surrogate losses and statistical guarantees  \citep{mozannar2021consistent, Verma2022LearningTD,
+    Cao_Mozannar_Feng_Wei_An_2023, Mozannar2023WhoSP, mao2024realizablehconsistentbayesconsistentloss,
+    mao2025realizablehconsistentbayesconsistentloss, charusaie2022sample,
+    mao2024principledapproacheslearningdefer, wei2024exploiting}.
+L2D has also been extended to regression and multi-task settings and applied in real systems
+\citep{mao2024regressionmultiexpertdeferral,
+    strong2024towards, palomba2025a, montreuil2024twostagelearningtodefermultitasklearning, montreuil2025optimalqueryallocationextractive}.
+Missing expert predictions have been studied in offline/batch learning \citep{nguyen2025probabilistic}.
+Sequential L2D has been studied in a different setting: \citet{joshi2021learning} formulate deferral in a non-stationary MDP and learn a \emph{pre-emptive} deferral policy by comparing the long-term value of deferring now versus delaying deferral.
+
+In contrast, we study time-series expert routing where the router selects among available experts \emph{online} under censored (bandit-style) feedback,
+with potentially non-stationary data and a time-varying expert pool.
+We are not aware of existing L2D formulations that jointly address non-stationarity, censored observations, and dynamic expert availability.
+
+
+

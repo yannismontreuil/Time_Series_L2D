@@ -1,0 +1,273 @@
+{
+  "window": 2000,
+  "min_points": 10,
+  "use_fisher": true,
+  "metrics": [
+    {
+      "label": "L2D SLDS w/t $g_t$ (partial)",
+      "corr": 0.9999466466945656,
+      "corr_global": 0.9999685174044681,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.999939945568245,
+      "corr_window_std": 3.789116740116937e-05,
+      "window_corrs": [
+        0.9999716031165581,
+        0.9998979616742621,
+        0.9999502719139146
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "L2D SLDS w/t $g_t$ (full)",
+      "corr": 0.9997414942180683,
+      "corr_global": 0.9998392521672879,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.9996750713532289,
+      "corr_window_std": 0.0002538498301705881,
+      "window_corrs": [
+        0.9998896690994764,
+        0.9993948546043468,
+        0.9997406903558633
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "L2D SLDS w/ $g_t$ attention (g_z) (partial)",
+      "corr": 0.9999466466945656,
+      "corr_global": 0.9999685174044681,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.999939945568245,
+      "corr_window_std": 3.789116740116937e-05,
+      "window_corrs": [
+        0.9999716031165581,
+        0.9998979616742621,
+        0.9999502719139146
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "L2D SLDS w/ $g_t$ attention (g_z) (full)",
+      "corr": 0.9999466466945656,
+      "corr_global": 0.9999685174044681,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.999939945568245,
+      "corr_window_std": 3.789116740116937e-05,
+      "window_corrs": [
+        0.9999716031165581,
+        0.9998979616742621,
+        0.9999502719139146
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "L2D (full)",
+      "corr": 0.9999411176179109,
+      "corr_global": 0.9999637775854278,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.9999272441051353,
+      "corr_window_std": 4.327115116737523e-05,
+      "window_corrs": [
+        0.9999716031165581,
+        0.9998851497531391,
+        0.9999249794457092
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "L2D_SW (full)",
+      "corr": 0.9999304128824514,
+      "corr_global": 0.999953876866453,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.9999268210861123,
+      "corr_window_std": 1.5364213269528693e-05,
+      "window_corrs": [
+        0.9999443878577066,
+        0.9999158893401947,
+        0.9999201860604355
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "LinUCB (partial)",
+      "corr": 0.999674819984759,
+      "corr_global": 0.9997847033864359,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.999658157299956,
+      "corr_window_std": 4.608107376084504e-05,
+      "window_corrs": [
+        0.9996578258628804,
+        0.9997044031983008,
+        0.9996122428386867
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "NeuralUCB (partial)",
+      "corr": 0.9991002962222394,
+      "corr_global": 0.9994491711051773,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.9988523704778599,
+      "corr_window_std": 0.0005524297518424273,
+      "window_corrs": [
+        0.9993245288623638,
+        0.9989877458261346,
+        0.9982448367450816
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "Random baseline",
+      "corr": 0.9987026736409111,
+      "corr_global": 0.9992070493893646,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.9984478819686404,
+      "corr_window_std": 0.0005922547931381076,
+      "window_corrs": [
+        0.9989699798584919,
+        0.9985693589510118,
+        0.9978043070964175
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "Oracle baseline",
+      "corr": 0.9999334429548158,
+      "corr_global": 0.999960497092629,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.9999220538507828,
+      "corr_window_std": 5.3907738398186675e-05,
+      "window_corrs": [
+        0.9999674381510466,
+        0.9998624666708179,
+        0.9999362567304841
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "Expert 0",
+      "corr": 0.9977319219206648,
+      "corr_global": 0.9985772819434712,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.9970970184837699,
+      "corr_window_std": 0.001423250458633538,
+      "window_corrs": [
+        0.9981640280402261,
+        0.9976459922609061,
+        0.9954810351501773
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "Expert 1",
+      "corr": 0.9977499053907715,
+      "corr_global": 0.9985877415909421,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.9971204663525954,
+      "corr_window_std": 0.0014112176389227717,
+      "window_corrs": [
+        0.9981764823991175,
+        0.9976672410080761,
+        0.995517675650593
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "Expert 2",
+      "corr": 0.9999466466945656,
+      "corr_global": 0.9999685174044681,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.999939945568245,
+      "corr_window_std": 3.789116740116937e-05,
+      "window_corrs": [
+        0.9999716031165581,
+        0.9998979616742621,
+        0.9999502719139146
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    },
+    {
+      "label": "Expert 3",
+      "corr": 0.9999403598290685,
+      "corr_global": 0.9999633656718719,
+      "n_windows": 3,
+      "n_points": 4505,
+      "corr_window_mean": 0.9999355634060675,
+      "corr_window_std": 1.5203526585903935e-05,
+      "window_corrs": [
+        0.9999530114329683,
+        0.9999285192701725,
+        0.9999251595150619
+      ],
+      "window_sizes": [
+        2000,
+        2000,
+        505
+      ]
+    }
+  ]
+}

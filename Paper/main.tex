@@ -1,0 +1,196 @@
+%%%%%%%% ICML 2026 EXAMPLE LATEX SUBMISSION FILE %%%%%%%%%%%%%%%%%
+
+\documentclass{article}
+
+% Recommended, but optional, packages for figures and better typesetting:
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs} % for professional tables
+\usepackage{longtable} % for notation table in appendix
+
+% hyperref makes hyperlinks in the resulting PDF.
+% If your build breaks (sometimes temporarily if a hyperlink spans a page)
+% please comment out the following usepackage line and replace
+% \usepackage{icml2026} with \usepackage[nohyperref]{icml2026} above.
+\usepackage{hyperref}
+
+
+% Attempt to make hyperref and algorithmic work together better:
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+
+% Use the following line for the initial blind version submitted for review:
+\usepackage{icml2026}
+
+% For preprint, use
+% \usepackage[preprint]{icml2026}
+
+% If accepted, instead use the following line for the camera-ready submission:
+% \usepackage[accepted]{icml2026}
+
+\renewcommand{\bibname}{References}
+\renewcommand{\bibsection}{\subsubsection*{\bibname}}
+
+% If you use BibTeX in apalike style, activate the following line:
+% \bibliographystyle{apalike}
+
+% \usepackage[hidelinks]{hyperref}
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+% \newtheorem{theorem}{Theorem}
+\usepackage{algorithm}
+\let\oldemptyset\emptyset
+\let\emptyset\varnothing
+\usepackage{algorithmic}
+\usepackage{amsfonts}
+\usepackage{amsthm}
+\usepackage{thmtools, thm-restate}
+\newtheorem{assumption}{Assumption}
+\newcommand{\Pm}{\mathbb{P}}
+\newcommand{\mc}{\mathcal}
+\newcommand{\mb}{\mathbb}
+\newcommand{\EM}{\text{EM}}
+\newcommand{\vy}{\mathbf{y}}
+\newcommand{\vhaty}{\widehat{\vy}}
+\newcommand{\owt}[1]{\textcolor{blue}{#1}}
+\usepackage{amsmath}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argsup}{arg\,sup}
+\DeclareMathOperator*{\arginf}{arg\,inf}
+\let\emptyset\varnothing
+\usepackage{appendix}
+\usepackage{titletoc}
+\newcommand\DoToC{%
+  \startcontents
+  \printcontents{}{2}{\textbf{Contents}\vskip3pt\hrule\vskip5pt}
+  \vskip3pt\hrule\vskip5pt
+}
+\usepackage{amssymb}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,shapes.misc,shapes.geometric, calc, bayesnet}
+% if you use cleveref..
+\usepackage[capitalize,noabbrev]{cleveref}
+\usepackage{enumitem}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% THEOREMS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newcommand{\BlackBox}{\rule{1.5ex}{1.5ex}}  % end of proof
+\ifdefined\proof
+    \renewenvironment{proof}{\par\noindent{\bf Proof\ }}{\hfill\BlackBox\\[2mm]}
+\else
+    \newenvironment{proof}{\par\noindent{\bf Proof\ }}{\hfill\BlackBox\\[2mm]}
+\fi
+\newtheorem{example}{Example} 
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma} 
+\newtheorem{proposition}[theorem]{Proposition} 
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\newtheorem{axiom}[theorem]{Axiom}
+\usepackage{mathtools}
+
+% Todonotes is useful during development; simply uncomment the next line
+%    and comment out the line below the next line to turn off comments
+%\usepackage[disable,textsize=tiny]{todonotes}
+\usepackage[textsize=tiny]{todonotes}
+
+% The \icmltitle you define below is probably too long as a header.
+% Therefore, a short form for the running title is supplied here:
+\icmltitlerunning{Learning to Defer in Non-Stationary Time Series via Switching State-Space Models}
+
+\begin{document}
+
+\twocolumn[
+  \icmltitle{Learning to Defer in Non-Stationary Time Series \\
+  via Switching State-Space Models}
+
+  % It is OKAY to include author information, even for blind submissions: the
+  % style file will automatically remove it for you unless you've provided
+  % the [accepted] option to the icml2026 package.
+
+  % List of affiliations: The first argument should be a (short) identifier you
+  % will use later to specify author affiliations Academic affiliations
+  % should list Department, University, City, Region, Country Industry
+  % affiliations should list Company, City, Region, Country
+
+  % You can specify symbols, otherwise they are numbered in order. Ideally, you
+  % should not use this facility. Affiliations will be numbered in order of
+  % appearance and this is the preferred way.
+  \icmlsetsymbol{equal}{*}
+
+  \begin{icmlauthorlist}
+    \icmlauthor{Firstname1 Lastname1}{equal,yyy}
+    \icmlauthor{Firstname2 Lastname2}{equal,yyy,comp}
+    \icmlauthor{Firstname3 Lastname3}{comp}
+    \icmlauthor{Firstname4 Lastname4}{sch}
+    \icmlauthor{Firstname5 Lastname5}{yyy}
+    \icmlauthor{Firstname6 Lastname6}{sch,yyy,comp}
+    \icmlauthor{Firstname7 Lastname7}{comp}
+    %\icmlauthor{}{sch}
+    \icmlauthor{Firstname8 Lastname8}{sch}
+    \icmlauthor{Firstname8 Lastname8}{yyy,comp}
+    %\icmlauthor{}{sch}
+    %\icmlauthor{}{sch}
+  \end{icmlauthorlist}
+
+  \icmlaffiliation{yyy}{Department of XXX, University of YYY, Location, Country}
+  \icmlaffiliation{comp}{Company Name, Location, Country}
+  \icmlaffiliation{sch}{School of ZZZ, Institute of WWW, Location, Country}
+
+  \icmlcorrespondingauthor{Firstname1 Lastname1}{first1.last1@xxx.edu}
+  \icmlcorrespondingauthor{Firstname2 Lastname2}{first2.last2@www.uk}
+
+  % You may provide any keywords that you find helpful for describing your
+  % paper; these are used to populate the "keywords" metadata in the PDF but
+  % will not be shown in the document
+  \icmlkeywords{Machine Learning, ICML}
+
+  \vskip 0.3in
+]
+
+% this must go after the closing bracket ] following \twocolumn[ ...
+
+% This command actually creates the footnote in the first column listing the
+% affiliations and the copyright notice. The command takes one argument, which
+% is text to display at the start of the footnote. The \icmlEqualContribution
+% command is standard text for equal contribution. Remove it (just {}) if you
+% do not need this facility.
+
+% Use ONE of the following lines. DO NOT remove the command.
+% If you have no special notice, KEEP empty braces:
+\printAffiliationsAndNotice{}  % no special notice (required even if empty)
+% Or, if applicable, use the standard equal contribution text:
+% \printAffiliationsAndNotice{\icmlEqualContribution}
+
+\begin{abstract}
+We study sequential expert routing in non-stationary time series with censored (bandit-style) feedback and time-varying expert availability:
+at each round, the router observes the target but only the queried expert's prediction.
+We model signed expert residuals with a factorized switching linear-Gaussian state-space model comprising a context-dependent regime
+process, a shared global factor, and per-expert idiosyncratic states.
+To scale inference to large and evolving expert registries, we derive an IMM-style filter with factorized updates that maintains
+per-expert marginals, supports expert entry and pruning, and jointly updates only the queried expert and the shared factor.
+Using one-step-ahead predictive beliefs, we apply an information-directed routing rule that trades off predicted cost against
+information gain about the latent regime and shared factor. We show experimentally that our framework outperforms
+both contextual bandits and adapted offline learning-to-defer methods.
+\end{abstract}
+
+
+\input{Section/Introduction}
+\input{Section/Relatedworks}
+\input{Section/Background}
+\input{Section/Approach}
+\input{Section/Experiments}
+\input{Section/Conclusion and Impact}
+
+\bibliography{biblio}
+\bibliographystyle{icml2026}
+
+\input{Section/Appendix}
+
+
+
+
+\end{document}

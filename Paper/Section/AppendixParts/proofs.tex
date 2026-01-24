@@ -1,0 +1,117 @@
+% =========================
+% Proofs
+% =========================
+\section{Proofs}
+\subsection{Proof of Proposition \ref{prop:cross_update}}
+\label{app:proof_cross_update}
+
+\propinfo*
+
+\begin{proof}
+			Fix $t$ and $m$, and let $\mathcal{G}_t \coloneqq \sigma(\mathcal{F}_t, I_t, z_t=m)$.
+			By assumption, the one-step-ahead predictive pair
+			$(e_{t,j}^{\mathrm{pred}}, e_{t,I_t}^{\mathrm{pred}})\mid \mathcal{G}_t$ is jointly Gaussian,
+			where each term lies in $\mathbb{R}^{d_y}$.
+			Under $\mathcal{G}_t$ the realized observation is $e_t=e_{t,I_t}$, and
+			$e_t\mid\mathcal{G}_t \overset{d}{=} e_{t,I_t}^{\mathrm{pred}}\mid\mathcal{G}_t$ (since $e_{t,I_t}^{\mathrm{pred}}$ is exactly the one-step predictive residual that generates $e_{t,I_t}$).
+		Let
+		\[
+		\boldsymbol\mu_j \coloneqq \mathbb{E}[e_{t,j}^{\mathrm{pred}}\mid \mathcal{G}_t], \qquad
+		\boldsymbol\mu_I \coloneqq \mathbb{E}[e_{t,I_t}^{\mathrm{pred}}\mid \mathcal{G}_t],
+	\]
+	and define the predictive covariance and cross-covariance matrices
+	\[
+	\Sigma_I \coloneqq \mathrm{Cov}(e_{t,I_t}^{\mathrm{pred}}\mid \mathcal{G}_t)\in\mathbb{S}^{d_y}_{++}, \qquad
+	\Sigma_{jI} \coloneqq \mathrm{Cov}(e_{t,j}^{\mathrm{pred}}, e_{t,I_t}^{\mathrm{pred}}\mid \mathcal{G}_t)\in\mathbb{R}^{d_y\times d_y}.
+	\]
+		Assume $\Sigma_I$ is non-singular (e.g., due to additive observation noise with $\mathbf{R}_{m,I_t}\succ \mathbf{0}$).
+		For jointly Gaussian vectors, the conditional expectation is given by the standard formula
+		\[
+		\mathbb{E}[e_{t,j}^{\mathrm{pred}}\mid e_{t,I_t}^{\mathrm{pred}}=e_t, \mathcal{G}_t]
+		=
+		\boldsymbol\mu_j + \Sigma_{jI}\,\Sigma_I^{-1}\,\bigl(e_t-\boldsymbol\mu_I\bigr).
+		\]
+			Therefore,
+			$\mathbb{E}[e_{t,j}^{\mathrm{pred}}\mid e_t, \mathcal{G}_t]=\boldsymbol\mu_j$ for all values of $e_t$
+			if and only if $\Sigma_{jI}=\mathbf{0}$, i.e.,
+			$\mathrm{Cov}(e_{t,j}^{\mathrm{pred}}, e_{t,I_t}^{\mathrm{pred}}\mid \mathcal{G}_t)=\mathbf{0}$.
+\end{proof}
+
+\subsection{Proof of Proposition \ref{prop:invariance}} \label{app:invariance}
+
+\invariance*
+
+	\begin{proof}
+	The statement is a direct consequence of the definition of marginalization.
+
+Write the filtering belief at the end of round $t-1$ (conditioned on the realized history, which we omit from the
+	notation) as a joint density over the shared factor and all idiosyncratic states:
+	\[
+	q_{t-1\mid t-1}\Big(\mathbf{g}_{t-1},(\mathbf{u}_{t-1,\ell})_{\ell\in\mathcal{K}_{t-1}}\Big).
+	\]
+	Let $\mathcal{K}' \coloneqq \mathcal{K}_{t-1}\setminus P_t$ denote the retained experts and denote
+	$\mathbf{u}_{t-1,\mathcal{K}'} \coloneqq (\mathbf{u}_{t-1,\ell})_{\ell\in\mathcal{K}'}$.
+	By the definition of a marginal density, the joint marginal of the retained variables under $q_{t-1\mid t-1}$ is
+	\begin{equation}
+	q_{t-1\mid t-1}\big(\mathbf{g}_{t-1},\mathbf{u}_{t-1,\mathcal{K}'}\big)
+	\;=\;
+	\int q_{t-1\mid t-1}\big(\mathbf{g}_{t-1},\mathbf{u}_{t-1,\mathcal{K}'},(\mathbf{u}_{t-1,k})_{k\in P_t}\big)\,
+	\prod_{k\in P_t} d\mathbf{u}_{t-1,k}.
+	\label{eq:marg_def}
+	\end{equation}
+	On the other hand, the post-pruning belief $q^{\mathrm{pr}(P_t)}_{t-1\mid t-1}$ is \emph{defined} by exactly the same integral:
+	\[
+	q^{\mathrm{pr}(P_t)}_{t-1\mid t-1}\big(\mathbf{g}_{t-1},\mathbf{u}_{t-1,\mathcal{K}'}\big)
+	\;\coloneqq\;
+	\int q_{t-1\mid t-1}\big(\mathbf{g}_{t-1},\mathbf{u}_{t-1,\mathcal{K}'},(\mathbf{u}_{t-1,k})_{k\in P_t}\big)\,
+	\prod_{k\in P_t} d\mathbf{u}_{t-1,k}.
+	\]
+	Comparing with \eqref{eq:marg_def} yields
+	\[
+	q^{\mathrm{pr}(P_t)}_{t-1\mid t-1}\big(\mathbf{g}_{t-1},\mathbf{u}_{t-1,\mathcal{K}'}\big)
+	=
+	q_{t-1\mid t-1}\big(\mathbf{g}_{t-1},\mathbf{u}_{t-1,\mathcal{K}'}\big),
+	\]
+	which proves that pruning $P_t$ leaves the joint belief over all retained variables unchanged.
+
+	For the stated consequences, let $\ell\notin P_t$.
+	The SLDS time update propagates $(\mathbf{g}_{t-1},\mathbf{u}_{t-1,\ell})$ to $(\mathbf{g}_t,\mathbf{u}_{t,\ell})$
+	using the same linear-Gaussian transition under both beliefs. Since the retained marginal
+	$q_{t-1\mid t-1}(\mathbf{g}_{t-1},\mathbf{u}_{t-1,\ell})$ is identical before and after pruning, the predictive
+	distribution of $(\mathbf{g}_t,\mathbf{u}_{t,\ell})$ is also identical. Because
+	$\boldsymbol{\alpha}_{t,\ell}=\mathbf{B}_\ell \mathbf{g}_t+\mathbf{u}_{t,\ell}$ is a measurable function of
+	$(\mathbf{g}_t,\mathbf{u}_{t,\ell})$ and $e_{t,\ell}^{\mathrm{pred}}$ follows the emission model given these
+	states, the predictive distributions of $\boldsymbol{\alpha}_{t,\ell}$ and $e_{t,\ell}^{\mathrm{pred}}$
+	are unchanged by pruning.
+	\end{proof}
+
+\subsection{Proof of Proposition \ref{prop:transfer}} \label{app:transfer}
+
+\transfer*
+
+		\begin{proof}
+		Fix $t$ and condition on $(\mathcal{F}_t,z_t=m)$.
+		Under the factorized one-step predictive belief, for any $j\neq k$ we have the marginal factorization
+		\[
+		q(\mathbf{g}_t,\mathbf{u}_{t,j},\mathbf{u}_{t,k}\mid \mathcal{F}_t,z_t=m)
+		=
+		q(\mathbf{g}_t\mid \mathcal{F}_t,z_t=m)\,q(\mathbf{u}_{t,j}\mid \mathcal{F}_t,z_t=m)\,q(\mathbf{u}_{t,k}\mid \mathcal{F}_t,z_t=m),
+		\]
+		so $\mathbf{g}_t \perp\!\!\!\perp \mathbf{u}_{t,\ell}$ for all $\ell$ and
+		$\mathbf{u}_{t,j}\perp\!\!\!\perp \mathbf{u}_{t,k}$ for $j\neq k$.
+	Recalling $\boldsymbol{\alpha}_{t,\ell}=\mathbf{B}_\ell \mathbf{g}_t+\mathbf{u}_{t,\ell}$ and using bilinearity of covariance,
+	\begin{align*}
+	\mathrm{Cov}(\boldsymbol{\alpha}_{t,j},\boldsymbol{\alpha}_{t,k}\mid \mathcal{F}_t,z_t=m)
+	&=\mathrm{Cov}(\mathbf{B}_j\mathbf{g}_t+\mathbf{u}_{t,j},\,\mathbf{B}_k\mathbf{g}_t+\mathbf{u}_{t,k}\mid \mathcal{F}_t,z_t=m)\\
+	&=\mathrm{Cov}(\mathbf{B}_j\mathbf{g}_t,\,\mathbf{B}_k\mathbf{g}_t\mid \mathcal{F}_t,z_t=m)
+	+\mathrm{Cov}(\mathbf{B}_j\mathbf{g}_t,\,\mathbf{u}_{t,k}\mid \mathcal{F}_t,z_t=m)\\
+	&\quad+\mathrm{Cov}(\mathbf{u}_{t,j},\,\mathbf{B}_k\mathbf{g}_t\mid \mathcal{F}_t,z_t=m)
+	+\mathrm{Cov}(\mathbf{u}_{t,j},\,\mathbf{u}_{t,k}\mid \mathcal{F}_t,z_t=m)\\
+	&=\mathbf{B}_j\,\mathrm{Cov}(\mathbf{g}_t,\mathbf{g}_t\mid \mathcal{F}_t,z_t=m)\,\mathbf{B}_k^\top\\
+	&=\mathbf B_j\,\Sigma^{(m)}_{g,t|t-1}\,\mathbf B_k^\top,
+	\end{align*}
+	where $\Sigma^{(m)}_{g,t|t-1}\coloneqq \mathrm{Cov}(\mathbf{g}_t\mid \mathcal{F}_t,z_t=m)$.
+	If $\mathbf B_j\Sigma^{(m)}_{g,t|t-1}\mathbf B_k^\top\neq 0$ and the joint predictive law of
+	$(\boldsymbol\alpha_{t,j},\boldsymbol\alpha_{t,k})$ is Gaussian, then the pair is not independent, hence
+	$\mathcal{I}(\boldsymbol{\alpha}_{t,j};\boldsymbol{\alpha}_{t,k}\mid \mathcal{F}_t,z_t=m)>0$.
+	\end{proof}

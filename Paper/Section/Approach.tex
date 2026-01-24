@@ -1,0 +1,455 @@
+\section{Context-Aware Routing in Non-Stationary Environments}
+
+\subsection{Problem Formulation}
+\label{sec:problem_formulation}
+
+Building on the offline learning-to-defer setup in Section~\ref{sec:background_l2d}, we study
+\emph{sequential} expert routing in \emph{non-stationary} time series under \emph{censored
+feedback} \citep{neu2010online, dani2008stochastic}.
+
+\textbf{Primitives.}
+Time is indexed by a finite horizon \(t\in[T]\coloneqq\{1,\dots,T\}\). Let
+\((\Omega,\mathcal{F},\mathbb{P})\) be a probability space supporting all random variables. At each
+round \(t\), the environment produces a context \(\mathbf{x}_t\in\mathcal{X}\subseteq\mathbb{R}^d\), a
+target \(\vy_t\in\mathcal{Y}\subseteq\mathbb{R}^{d_y}\) with \(d_y\ge 1\), and a non-empty finite set
+of available expert identities \(\mathcal{E}_t\). We allow \(\mathcal{E}_t\) to vary with \(t\),
+capturing both temporary unavailability and newly arriving experts.
+The router maintains a time-varying \emph{expert registry} \(\mathcal{K}_t\), containing the experts
+for which it stores per-expert state, with \(\mathcal{E}_t\subseteq \mathcal{K}_t\) at decision time.
+For scalability, \(\mathcal{K}_t\) may discard stale experts and reinitialize them upon re-entry
+(details in Section~\ref{sec:registry}).
+Each identity \(k\in\mathcal{K}_t\) corresponds to a persistent expert that, when queried at time \(t\),
+outputs a prediction \(\vhaty_{t,k}\in\mathcal{Y}\).
+
+\textbf{Residuals, loss, and cost.}
+As in \eqref{eq:l2d_cost}, routing to expert \(k\) incurs a prediction error loss plus a query fee.
+We track experts via their signed residuals (prediction minus target). We define the \emph{potential}
+residual of expert \(k\) at time \(t\) as
+\begin{equation}
+\label{eq:residual}
+  e_{t,k} \coloneqq \vhaty_{t,k}-\vy_t .
+\end{equation}
+When \(I_t=k\) is queried, the realized observation is \(e_t\coloneqq e_{t,I_t}\).
+We model residuals (rather than the nonnegative loss \(\psi(e_{t,k})\)) because the state-space
+emission model is defined on \(\mathbb{R}^{d_y}\), preserving signed deviations (over- vs.\ under-prediction)
+that would be lost after applying \(\psi\).
+The corresponding (potential) routing cost is
+\begin{equation}
+\label{eq:routing_cost}
+  C_{t,k} \coloneqq \psi(e_{t,k}) + \beta_k .
+\end{equation}
+where \(\psi:\mathbb{R}^{d_y}\to\mathbb{R}_{\ge 0}\) is a known convex loss (e.g., squared error for
+\(d_y=1\) or squared norm \(\psi(e)=\lVert e\rVert_2^2\) in general) and \(\beta_k\ge 0\) is a known,
+expert-specific query fee. When \(I_t=k\) is queried, the realized cost is \(C_t\coloneqq C_{t,I_t}\).
+
+\textbf{Observation model (censoring).}
+At each round, the router selects an expert index \(I_t\in\mathcal{E}_t\). Due to bandit-style
+feedback, it observes only the queried prediction \(\vhaty_{t,I_t}\) (and hence only
+\(e_{t,I_t}\) and \(C_{t,I_t}\)); for \(k\in\mathcal{E}_t\setminus\{I_t\}\),
+\((\vhaty_{t,k},e_{t,k},C_{t,k})\) remain
+unobserved. We denote the post-action feedback tuple by $O_t \coloneqq (I_t,\vhaty_{t,I_t},\vy_t)$.
+
+\textbf{Filtrations and policies.}
+Let \(\mathcal{H}_{t}\coloneqq \big((\mathbf{x}_\tau,\mathcal{E}_\tau,O_\tau)\big)_{\tau=1}^{t}\)
+be the interaction history up to the end of round \(t\).
+Decisions are non-anticipative, i.e., made before observing \(O_t\).
+We define the \emph{decision-time} sigma-algebra as $\mathcal{F}_t \coloneqq
+\sigma\left(\mathcal{H}_{t-1},\mathbf{x}_t,\mathcal{E}_t\right)$.
+
+A policy \(\pi=(\pi_t)_{t=1}^T\) is a sequence of decision rules where
+\(\pi_t(\cdot \mid \mathcal{F}_t)\) is an \(\mathcal{F}_t\)-measurable distribution over
+\(\mathcal{E}_t\).
+The action is sampled as \(I_t \sim \pi_t(\cdot \mid \mathcal{F}_t)\), so that
+\(I_t\in\mathcal{E}_t\) almost surely.
+
+\textbf{Interaction protocol.}
+The process unfolds in discrete rounds. At each time \(t\):
+\begin{enumerate}[topsep=2pt,itemsep=1pt,parsep=0pt]
+    \item \textbf{Decision-time revelation:} the environment reveals \((\mathbf{x}_t,\mathcal{E}_t)\),
+    thereby determining \(\mathcal{F}_t\).
+    \item \textbf{Action:} the router samples \(I_t \sim \pi_t(\cdot \mid \mathcal{F}_t)\).
+    \item \textbf{Censored feedback:} the router observes \(O_t=(I_t,\vhaty_{t,I_t},\vy_t)\) and can
+    evaluate the realized residual \(e_{t,I_t}\) and cost \(C_{t,I_t}\).
+\end{enumerate}
+
+
+\textbf{Non-stationarity and exogeneity.}
+We do not assume i.i.d.\ data: the joint law of \((\mathbf{x}_t,\mathcal{E}_t,\vy_t)\) may drift over
+time (Section~\ref{sec:background_slds}). Concretely, we allow a sequence of time-varying conditional
+laws \(\{\mathcal{D}_t\}_{t\ge 1}\) such that
+	\begin{equation*}
+	    (\mathbf{x}_t,\mathcal{E}_t,\vy_t)\mid \sigma\big((\mathbf{x}_\tau,\mathcal{E}_\tau,\vy_\tau)_{\tau<t}\big)
+	    \sim \mathcal{D}_t\left(\cdot \middle| (\mathbf{x}_\tau,\mathcal{E}_\tau,\vy_\tau)_{\tau<t}\right).
+	\end{equation*}
+This captures non-stationarity (e.g., concept drift or regime shifts). We additionally assume
+\emph{exogeneity}: past routing actions affect which expert predictions
+are observed, but do not influence the data-generating process. Equivalently,
+\((\mathbf{x}_t,\mathcal{E}_t,\vy_t)\) is conditionally independent of past actions \(I_{1:t-1}\)
+given \(\sigma\big((\mathbf{x}_\tau,\mathcal{E}_\tau,\vy_\tau)_{\tau<t}\big)\).
+
+\textbf{Objective and myopic Bayes selector.}
+Our goal is to minimize expected cumulative routing cost
+\begin{equation}
+\label{eq:routing_objective}
+    J(\pi) \coloneqq \mathbb{E}\left[\sum_{t=1}^T C_{t,I_t}\right].
+\end{equation}
+As an idealized one-step benchmark, the \emph{myopic Bayes selector} chooses
+\begin{equation}
+\label{eq:bayes_selection}
+    k_t^{\star} \in \arg\min_{k\in\mathcal{E}_t} \mathbb{E}\left[C_{t,k} \mid \mathcal{F}_t\right].
+\end{equation}
+Under full feedback, \eqref{eq:bayes_selection} is directly evaluable from contemporaneous observations
+of all experts' costs. Under censoring, however, \(C_{t,k}\) is observed only for the queried expert
+\citep{neu2010online}, so \eqref{eq:bayes_selection} is not directly computable.
+Since \(\beta_k\) is known, evaluating \eqref{eq:bayes_selection} reduces to forecasting
+\(\mathbb{E}[\psi(e_{t,k})\mid \mathcal{F}_t]\) for unqueried experts. In subsequent sections, we introduce a latent-state model that yields tractable
+one-step-ahead predictive beliefs \(p(e_{t,k}\mid \mathcal{F}_t)\).
+
+\subsection{Generative Model: Factorized Switching LDS}
+\label{sec:generative_model}
+
+Section~\ref{sec:problem_formulation} highlights that censored feedback and non-stationarity make the
+myopic selector \eqref{eq:bayes_selection} intractable without a predictive belief over \emph{unobserved}
+expert residuals.
+
+We therefore model the \emph{potential residuals} \(e_{t,k}=\vhaty_{t,k}-\vy_t\) from
+Section~\ref{sec:problem_formulation} as emissions of a \textbf{factorized switching linear dynamical system
+} \citep{bengio1994input, linderman2016recurrent, hu2024modeling}. The central bottleneck is censoring: at round \(t\) we observe only the queried residual
+\(e_t\coloneqq e_{t,I_t}\), while \((e_{t,k})_{k\neq I_t}\) remain counterfactual. We
+address this by combining (i) a \emph{switching} latent regime \(z_t\) to capture abrupt changes, (ii)
+a \emph{shared} global factor \(\mathbf{g}_t\) that couples experts and enables information transfer,
+and (iii) \emph{idiosyncratic} expert-specific dynamics \(\mathbf{u}_{t,k}\). For scalability under a
+growing registry, our inference later maintains per-expert marginals via a factorized filtering
+approximation. The resulting linear-Gaussian structure yields Kalman-style updates and closed-form
+information quantities used in our routing rule.
+
+\subsubsection{Latent state hierarchy}
+We represent non-stationarity via a two-level hierarchy separating systemic shifts from
+expert-specific drifts.
+The hierarchy is designed so that a single queried residual can update a \emph{shared} latent factor
+\(\mathbf{g}_t\), which immediately refines predictions for all experts. Expert-specific states
+\(\mathbf{u}_{t,k}\) then capture persistent idiosyncratic deviations that cannot be explained by global
+conditions alone.
+
+\textbf{Context-dependent regime switching.}
+A discrete regime \(z_t\in\{1,\dots,M\}\) selects the active dynamical law (e.g., ``bull'' vs.\ ``crisis'').
+While classical SLDSs often use a time-homogeneous transition matrix, we allow transition
+probabilities to depend on the observed context \(\mathbf{x}_t\) (input-driven switching; e.g.,
+\citet{bengio1994input}). Let
+\(\Pi_\theta(\mathbf{x}_t)\in[0,1]^{M\times M}\) be a row-stochastic matrix with
+\begin{equation*}
+    \mathbb{P}(z_t=m \mid z_{t-1}=\ell,\mathbf{x}_t)=\Pi_\theta(\mathbf{x}_t)_{\ell m}.
+\end{equation*}
+This lets the filter incorporate exogenous signals in \(\mathbf{x}_t\) to update its regime belief
+before observing the queried residual \(e_t\). Contexts that shift mass toward regime \(m\) favor
+experts with low mode-\(m\) predicted cost, yielding
+an interpretable link between \(\mathbf{x}_t\), regimes, and expert specialization.
+
+We parameterize the logits of \(\Pi_\theta(\mathbf{x}_t)\) with a low-rank scaled-attention form to
+control statistical and computational complexity \citep{allyouneed, kossen2021self, mehta2022neural}.
+Specifically, for a chosen bottleneck dimension \(d_{\mathrm{attn}}\), we compute
+\(Q_\theta(\mathbf{x}_t),K_\theta(\mathbf{x}_t)\in\mathbb{R}^{M\times d_{\mathrm{attn}}}\) and set
+\[
+S(\mathbf{x}_t)\coloneqq \frac{1}{\sqrt{d_{\mathrm{attn}}}}Q_\theta(\mathbf{x}_t)K_\theta(\mathbf{x}_t)^\top,
+\]
+so that \(\mathrm{rank}(S(\mathbf{x}_t))\le d_{\mathrm{attn}}\). Applying a row-wise softmax yields the
+transition matrix:
+\begin{equation}
+\label{eq:context_transitions}
+\mathbb{P}(z_t=m \mid z_{t-1}=\ell,\mathbf{x}_t)
+=
+\frac{\exp(S_{\ell m}(\mathbf{x}_t))}{\sum_{j=1}^M \exp(S_{\ell j}(\mathbf{x}_t))}.
+\end{equation}
+
+\textbf{Global factor dynamics.}
+Under censored feedback, the only way to learn about \emph{unqueried} experts is to exploit structure
+that couples them (see Proposition \ref{prop:cross_update}). We therefore introduce a continuous \emph{shared} latent state
+\(\mathbf{g}_t\in\mathbb{R}^{d_g}\) representing system-wide conditions (e.g., overall difficulty,
+market volatility, sensor drift) that affect many experts simultaneously. Because \(\mathbf{g}_t\)
+appears in every expert's residual model, updating \(\mathbf{g}_t\) from the single observed residual
+\(e_t=e_{t,I_t}\) tightens the predictive beliefs for other experts \(k\neq I_t\),
+providing the cross-expert information transfer needed for routing.
+
+Conditioned on \(z_t=m\), we model \(\mathbf{g}_t\) with linear-Gaussian dynamics to retain Kalman-style
+updates and closed-form predictive quantities used later for exploration:
+\begin{equation}
+\label{eq:global_dynamics}
+\mathbf{g}_t
+=
+\mathbf{A}^{(g)}_{m}\mathbf{g}_{t-1}+\mathbf{w}^{(g)}_{t},
+\qquad
+\mathbf{w}^{(g)}_{t}\sim\mathcal{N}(\mathbf{0},\mathbf{Q}^{(g)}_{m}),
+\end{equation}
+where \(\mathbf{A}^{(g)}_{m}\in\mathbb{R}^{d_g\times d_g}\) and
+\(\mathbf{Q}^{(g)}_{m}\in\mathbb{S}^{d_g}_{++}\).
+We assume \((\mathbf{w}^{(g)}_{t})_{t}\) are independent across time and independent of all other
+process and emission noise terms.
+
+\textbf{Expert-specific dynamics.}
+Not all variation is shared: experts can drift due to recalibration, local overfitting, model
+updates, or intermittent failures. We capture these \emph{idiosyncratic} effects with a per-expert
+latent state \(\mathbf{u}_{t,k}\in\mathbb{R}^{d_\alpha}\). Conditioned on \(z_t=m\),
+\begin{equation}
+\label{eq:idiosyncratic_dynamics}
+\mathbf{u}_{t,k}
+=
+\mathbf{A}^{(u)}_{m}\mathbf{u}_{t-1,k}+\mathbf{w}^{(u)}_{t,k},
+\quad
+\mathbf{w}^{(u)}_{t,k}\sim\mathcal{N}(\mathbf{0},\mathbf{Q}^{(u)}_{m}),
+\end{equation}
+where conditional on \((z_t)\), the noise terms are independent across experts and time.
+To maintain statistical strength under sparse feedback, we share the dynamics parameters
+\((\mathbf{A}^{(u)}_{m},\mathbf{Q}^{(u)}_{m})\) across experts.
+
+\textbf{Reliability composition and residual emission.}
+Expert heterogeneity is then expressed
+through (i) the expert-specific state realization \(\mathbf{u}_{t,k}\) and (ii) expert-specific
+loadings \(\mathbf{B}_k\), which determine how each expert responds to the
+shared factor \(\mathbf{g}_t\).
+
+\begin{definition}[L2D-SLDS reliability and residual emission]
+\label{def:l2d_slds_emission}
+	Fix latent dimensions \(d_g\) and \(d_\alpha\) and a feature map
+	\(\Phi:\mathcal{X}\to\mathbb{R}^{d_\alpha\times d_y}\).
+	For each expert \(k\), define its latent \emph{reliability} vector at time \(t\) by
+	\begin{equation}
+	\label{eq:alpha_def}
+	\boldsymbol\alpha_{t,k}\coloneqq \mathbf{B}_k\mathbf{g}_t+\mathbf{u}_{t,k},
+	\qquad
+	\mathbf{B}_k\in\mathbb{R}^{d_\alpha\times d_g}.
+	\end{equation}
+	Given regime \(z_t=m\), context \(\mathbf{x}_t\), and latent states \((\mathbf{g}_t,\mathbf{u}_{t,k})\),
+	the signed residual \(e_{t,k}=\vhaty_{t,k}-\vy_t\) is generated by the linear-Gaussian emission
+	\begin{equation}
+	\label{eq:residual_emission}
+	e_{t,k}\mid (z_t=m,\mathbf{g}_t,\mathbf{u}_{t,k},\mathbf{x}_t)
+	\sim
+	\mathcal{N}\big(\Phi(\mathbf{x}_t)^\top\boldsymbol\alpha_{t,k},\mathbf{R}_{m,k}\big),
+	\end{equation}
+	where \(\mathbf{R}_{m,k}\in\mathbb{S}^{d_y}_{++}\) is an expert- and regime-specific noise covariance.
+\end{definition}
+
+Definition~\ref{def:l2d_slds_emission} is the \emph{residual emission} component of our L2D-SLDS: it
+makes expert performance depend on the observed context via \(\Phi(\mathbf{x}_t)\) while preserving
+linear-Gaussian structure (hence Kalman-style updates and closed-form predictive quantities). We
+assume emission noise is conditionally independent across experts and time given
+\((z_t,\mathbf{g}_t,(\mathbf{u}_{t,k})_k)\). We assume an initial distribution \(p(z_1)\) and Gaussian priors for \(\mathbf{g}_0\) and
+\(\mathbf{u}_{0,k}\); inference only requires these to be specified and known.
+
+\subsubsection{Implications of the Hierarchy}
+
+\textbf{Selective information transfer via factorization.}
+The hierarchy is constructed so that routing can generalize across experts through the shared factor
+\(\mathbf{g}_t\), while \(\mathbf{u}_{t,k}\) captures persistent expert-specific drift. In the exact
+Bayesian filter, conditioning on the single observed residual \(e_t=e_{t,I_t}\) couples
+\(\mathbf{g}_t\) with \((\mathbf{u}_{t,k})_k\), and hence couples experts with each other; maintaining
+the full joint posterior becomes prohibitive as the registry grows.
+
+For scalability, our inference maintains a \emph{factorized} filtering approximation: after each
+update, we project the belief onto a family in which (conditional on \(z_t\)) the idiosyncratic
+states are independent across experts and independent of \(\mathbf{g}_t\); see
+Appendix~\ref{app:cross_covariance} for the corresponding non-factorized update. This projection
+discards posterior cross-covariances, but preserves the mechanism needed under censoring: querying a
+single expert updates \(\mathbf{g}_t\), which shifts the predictive residual distributions of \emph{all}
+experts through \(\mathbf{B}_k\). The proposition below makes the resulting information transfer
+criterion explicit.
+
+\begin{restatable}[Information transfer under a shared factor]{proposition}{propinfo}
+\label{prop:cross_update}
+Fix \(t\) and \(z_t=m\), and let \(\mathcal{G}_t\coloneqq \sigma(\mathcal{F}_t,I_t,z_t=m)\). Let
+\(j\neq I_t\) and let \((e_{t,j}^{\mathrm{pred}},e_{t,I_t}^{\mathrm{pred}})\) denote the one-step-ahead
+predictive residuals under \(p(e_{t,\cdot}\mid \mathcal{F}_t,z_t=m)\). Assume that this predictive pair
+is jointly Gaussian conditional on \(\mathcal{G}_t\) and that
+\(\mathrm{Cov}(e_{t,I_t}^{\mathrm{pred}}\mid \mathcal{G}_t)\) is non-singular (e.g.,
+\(\mathbf{R}_{m,I_t}\succ \mathbf{0}\)). Then
+\begin{equation*}
+    \begin{aligned}
+        & \mathbb{E}\left[e_{t,j}^{\mathrm{pred}}\mid e_t,\mathcal{G}_t\right]
+=
+\mathbb{E}\left[e_{t,j}^{\mathrm{pred}}\mid \mathcal{G}_t\right] \\
+& \quad\Longleftrightarrow\quad
+\mathrm{Cov}\left(e_{t,j}^{\mathrm{pred}},e_{t,I_t}^{\mathrm{pred}}\mid \mathcal{G}_t\right)=\mathbf{0}.
+    \end{aligned}
+\end{equation*}
+In particular, if the covariance is non-zero, then observing \(e_t=e_{t,I_t}\) updates the posterior
+predictive mean of \(e_{t,j}^{\mathrm{pred}}\).
+\end{restatable}
+
+We prove Proposition~\ref{prop:cross_update} in Appendix~\ref{app:proof_cross_update}. Observing the queried
+residual affects unqueried experts exactly when their predictive
+residuals are correlated. In our factorized SLDS, this correlation is induced by the shared factor
+\(\mathbf{g}_t\). Under the linear-Gaussian model, the predictive residuals are jointly Gaussian, and
+their cross-covariance can be read directly from the shared-factor channel. For example, conditional on
+\((\mathcal{F}_t,z_t=m)\),
+\(\mathrm{Cov}(e_{t,j}^{\mathrm{pred}},e_{t,i}^{\mathrm{pred}})\) contains the shared-factor term
+\[
+\Phi(\mathbf{x}_t)^\top \mathbf{B}_j \Sigma^{(m)}_{g,t\mid t-1}\mathbf{B}_{i}^\top \Phi(\mathbf{x}_t),
+\]
+where \(\Sigma^{(m)}_{g,t\mid t-1}\) is the one-step predictive covariance of \(\mathbf{g}_t\)
+under regime \(m\). Thus, querying \(i=I_t\) tightens expert \(j\)'s predictive distribution whenever
+the coupling through \(\mathbf{g}_t\) is non-negligible in the directions probed by \(\Phi(\mathbf{x}_t)\).
+Conversely, if this term vanishes, then under the
+factorized predictive belief there is no information transfer from \(I_t\) to \(j\) at time \(t\).
+
+\subsubsection{Exploration via Information-Directed Sampling}
+\label{sec:exploration}
+
+Under censored feedback, greedily selecting the expert with the lowest predicted cost can slow
+adaptation by repeatedly querying a ``safe'' expert. We therefore use
+\textit{Information-Directed Sampling (IDS)} \citep{russo2014learning} to trade off predicted cost against
+information about the
+latent state \((z_t,\mathbf{g}_t)\).
+
+\textbf{Exploitation: predicted cost and gap.}
+For each \(k\in\mathcal{E}_t\), the model provides a one-step-ahead predictive residual
+\(e_{t,k}^{\mathrm{pred}}\sim p(e_{t,k}\mid\mathcal{F}_t)\) and predicted cost
+\[
+\bar C_{t,k}^{\mathrm{pred}}
+\coloneqq
+\mathbb{E}\!\left[\psi(e_{t,k}^{\mathrm{pred}})\,\middle|\,\mathcal{F}_t\right]+\beta_k.
+\]
+Let \(k_t^{\mathrm{pred}} \in \arg\min_{k\in\mathcal{E}_t} \bar C_{t,k}^{\mathrm{pred}}\) be the myopic
+predictor. We define the predictive value gap
+\begin{equation}
+\label{eq:model_gap}
+\Delta_t(k)
+\coloneqq
+\bar C_{t,k}^{\mathrm{pred}}-\bar C_{t,k_t^{\mathrm{pred}}}^{\mathrm{pred}}
+\ge 0 .
+\end{equation}
+
+
+\textbf{Exploration: informativeness of a query.}
+We quantify the informativeness of querying \(k\) by the mutual information between the latent state
+and the (hypothetical) queried residual:
+\begin{equation}
+\label{eq:ig_operational}
+\mathrm{IG}_t(k)
+\coloneqq
+\mathcal{I}\left((z_t,\mathbf{g}_t); e_{t,k}^{\mathrm{pred}} \middle| \mathcal{F}_t\right).
+\end{equation}
+For our model, the shared-factor component admits a closed form, while the regime-identification
+component is estimated with a lightweight Monte Carlo routine; see Remark~\ref{rmk:zg_information}
+(Appendix) and Algorithm~\ref{alg:router_main}.
+
+\textbf{Minimizing the information ratio.}
+IDS selects the routing action by minimizing the squared information ratio
+\begin{equation}
+\label{eq:ids_deterministic}
+I_t \in \arg\min_{k\in\mathcal{E}_t}\ \frac{\Delta_t(k)^2}{\mathrm{IG}_t(k)}.
+\end{equation}
+We interpret the ratio as \(+\infty\) when \(\mathrm{IG}_t(k)=0\) unless \(\Delta_t(k)=0\); if all
+\(\mathrm{IG}_t(k)=0\), IDS reduces to the myopic choice \(k_t^{\mathrm{pred}}\).
+
+
+\subsubsection{Dynamic Registry Management}
+\label{sec:registry}
+
+In many deployments, expert availability varies and the pool evolves over time. A static
+learning-to-defer router \citep{madras2018predict, mozannar2021consistent} trained on a fixed expert catalog does not naturally support
+adding experts
+without retraining, nor dropping expert-specific components to reclaim memory/compute.
+
+Our state-space approach makes this issue explicit: each expert \(k\) carries an idiosyncratic latent
+state \(\mathbf{u}_{t,k}\) that must be stored and propagated for prediction. When the pool is large
+or long-lived, we cannot maintain \(\mathbf{u}_{t,k}\) for every expert ever encountered. We therefore
+treat expert-specific state as a \emph{cache} and manage it online.
+
+Recall that \(\mathcal{K}_t\) denotes the router's maintained expert registry
+(Section~\ref{sec:problem_formulation}): experts for which we store per-expert filtering marginals,
+i.e., maintain \(\mathbf{u}_{t,k}\). The registry is not cumulative: experts may be removed when stale
+and re-added upon re-entry, while maintaining \(\mathcal{E}_t\subseteq \mathcal{K}_t\) at decision time
+and keeping \(|\mathcal{K}_t|\) bounded.
+
+\textbf{Pruning.}
+Let \(\tau_{\mathrm{last}}(k)\in\{0,1,\dots,t-1\}\) be the last round at which expert \(k\) was queried
+(with the convention \(\tau_{\mathrm{last}}(k)=0\) if \(k\) has never been queried).
+We call an expert \emph{stale} if it is currently unavailable and has not been queried for more than
+\(\Delta_{\max}\) steps, where \(\Delta_{\max}\ge 1\) is a user-chosen staleness horizon:
+\begin{equation}
+\label{eq:stale_set}
+\mathcal{K}^{\mathrm{stale}}_t
+\coloneqq
+\left\{k\in \mathcal{K}_{t-1}\setminus \mathcal{E}_t:\ t-\tau_{\mathrm{last}}(k)>\Delta_{\max}\right\}.
+\end{equation}
+We update the registry by first adding currently available experts and then pruning stale ones:
+\begin{equation}
+\label{eq:registry_update}
+\mathcal{K}_t \coloneqq (\mathcal{K}_{t-1}\cup \mathcal{E}_t)\setminus \mathcal{K}^{\mathrm{stale}}_t,
+\qquad \mathcal{K}_0=\varnothing .
+\end{equation}
+Since \(\mathcal{K}^{\mathrm{stale}}_t\subseteq \mathcal{K}_{t-1}\setminus \mathcal{E}_t\) by
+construction, \eqref{eq:registry_update} guarantees \(\mathcal{E}_t\subseteq \mathcal{K}_t\).
+Operationally, pruning means we stop storing the idiosyncratic filtering marginal(s) associated with
+\(\mathbf{u}_{t-1,k}\) (and hence do not propagate it forward) for \(k\in\mathcal{K}^{\mathrm{stale}}_t\).
+
+Pruning does \emph{not} alter the maintained belief over retained variables: it is exact
+marginalization of dropped coordinates in the filtering distribution.
+
+\begin{restatable}[Pruning does not affect retained experts]{proposition}{invariance}
+\label{prop:invariance}
+Fix time \(t\) and let \(P_t \subseteq \mathcal{K}_{t-1}\) be any set of experts to be pruned.
+Let
+\(
+q_{t-1\mid t-1}\big(\mathbf{g}_{t-1},(\mathbf{u}_{t-1,\ell})_{\ell\in\mathcal{K}_{t-1}}\big)
+\)
+denote the (exact or approximate) filtering belief at the end of round \(t-1\) conditioned on the realized history.
+Define the pruned belief by marginalization:
+\begin{equation*}
+    \begin{aligned}
+        q^{\mathrm{pr}(P_t)}_{t-1\mid t-1}\big(\mathbf{g}_{t-1},(\mathbf{u}_{t-1,\ell})_{\ell\in\mathcal{K}_{t-1}\setminus P_t}\big)
+& \coloneqq \\
+\int q_{t-1\mid t-1}\big(\mathbf{g}_{t-1},(\mathbf{u}_{t-1,\ell})_{\ell\in\mathcal{K}_{t-1}}\big)
+\prod_{k\in P_t} d\mathbf{u}_{t-1,k}.
+    \end{aligned}
+\end{equation*}
+Then \(q^{\mathrm{pr}(P_t)}_{t-1\mid t-1}\) equals the marginal of \(q_{t-1\mid t-1}\) on the retained variables.
+Consequently, after applying the standard SLDS time update to obtain the predictive belief at round \(t\),
+the predictive distribution of \(\boldsymbol\alpha_{t,\ell}\) and the one-step predictive law of
+\(e_{t,\ell}^{\mathrm{pred}}\) are identical before and after pruning, for every retained \(\ell\notin P_t\).
+\end{restatable}
+
+We defer the proof to Appendix~\ref{app:invariance}. If a pruned expert later reappears, we treat it
+as a re-entry and reinitialize its idiosyncratic state; \(\Delta_{\max}\) controls the resulting
+memory--accuracy trade-off.
+
+\textbf{Birth and re-entry.}
+Let
+\(\mathcal{E}^{\mathrm{init}}_t\coloneqq \mathcal{E}_t\setminus \mathcal{K}_{t-1}\)
+denote experts that \emph{enter} the maintained registry at time \(t\) (either newly observed or
+re-entering after pruning). For each \(j\in\mathcal{E}^{\mathrm{init}}_t\), the filter must
+instantiate an idiosyncratic state \(\mathbf{u}_{t,j}\) before the router can assign a calibrated
+predictive belief to \(e_{t,j}\). We do so at the \emph{predictive} time (before observing any
+residual at round \(t\)).
+
+For each entering expert \(j\) and each regime \(m\in[M]\), we assume an
+initialization prior
+\begin{equation}
+\label{eq:birth_prior}
+\mathbf{u}_{t-1,j}\mid(z_t=m)\sim \mathcal{N}\big(\mu^{(m)}_{\mathrm{init},j},\Sigma^{(m)}_{\mathrm{init},j}\big).
+\end{equation}
+
+The parameters \((\mu^{(m)}_{\mathrm{init},j},\Sigma^{(m)}_{\mathrm{init},j})\) can be set from side
+information when available, or to a conservative default. On entry, we assume the router is provided
+with \(\beta_j\), an emission-noise specification \(\mathbf{R}_{m,j}\) (or a shared \(\mathbf{R}_m\)),
+and a loading matrix \(\mathbf B_j\) (or a default initialization), so the expert can immediately
+benefit from the shared factor via \(\boldsymbol\alpha_{t,j}=\mathbf B_j\mathbf g_t+\mathbf u_{t,j}\).
+
+\begin{restatable}[Coupling at birth through the shared factor]{proposition}{transfer}
+\label{prop:transfer}
+Fix time \(t\) and condition on \((\mathcal{F}_t,z_t=m)\). Under the Factorized SLDS one-step predictive
+belief (i.e., with \(\mathrm{Cov}(\mathbf{g}_t,\mathbf{u}_{t,k}\mid\cdot)=\mathbf{0}\) and
+\(\mathrm{Cov}(\mathbf{u}_{t,i},\mathbf{u}_{t,j}\mid\cdot)=\mathbf{0}\) for \(i\neq j\)), for any experts \(j\neq k\),
+\[
+\mathrm{Cov}\left(\boldsymbol\alpha_{t,j},\boldsymbol\alpha_{t,k}\mid \mathcal{F}_t,z_t=m\right)
+=
+\mathbf{B}_j\Sigma^{(m)}_{g,t\mid t-1}\mathbf{B}_k^\top,
+\]
+where \(\Sigma^{(m)}_{g,t\mid t-1}\) is the regime-\(m\) one-step predictive covariance of \(\mathbf{g}_t\).
+In particular, if the joint predictive law is Gaussian and
+\(\mathbf{B}_j\Sigma^{(m)}_{g,t\mid t-1}\mathbf{B}_k^\top\neq \mathbf{0}\),
+then \(\boldsymbol\alpha_{t,j}\) and \(\boldsymbol\alpha_{t,k}\) are not independent and hence
+\(\mathcal{I}(\boldsymbol\alpha_{t,j};\boldsymbol\alpha_{t,k}\mid \mathcal{F}_t,z_t=m)>0\).
+\end{restatable}
+
+We give the proof in Appendix~\ref{app:transfer}.

@@ -1563,7 +1563,16 @@ if __name__ == "__main__":
             rnn_washout=env_cfg.get("rnn_washout", 5),
             rnn_input_scale=env_cfg.get("rnn_input_scale", 0.5),
             rnn_share_reservoir=env_cfg.get("rnn_share_reservoir", True),
+            rnn_hidden_dims=env_cfg.get("rnn_hidden_dims", None),
+            rnn_spectral_radii=env_cfg.get("rnn_spectral_radii", None),
+            rnn_ridges=env_cfg.get("rnn_ridges", None),
+            rnn_washouts=env_cfg.get("rnn_washouts", None),
+            rnn_input_scales=env_cfg.get("rnn_input_scales", None),
             expert_pred_noise_std=env_cfg.get("expert_pred_noise_std", None),
+            expert_train_ranges=env_cfg.get("expert_train_ranges", None),
+            expert_train_date_ranges=env_cfg.get("expert_train_date_ranges", None),
+            arima_lags=env_cfg.get("arima_lags", None),
+            arima_diff_order=env_cfg.get("arima_diff_order", 1),
         )
     else:
         # Synthetic environment with dynamic expert availability.

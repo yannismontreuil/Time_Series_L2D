@@ -1,25 +1,25 @@
 {
-  "label": "L2D SLDS w/ $g_t$ linear (g_z)",
+  "label": "L2D SLDS w/ $g_t$ attention (g_z)",
   "t_start": 1,
   "t_end": 9999,
-  "regime_accuracy": 0.036203620362036205,
+  "regime_accuracy": 0.5021502150215021,
   "switch_delay_mean": NaN,
   "switch_delay_median": NaN,
   "corr_mae_by_regime": [
-    0.13964787294226175
+    0.151762343782652
   ],
   "corr_mae_cond_by_regime": [
-    0.14625412505149035
+    0.15670392615738427
   ],
   "pred_loss_corr_mae_by_regime": [
-    0.4422092003469801
+    0.5754268856934817
   ],
   "g_recovery": {},
-  "avg_cost": 4.190109889892908e-07,
-  "avg_cost_no_g": 1.5799510230347202e-05,
-  "avg_cost_gain": 1.5380499241357912e-05,
+  "avg_cost": 1.0026950272940867e-05,
+  "avg_cost_no_g": 1.610050544048928e-05,
+  "avg_cost_gain": 6.073555167548412e-06,
   "pred_loss_corr_mae_no_g_by_regime": [
-    0.8770622480977117
+    0.8962982292494847
   ],
   "pred_loss_corr_mae_linucb_partial_by_regime": [
     0.44576430662961875

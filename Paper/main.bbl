@@ -1,0 +1,329 @@
+\begin{thebibliography}{47}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Bartlett \& Wegkamp(2008)Bartlett and Wegkamp]{Bartlett_Wegkamp_2008}
+Bartlett, P.~L. and Wegkamp, M.~H.
+\newblock Classification with a reject option using a hinge loss.
+\newblock \emph{The Journal of Machine Learning Research}, 9:\penalty0
+  1823–1840, June 2008.
+
+\bibitem[Bengio \& Frasconi(1994)Bengio and Frasconi]{bengio1994input}
+Bengio, Y. and Frasconi, P.
+\newblock An input output hmm architecture.
+\newblock \emph{Advances in neural information processing systems}, 7, 1994.
+
+\bibitem[Cao et~al.(2022)Cao, Cai, Feng, Gu, Gu, An, Niu, and
+  Sugiyama]{cao2022generalizing}
+Cao, Y., Cai, T., Feng, L., Gu, L., Gu, J., An, B., Niu, G., and Sugiyama, M.
+\newblock Generalizing consistent multi-class classification with rejection to
+  be compatible with arbitrary losses.
+\newblock \emph{Advances in neural information processing systems},
+  35:\penalty0 521--534, 2022.
+
+\bibitem[Cao et~al.(2024)Cao, Mozannar, Feng, Wei, and
+  An]{Cao_Mozannar_Feng_Wei_An_2023}
+Cao, Y., Mozannar, H., Feng, L., Wei, H., and An, B.
+\newblock In defense of softmax parametrization for calibrated and consistent
+  learning to defer.
+\newblock In \emph{Proceedings of the 37th International Conference on Neural
+  Information Processing Systems}, NIPS '23, Red Hook, NY, USA, 2024. Curran
+  Associates Inc.
+
+\bibitem[Charusaie et~al.(2022)Charusaie, Mozannar, Sontag, and
+  Samadi]{charusaie2022sample}
+Charusaie, M.-A., Mozannar, H., Sontag, D., and Samadi, S.
+\newblock Sample efficient learning of predictors that complement humans, 2022.
+
+\bibitem[Chow(1970)]{Chow_1970}
+Chow, C.
+\newblock On optimum recognition error and reject tradeoff.
+\newblock \emph{IEEE Transactions on Information Theory}, 16\penalty0
+  (1):\penalty0 41–46, January 1970.
+\newblock \doi{10.1109/TIT.1970.1054406}.
+
+\bibitem[Cortes et~al.(2016)Cortes, DeSalvo, and Mohri]{cortes}
+Cortes, C., DeSalvo, G., and Mohri, M.
+\newblock Learning with rejection.
+\newblock In Ortner, R., Simon, H.~U., and Zilles, S. (eds.), \emph{Algorithmic
+  Learning Theory}, pp.\  67--82, Cham, 2016. Springer International
+  Publishing.
+\newblock ISBN 978-3-319-46379-7.
+
+\bibitem[Cortes et~al.(2024)Cortes, Mao, Mohri, Mohri, and
+  Zhong]{cortes2024cardinalityaware}
+Cortes, C., Mao, A., Mohri, C., Mohri, M., and Zhong, Y.
+\newblock Cardinality-aware set prediction and top-\$k\$ classification.
+\newblock In \emph{The Thirty-eighth Annual Conference on Neural Information
+  Processing Systems}, 2024.
+\newblock URL \url{https://openreview.net/forum?id=WAT3qu737X}.
+
+\bibitem[Dani et~al.(2008)Dani, Hayes, and Kakade]{dani2008stochastic}
+Dani, V., Hayes, T.~P., and Kakade, S.~M.
+\newblock Stochastic linear optimization under bandit feedback.
+\newblock In \emph{21st Annual Conference on Learning Theory}, number 101, pp.\
+   355--366, 2008.
+
+\bibitem[Fox et~al.(2008)Fox, Sudderth, Jordan, and
+  Willsky]{fox2008nonparametric}
+Fox, E., Sudderth, E., Jordan, M., and Willsky, A.
+\newblock Nonparametric bayesian learning of switching linear dynamical
+  systems.
+\newblock \emph{Advances in neural information processing systems}, 21, 2008.
+
+\bibitem[Geadah et~al.(2024)Geadah, Pillow, et~al.]{geadah2024parsing}
+Geadah, V., Pillow, J.~W., et~al.
+\newblock Parsing neural dynamics with infinite recurrent switching linear
+  dynamical systems.
+\newblock In \emph{The Twelfth International Conference on Learning
+  Representations}, 2024.
+
+\bibitem[Geifman \& El-Yaniv(2017)Geifman and El-Yaniv]{Geifman_El-Yaniv_2017}
+Geifman, Y. and El-Yaniv, R.
+\newblock Selective classification for deep neural networks.
+\newblock In Guyon, I., Luxburg, U.~V., Bengio, S., Wallach, H., Fergus, R.,
+  Vishwanathan, S., and Garnett, R. (eds.), \emph{Advances in Neural
+  Information Processing Systems}, volume~30. Curran Associates, Inc., 2017.
+\newblock URL
+  \url{https://proceedings.neurips.cc/paper_files/paper/2017/file/4a8423d5e91fda00bb7e46540e2b0cf1-Paper.pdf}.
+
+\bibitem[Ghahramani \& Hinton(2000)Ghahramani and
+  Hinton]{ghahramani2000variational}
+Ghahramani, Z. and Hinton, G.~E.
+\newblock Variational learning for switching state-space models.
+\newblock \emph{Neural computation}, 12\penalty0 (4):\penalty0 831--864, 2000.
+
+\bibitem[Hamilton(2020)]{hamilton2020time}
+Hamilton, J.~D.
+\newblock \emph{Time series analysis}.
+\newblock Princeton university press, 2020.
+
+\bibitem[Hu et~al.(2024)Hu, Zoltowski, Nair, Anderson, Duncker, and
+  Linderman]{hu2024modeling}
+Hu, A., Zoltowski, D., Nair, A., Anderson, D., Duncker, L., and Linderman, S.
+\newblock Modeling latent neural dynamics with gaussian process switching
+  linear dynamical systems.
+\newblock \emph{Advances in Neural Information Processing Systems},
+  37:\penalty0 33805--33835, 2024.
+
+\bibitem[Joshi et~al.(2021)Joshi, Parbhoo, and Doshi-Velez]{joshi2021learning}
+Joshi, S., Parbhoo, S., and Doshi-Velez, F.
+\newblock Learning-to-defer for sequential medical decision-making under
+  uncertainty.
+\newblock \emph{arXiv preprint arXiv:2109.06312}, 2021.
+
+\bibitem[Kalman(1960)]{kalman1960new}
+Kalman, R.~E.
+\newblock A new approach to linear filtering and prediction problems.
+\newblock 1960.
+
+\bibitem[Kossen et~al.(2021)Kossen, Band, Lyle, Gomez, Rainforth, and
+  Gal]{kossen2021self}
+Kossen, J., Band, N., Lyle, C., Gomez, A.~N., Rainforth, T., and Gal, Y.
+\newblock Self-attention between datapoints: Going beyond individual
+  input-output pairs in deep learning.
+\newblock \emph{Advances in Neural Information Processing Systems},
+  34:\penalty0 28742--28756, 2021.
+
+\bibitem[Li et~al.(2010)Li, Chu, Langford, and Schapire]{li2010contextual}
+Li, L., Chu, W., Langford, J., and Schapire, R.~E.
+\newblock A contextual-bandit approach to personalized news article
+  recommendation.
+\newblock In \emph{Proceedings of the 19th international conference on World
+  wide web}, pp.\  661--670, 2010.
+
+\bibitem[Linderman et~al.(2016)Linderman, Miller, Adams, Blei, Paninski, and
+  Johnson]{linderman2016recurrent}
+Linderman, S.~W., Miller, A.~C., Adams, R.~P., Blei, D.~M., Paninski, L., and
+  Johnson, M.~J.
+\newblock Recurrent switching linear dynamical systems.
+\newblock \emph{arXiv preprint arXiv:1610.08466}, 2016.
+
+\bibitem[Madras et~al.(2018)Madras, Pitassi, and Zemel]{madras2018predict}
+Madras, D., Pitassi, T., and Zemel, R.
+\newblock Predict responsibly: improving fairness and accuracy by learning to
+  defer.
+\newblock \emph{Advances in neural information processing systems}, 31, 2018.
+
+\bibitem[Mao et~al.(2023)Mao, Mohri, Mohri, and Zhong]{mao2023twostage}
+Mao, A., Mohri, C., Mohri, M., and Zhong, Y.
+\newblock Two-stage learning to defer with multiple experts.
+\newblock In \emph{Thirty-seventh Conference on Neural Information Processing
+  Systems}, 2023.
+\newblock URL \url{https://openreview.net/forum?id=GIlsH0T4b2}.
+
+\bibitem[Mao et~al.(2024{\natexlab{a}})Mao, Mohri, and
+  Zhong]{mao2024principledapproacheslearningdefer}
+Mao, A., Mohri, M., and Zhong, Y.
+\newblock Principled approaches for learning to defer with multiple experts.
+\newblock In \emph{ISAIM}, 2024{\natexlab{a}}.
+
+\bibitem[Mao et~al.(2024{\natexlab{b}})Mao, Mohri, and
+  Zhong]{mao2024realizablehconsistentbayesconsistentloss}
+Mao, A., Mohri, M., and Zhong, Y.
+\newblock Realizable $ h $-consistent and bayes-consistent loss functions for
+  learning to defer.
+\newblock \emph{Advances in neural information processing systems},
+  37:\penalty0 73638--73671, 2024{\natexlab{b}}.
+
+\bibitem[Mao et~al.(2024{\natexlab{c}})Mao, Mohri, and
+  Zhong]{mao2024regressionmultiexpertdeferral}
+Mao, A., Mohri, M., and Zhong, Y.
+\newblock Regression with multi-expert deferral.
+\newblock In \emph{Proceedings of the 41st International Conference on Machine
+  Learning}, ICML'24. JMLR.org, 2024{\natexlab{c}}.
+
+\bibitem[Mao et~al.(2025)Mao, Mohri, and
+  Zhong]{mao2025realizablehconsistentbayesconsistentloss}
+Mao, A., Mohri, M., and Zhong, Y.
+\newblock Mastering multiple-expert routing: Realizable \$h\$-consistency and
+  strong guarantees for learning to defer.
+\newblock In \emph{Forty-second International Conference on Machine Learning},
+  2025.
+
+\bibitem[Mehta et~al.(2022)Mehta, Sz{\'e}kely, Beskow, and
+  Henter]{mehta2022neural}
+Mehta, S., Sz{\'e}kely, {\'E}., Beskow, J., and Henter, G.~E.
+\newblock Neural hmms are all you need (for high-quality attention-free tts).
+\newblock In \emph{ICASSP 2022-2022 IEEE International Conference on Acoustics,
+  Speech and Signal Processing (ICASSP)}, pp.\  7457--7461. IEEE, 2022.
+
+\bibitem[Montreuil et~al.(2025{\natexlab{a}})Montreuil, Carlier, Ng, and
+  Ooi]{montreuil2025ask}
+Montreuil, Y., Carlier, A., Ng, L.~X., and Ooi, W.~T.
+\newblock Why ask one when you can ask $ k $? two-stage learning-to-defer to
+  the top-$ k $ experts.
+\newblock \emph{arXiv preprint arXiv:2504.12988}, 2025{\natexlab{a}}.
+
+\bibitem[Montreuil et~al.(2025{\natexlab{b}})Montreuil, Heng, Carlier, Ng, and
+  Ooi]{montreuil2024twostagelearningtodefermultitasklearning}
+Montreuil, Y., Heng, Y.~S., Carlier, A., Ng, L.~X., and Ooi, W.~T.
+\newblock A two-stage learning-to-defer approach for multi-task learning.
+\newblock In \emph{Forty-second International Conference on Machine Learning},
+  2025{\natexlab{b}}.
+
+\bibitem[Montreuil et~al.(2025{\natexlab{c}})Montreuil, Yeo, Carlier, Ng, and
+  Ooi]{montreuil2025optimalqueryallocationextractive}
+Montreuil, Y., Yeo, S.~H., Carlier, A., Ng, L.~X., and Ooi, W.~T.
+\newblock Optimal query allocation in extractive qa with llms: A
+  learning-to-defer framework with theoretical guarantees.
+\newblock \emph{arXiv preprint arXiv:2410.15761}, 2025{\natexlab{c}}.
+
+\bibitem[Mozannar \& Sontag(2020)Mozannar and Sontag]{mozannar2021consistent}
+Mozannar, H. and Sontag, D.
+\newblock Consistent estimators for learning to defer to an expert.
+\newblock In \emph{Proceedings of the 37th International Conference on Machine
+  Learning}, ICML'20. JMLR.org, 2020.
+
+\bibitem[Mozannar et~al.(2023)Mozannar, Lang, Wei, Sattigeri, Das, and
+  Sontag]{Mozannar2023WhoSP}
+Mozannar, H., Lang, H., Wei, D., Sattigeri, P., Das, S., and Sontag, D.~A.
+\newblock Who should predict? exact algorithms for learning to defer to humans.
+\newblock In \emph{International Conference on Artificial Intelligence and
+  Statistics}, 2023.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:255941521}.
+
+\bibitem[Narasimhan et~al.(2022)Narasimhan, Jitkrittum, Menon, Rawat, and
+  Kumar]{Narasimhan}
+Narasimhan, H., Jitkrittum, W., Menon, A.~K., Rawat, A., and Kumar, S.
+\newblock Post-hoc estimators for learning to defer to an expert.
+\newblock In Koyejo, S., Mohamed, S., Agarwal, A., Belgrave, D., Cho, K., and
+  Oh, A. (eds.), \emph{Advances in Neural Information Processing Systems},
+  volume~35, pp.\  29292--29304. Curran Associates, Inc., 2022.
+\newblock URL
+  \url{https://proceedings.neurips.cc/paper_files/paper/2022/file/bc8f76d9caadd48f77025b1c889d2e2d-Paper-Conference.pdf}.
+
+\bibitem[Neu et~al.(2010)Neu, Antos, Gy{\"o}rgy, and
+  Szepesv{\'a}ri]{neu2010online}
+Neu, G., Antos, A., Gy{\"o}rgy, A., and Szepesv{\'a}ri, C.
+\newblock Online markov decision processes under bandit feedback.
+\newblock \emph{Advances in Neural Information Processing Systems}, 23, 2010.
+
+\bibitem[Nguyen et~al.(2025)Nguyen, Do, and Carneiro]{nguyen2025probabilistic}
+Nguyen, C.~C., Do, T.-T., and Carneiro, G.
+\newblock Probabilistic learning to defer: Handling missing expert annotations
+  and controlling workload distribution.
+\newblock In \emph{The Thirteenth International Conference on Learning
+  Representations}, 2025.
+
+\bibitem[Palomba et~al.(2025)Palomba, Pugnana, Alvarez, and
+  Ruggieri]{palomba2025a}
+Palomba, F., Pugnana, A., Alvarez, J.~M., and Ruggieri, S.
+\newblock A causal framework for evaluating deferring systems.
+\newblock In \emph{The 28th International Conference on Artificial Intelligence
+  and Statistics}, 2025.
+\newblock URL \url{https://openreview.net/forum?id=mkkFubLdNW}.
+
+\bibitem[Rabiner \& Juang(2003)Rabiner and Juang]{rabiner2003introduction}
+Rabiner, L. and Juang, B.
+\newblock An introduction to hidden markov models.
+\newblock \emph{ieee assp magazine}, 3\penalty0 (1):\penalty0 4--16, 2003.
+
+\bibitem[Rumelhart et~al.(1985)Rumelhart, Hinton, and
+  Williams]{rumelhart1985learning}
+Rumelhart, D.~E., Hinton, G.~E., and Williams, R.~J.
+\newblock Learning internal representations by error propagation.
+\newblock Technical report, 1985.
+
+\bibitem[Russo \& Van~Roy(2014)Russo and Van~Roy]{russo2014learning}
+Russo, D. and Van~Roy, B.
+\newblock Learning to optimize via information-directed sampling.
+\newblock \emph{Advances in neural information processing systems}, 27, 2014.
+
+\bibitem[Sezer et~al.(2020)Sezer, Gudelek, and Ozbayoglu]{sezer2020financial}
+Sezer, O.~B., Gudelek, M.~U., and Ozbayoglu, A.~M.
+\newblock Financial time series forecasting with deep learning: A systematic
+  literature review: 2005--2019.
+\newblock \emph{Applied soft computing}, 90:\penalty0 106181, 2020.
+
+\bibitem[Shumway(2006)]{shumway2006time}
+Shumway, R.~H.
+\newblock Time series analysis and its applications: With r examples, 2006.
+
+\bibitem[Strong et~al.(2024)Strong, Men, and Noble]{strong2024towards}
+Strong, J., Men, Q., and Noble, A.
+\newblock Towards human-{AI} collaboration in healthcare: Guided deferral
+  systems with large language models.
+\newblock In \emph{ICML 2024 Workshop on LLMs and Cognition}, 2024.
+\newblock URL \url{https://openreview.net/forum?id=4c5rg9y4me}.
+
+\bibitem[Vaswani et~al.(2017)Vaswani, Shazeer, Parmar, Uszkoreit, Jones, Gomez,
+  Kaiser, and Polosukhin]{allyouneed}
+Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.~N.,
+  Kaiser, L.~u., and Polosukhin, I.
+\newblock Attention is all you need.
+\newblock In Guyon, I., Luxburg, U.~V., Bengio, S., Wallach, H., Fergus, R.,
+  Vishwanathan, S., and Garnett, R. (eds.), \emph{Advances in Neural
+  Information Processing Systems}, volume~30. Curran Associates, Inc., 2017.
+\newblock URL
+  \url{https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf}.
+
+\bibitem[Verma et~al.(2022)Verma, Barrejon, and Nalisnick]{Verma2022LearningTD}
+Verma, R., Barrejon, D., and Nalisnick, E.
+\newblock Learning to defer to multiple experts: Consistent surrogate losses,
+  confidence calibration, and conformal ensembles.
+\newblock In \emph{International Conference on Artificial Intelligence and
+  Statistics}, 2022.
+\newblock URL \url{https://api.semanticscholar.org/CorpusID:253237048}.
+
+\bibitem[Wei et~al.(2024)Wei, Cao, and Feng]{wei2024exploiting}
+Wei, Z., Cao, Y., and Feng, L.
+\newblock Exploiting human-ai dependence for learning to defer.
+\newblock In \emph{Forty-first International Conference on Machine Learning},
+  2024.
+
+\bibitem[Welch et~al.(1995)Welch, Bishop, et~al.]{welch1995introduction}
+Welch, G., Bishop, G., et~al.
+\newblock An introduction to the kalman filter.
+\newblock 1995.
+
+\bibitem[Zhou et~al.(2020)Zhou, Li, and
+  Gu]{zhou2020neuralcontextualbanditsucbbased}
+Zhou, D., Li, L., and Gu, Q.
+\newblock Neural contextual bandits with ucb-based exploration, 2020.
+\newblock URL \url{https://arxiv.org/abs/1911.04462}.
+
+\end{thebibliography}

@@ -73,7 +73,16 @@ class ETTh1TimeSeriesEnv:
         rnn_washout: int = 5,
         rnn_input_scale: float = 0.5,
         rnn_share_reservoir: bool = True,
+        rnn_hidden_dims: Optional[Sequence[int]] = None,
+        rnn_spectral_radii: Optional[Sequence[float]] = None,
+        rnn_ridges: Optional[Sequence[float]] = None,
+        rnn_washouts: Optional[Sequence[int]] = None,
+        rnn_input_scales: Optional[Sequence[float]] = None,
         expert_pred_noise_std: Optional[Sequence[float]] = None,
+        expert_train_ranges: Optional[Sequence[Optional[Sequence[int]]]] = None,
+        expert_train_date_ranges: Optional[Sequence[Optional[Sequence[str]]]] = None,
+        arima_lags: Optional[Sequence[int]] = None,
+        arima_diff_order: int = 1,
     ):
         if not os.path.exists(csv_path):
             raise FileNotFoundError(f"ETTh1 CSV not found at path: {csv_path}")
@@ -200,6 +209,21 @@ class ETTh1TimeSeriesEnv:
             if time_features is None
             else [str(f) for f in time_features]
         )
+        need_dates = bool(include_time_features_local or expert_train_date_ranges is not None)
+        parsed_dates = None
+        if need_dates:
+            if not date_vals:
+                raise ValueError(
+                    "Date-based features or expert date ranges requested but no 'date' column is available."
+                )
+
+            def _parse_dt(raw: str) -> datetime:
+                try:
+                    return datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    return datetime.fromisoformat(raw)
+
+            parsed_dates = [_parse_dt(val) for val in date_vals]
 
         feature_blocks: List[np.ndarray] = []
         feature_names: List[str] = []
@@ -218,21 +242,13 @@ class ETTh1TimeSeriesEnv:
                 feature_names.append(f"{target_column}_lag{lag}")
 
         if include_time_features_local:
-            if not date_vals:
+            if parsed_dates is None:
                 raise ValueError(
-                    "Time features requested but no 'date' column is available."
+                    "Time features requested but parsed dates are unavailable."
                 )
-
-            def _parse_dt(raw: str) -> datetime:
-                try:
-                    return datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    return datetime.fromisoformat(raw)
-
-            parsed = [_parse_dt(val) for val in date_vals]
-            hours = np.array([dt.hour for dt in parsed], dtype=float)
-            dows = np.array([dt.weekday() for dt in parsed], dtype=float)
-            months = np.array([dt.month - 1 for dt in parsed], dtype=float)
+            hours = np.array([dt.hour for dt in parsed_dates], dtype=float)
+            dows = np.array([dt.weekday() for dt in parsed_dates], dtype=float)
+            months = np.array([dt.month - 1 for dt in parsed_dates], dtype=float)
             for name in time_features_local:
                 if name == "hour":
                     angles = 2.0 * np.pi * hours / 24.0
@@ -431,6 +447,110 @@ class ETTh1TimeSeriesEnv:
                 return nn_type_local
             return "ar"
 
+        def _resolve_expert_param(
+            value: Optional[Sequence],
+            default_scalar,
+            cast_fn,
+            name: str,
+        ) -> List:
+            if value is None:
+                return [cast_fn(default_scalar) for _ in range(self.num_experts)]
+            arr = np.asarray(value)
+            if arr.shape == ():
+                return [cast_fn(arr.item()) for _ in range(self.num_experts)]
+            if arr.shape != (self.num_experts,):
+                raise ValueError(
+                    f"{name} must be scalar or have length num_experts ({self.num_experts})."
+                )
+            return [cast_fn(v) for v in arr]
+
+        rnn_hidden_dims_local = _resolve_expert_param(
+            rnn_hidden_dims, rnn_hidden_dim, int, "rnn_hidden_dims"
+        )
+        rnn_spectral_radii_local = _resolve_expert_param(
+            rnn_spectral_radii, rnn_spectral_radius, float, "rnn_spectral_radii"
+        )
+        rnn_ridges_local = _resolve_expert_param(
+            rnn_ridges, rnn_ridge, float, "rnn_ridges"
+        )
+        rnn_washouts_local = _resolve_expert_param(
+            rnn_washouts, rnn_washout, int, "rnn_washouts"
+        )
+        rnn_input_scales_local = _resolve_expert_param(
+            rnn_input_scales, rnn_input_scale, float, "rnn_input_scales"
+        )
+
+        explicit_train_masks: Optional[list[Optional[np.ndarray]]] = None
+        if expert_train_ranges is not None or expert_train_date_ranges is not None:
+            if expert_train_ranges is not None and len(expert_train_ranges) != self.num_experts:
+                raise ValueError(
+                    "expert_train_ranges must have length num_experts when provided."
+                )
+            if expert_train_date_ranges is not None and len(expert_train_date_ranges) != self.num_experts:
+                raise ValueError(
+                    "expert_train_date_ranges must have length num_experts when provided."
+                )
+            if expert_train_date_ranges is not None and parsed_dates is None:
+                raise ValueError(
+                    "expert_train_date_ranges provided but dates are unavailable."
+                )
+            dates_arr = None if parsed_dates is None else np.asarray(parsed_dates)
+            explicit_train_masks = []
+            idx_all_full = np.arange(1, self.T, dtype=int)
+            for j in range(self.num_experts):
+                mask = None
+                has_range = False
+                if expert_train_date_ranges is not None:
+                    dr = expert_train_date_ranges[j]
+                    if dr is not None:
+                        has_range = True
+                        if len(dr) != 2:
+                            raise ValueError(
+                                "expert_train_date_ranges entries must be [start, end]."
+                            )
+                        start_raw, end_raw = dr
+                        start_dt = None if start_raw in (None, "") else datetime.fromisoformat(str(start_raw))
+                        end_dt = None if end_raw in (None, "") else datetime.fromisoformat(str(end_raw))
+                        if dates_arr is None:
+                            raise ValueError("Date ranges require parsed dates.")
+                        if mask is None:
+                            mask = np.ones(idx_all_full.shape[0], dtype=bool)
+                        date_vals_local = dates_arr[idx_all_full]
+                        if start_dt is not None:
+                            mask &= date_vals_local >= start_dt
+                        if end_dt is not None:
+                            mask &= date_vals_local <= end_dt
+                if expert_train_ranges is not None:
+                    rr = expert_train_ranges[j]
+                    if rr is not None:
+                        has_range = True
+                        if len(rr) != 2:
+                            raise ValueError(
+                                "expert_train_ranges entries must be [start, end]."
+                            )
+                        start_idx = int(rr[0]) if rr[0] is not None else 1
+                        end_idx = int(rr[1]) if rr[1] is not None else (self.T - 1)
+                        if mask is None:
+                            mask = np.ones(idx_all_full.shape[0], dtype=bool)
+                        mask &= idx_all_full >= start_idx
+                        mask &= idx_all_full <= end_idx
+                explicit_train_masks.append(mask if has_range else None)
+
+        self._arima_params = [None] * self.num_experts  # type: ignore[var-annotated]
+        self._arima_expert_ids: List[int] = []
+        arima_lags_local: List[int] = []
+        if arima_lags is None:
+            arima_lags_local = [1, 5, 20]
+        else:
+            for lag in arima_lags:
+                lag_int = int(lag)
+                if lag_int > 0:
+                    arima_lags_local.append(lag_int)
+        arima_lags_local = sorted(set(arima_lags_local))
+        arima_diff_order_local = int(arima_diff_order)
+        if arima_diff_order_local not in (0, 1):
+            raise ValueError("arima_diff_order must be 0 or 1.")
+
         # If expert 4 is present, fit a strong multi-lag AR baseline on
         # the full history using several ETTh1-relevant lags (1, 24, 168
         # hours). This gives expert 4 access to richer temporal
@@ -472,19 +592,89 @@ class ETTh1TimeSeriesEnv:
 
         use_mlp = any(_arch_for_expert(j) == "mlp" for j in range(self.num_experts))
         use_rnn = any(_arch_for_expert(j) == "rnn" for j in range(self.num_experts))
+        use_arima = any(_arch_for_expert(j) == "arima" for j in range(self.num_experts))
 
-        if self.num_experts > 2 and (use_mlp or use_rnn):
-            # Training data: pairs (x_t, y_t) for t = 1,...,T-1.
+        if self.T > 1:
             idx_all = np.arange(1, self.T, dtype=int)
             x_all = self.x[idx_all]
             y_all = self.y[idx_all]
             n_all = idx_all.shape[0]
-            if n_all >= 3:
-                third = n_all // 3
-            else:
-                third = max(1, n_all // 2)
-            two_third = min(2 * third, n_all)
+        else:
+            idx_all = np.zeros(0, dtype=int)
+            x_all = np.zeros((0, self.x.shape[1]), dtype=float)
+            y_all = np.zeros(0, dtype=float)
+            n_all = 0
 
+        if n_all >= 3:
+            third = n_all // 3
+        else:
+            third = max(1, n_all // 2)
+        two_third = min(2 * third, n_all)
+
+        seg_early = slice(0, two_third)
+        seg_late = slice(third, n_all)
+
+        def _training_mask_for_expert(j: int) -> np.ndarray:
+            if explicit_train_masks is not None and explicit_train_masks[j] is not None:
+                return explicit_train_masks[j]
+            mask = np.zeros(n_all, dtype=bool)
+            if j == 2:
+                mask[seg_early] = True
+                return mask
+            if j == 3:
+                mask[seg_late] = True
+                return mask
+            mask[:] = True
+            return mask
+
+        if use_arima:
+            def _fit_arima_for_expert(train_mask: np.ndarray) -> Optional[dict]:
+                if n_all <= 0 or not arima_lags_local:
+                    return None
+                max_lag = max(arima_lags_local) + arima_diff_order_local
+                rows = []
+                targets = []
+                y_mean = float(np.mean(self.y)) if self.y.size > 0 else 0.0
+                for idx_pos, t in enumerate(idx_all):
+                    if not train_mask[idx_pos]:
+                        continue
+                    if t <= max_lag:
+                        continue
+                    if arima_diff_order_local == 0:
+                        feats = [self.y[t - lag] for lag in arima_lags_local]
+                        target = self.y[t]
+                    else:
+                        feats = [
+                            self.y[t - lag] - self.y[t - lag - 1]
+                            for lag in arima_lags_local
+                        ]
+                        target = self.y[t] - self.y[t - 1]
+                    rows.append(feats)
+                    targets.append(float(target))
+                if not rows:
+                    return {"lags": arima_lags_local, "d": arima_diff_order_local, "w": None, "b": y_mean, "mean": y_mean}
+                X = np.column_stack([np.ones(len(rows), dtype=float), np.asarray(rows, dtype=float)])
+                y_vec = np.asarray(targets, dtype=float)
+                lam = 1e-3
+                XtX = X.T @ X
+                diag_idx = np.arange(XtX.shape[0])
+                XtX[diag_idx, diag_idx] += lam
+                XtY = X.T @ y_vec
+                coeffs = np.linalg.solve(XtX, XtY)
+                b = float(coeffs[0])
+                w = coeffs[1:].astype(float)
+                return {"lags": arima_lags_local, "d": arima_diff_order_local, "w": w, "b": b, "mean": y_mean}
+
+            for j in range(self.num_experts):
+                if _arch_for_expert(j) != "arima":
+                    continue
+                train_mask = _training_mask_for_expert(j)
+                params = _fit_arima_for_expert(train_mask)
+                if params is not None:
+                    self._arima_params[j] = params
+                    self._arima_expert_ids.append(j)
+
+        if self.num_experts > 2 and (use_mlp or use_rnn):
             # Global validation set used for checkpoint selection:
             # we take the last 20% of the full history (at least one
             # sample) so that each NN expert is evaluated on the same
@@ -499,21 +689,6 @@ class ETTh1TimeSeriesEnv:
             idx_val_global = np.arange(n_all - n_val_global, n_all, dtype=int)
             x_val_global = x_all[idx_val_global]
             y_val_global = y_all[idx_val_global]
-
-            # Segments simulating different historical databases. We
-            # deliberately use overlapping segments so that NN experts
-            # share some training data and become indirectly correlated:
-            #   - Expert 2: early + middle history (0 .. two_third)
-            #   - Expert 3: middle + late history (third .. end)
-            seg_early = slice(0, two_third)
-            seg_late = slice(third, n_all)
-
-            def _segment_for_expert(j: int) -> slice:
-                if j == 2:
-                    return seg_early
-                if j == 3:
-                    return seg_late
-                return slice(0, n_all)
 
             def _train_nn_expert(
                 x_train: np.ndarray,
@@ -749,27 +924,50 @@ class ETTh1TimeSeriesEnv:
 
             shared_reservoir = None
             if use_rnn and bool(rnn_share_reservoir):
-                shared_reservoir = (
-                    rng.normal(loc=0.0, scale=1.0, size=(int(rnn_hidden_dim), int(self.x.shape[1])))
-                    * float(rnn_input_scale),
-                    rng.normal(loc=0.0, scale=1.0, size=(int(rnn_hidden_dim), int(rnn_hidden_dim))),
-                )
-                if rnn_spectral_radius > 0:
-                    eigs = np.linalg.eigvals(shared_reservoir[1])
-                    rad = float(np.max(np.abs(eigs)))
-                    if rad > 0:
-                        shared_reservoir = (
-                            shared_reservoir[0],
-                            shared_reservoir[1] * float(rnn_spectral_radius) / rad,
+                rnn_ids = [j for j in range(self.num_experts) if _arch_for_expert(j) == "rnn"]
+                if rnn_ids:
+                    base_dim = rnn_hidden_dims_local[rnn_ids[0]]
+                    base_scale = rnn_input_scales_local[rnn_ids[0]]
+                    base_radius = rnn_spectral_radii_local[rnn_ids[0]]
+                    for j in rnn_ids[1:]:
+                        if (
+                            rnn_hidden_dims_local[j] != base_dim
+                            or rnn_input_scales_local[j] != base_scale
+                            or rnn_spectral_radii_local[j] != base_radius
+                        ):
+                            raise ValueError(
+                                "rnn_share_reservoir requires identical rnn_hidden_dims, "
+                                "rnn_input_scales, and rnn_spectral_radii across RNN experts."
+                            )
+                    shared_reservoir = (
+                        rng.normal(
+                            loc=0.0,
+                            scale=1.0,
+                            size=(int(base_dim), int(self.x.shape[1])),
                         )
+                        * float(base_scale),
+                        rng.normal(
+                            loc=0.0,
+                            scale=1.0,
+                            size=(int(base_dim), int(base_dim)),
+                        ),
+                    )
+                    if base_radius > 0:
+                        eigs = np.linalg.eigvals(shared_reservoir[1])
+                        rad = float(np.max(np.abs(eigs)))
+                        if rad > 0:
+                            shared_reservoir = (
+                                shared_reservoir[0],
+                                shared_reservoir[1] * float(base_radius) / rad,
+                            )
 
             for j in range(self.num_experts):
                 arch = _arch_for_expert(j)
                 if arch == "mlp":
-                    seg = _segment_for_expert(j)
+                    mask = _training_mask_for_expert(j)
                     W1_j, b1_j, W2_j, b2_j = _train_nn_expert(
-                        x_all[seg],
-                        y_all[seg],
+                        x_all[mask],
+                        y_all[mask],
                         x_val_global,
                         y_val_global,
                         hidden_dim=8,
@@ -778,17 +976,17 @@ class ETTh1TimeSeriesEnv:
                     self._nn_params[j] = (W1_j, b1_j, W2_j, b2_j)
                     self._nn_expert_ids.append(j)
                 elif arch == "rnn":
-                    seg = _segment_for_expert(j)
+                    mask = _training_mask_for_expert(j)
                     result = _train_esn_expert(
-                        x_all[seg],
-                        y_all[seg],
+                        x_all[mask],
+                        y_all[mask],
                         x_all,
                         rng_local=rng,
-                        hidden_dim=int(rnn_hidden_dim),
-                        spectral_radius=float(rnn_spectral_radius),
-                        ridge=float(rnn_ridge),
-                        washout=int(rnn_washout),
-                        input_scale=float(rnn_input_scale),
+                        hidden_dim=int(rnn_hidden_dims_local[j]),
+                        spectral_radius=float(rnn_spectral_radii_local[j]),
+                        ridge=float(rnn_ridges_local[j]),
+                        washout=int(rnn_washouts_local[j]),
+                        input_scale=float(rnn_input_scales_local[j]),
                         shared_weights=shared_reservoir,
                     )
                     if result is not None:
@@ -864,6 +1062,34 @@ class ETTh1TimeSeriesEnv:
             except Exception:
                 return float(y_hat)
             return float(y_hat + self._expert_pred_noise[t_idx, j_int])
+
+        if (
+            hasattr(self, "_arima_expert_ids")
+            and j_int in getattr(self, "_arima_expert_ids", [])
+            and self._last_t is not None
+        ):
+            params = self._arima_params[j_int]
+            if params is not None:
+                lags = params.get("lags", [])
+                diff_order = int(params.get("d", 0))
+                w = params.get("w", None)
+                b = float(params.get("b", 0.0))
+                mean_fallback = float(params.get("mean", 0.0))
+                t_idx = int(self._last_t)
+                max_lag = max(lags) + diff_order if lags else diff_order
+                if t_idx <= max_lag or w is None:
+                    return _apply_pred_noise(mean_fallback)
+                if diff_order == 0:
+                    feats = np.array([self.y[t_idx - lag] for lag in lags], dtype=float)
+                    pred = float(b + np.dot(w, feats))
+                else:
+                    feats = np.array(
+                        [self.y[t_idx - lag] - self.y[t_idx - lag - 1] for lag in lags],
+                        dtype=float,
+                    )
+                    diff_pred = float(b + np.dot(w, feats))
+                    pred = float(self.y[t_idx - 1] + diff_pred)
+                return _apply_pred_noise(pred)
 
         # Strong multi-lag baseline for expert 4 (if configured):
         # y_hat ≈ b + Σ_m w_m * y_{t - lag_m}, where the lags typically
