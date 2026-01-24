@@ -116,7 +116,7 @@ routers:
     em_use_validation: true
     em_val_strategy: "rolling"
     em_val_fraction: 0.4
-    em_val_roll_len: 200
+    em_val_roll_len: 1000
     em_val_roll_splits: 2
     em_val_roll_stride: null
     em_val_len: null
