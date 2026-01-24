@@ -36,7 +36,7 @@ export PYTHONPATH="${SLURM_SUBMIT_DIR}:${PYTHONPATH:-}"
 
 echo "Running ETTh2 hyperparameter sweep under Slurm (array)..."
 
-BASE_CONFIG="config/config_etth2.yaml"
+BASE_CONFIG="${SLURM_SUBMIT_DIR}/config/config_etth2.yaml"
 RUN_DIR="${SLURM_SUBMIT_DIR}/out/etth2_sweep_${SLURM_JOB_ID}"
 mkdir -p "${RUN_DIR}"
 
