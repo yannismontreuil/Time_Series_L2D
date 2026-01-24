@@ -57,7 +57,7 @@ class FactorizedSLDS(SLDSIMMRouter):
       - w: (M,) regime weights (probabilities)
       - registry: list of active expert IDs
 
-    Observation model (scalar residual):
+    Observation model (vector residual):
       e_{t,k} = phi(x_t)^T (B_k g_t + u_{t,k}) + eps,  eps ~ N(0, R_{z_t,k})
 
     The class exposes the same select/update interface as SLDSIMMRouter
@@ -74,6 +74,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         B_dict: Optional[Dict[int, np.ndarray]] = None,
         beta: Optional[np.ndarray | Dict[int, float]] = None,
         R: float | np.ndarray = 1.0,
+        R_mode: str = "auto",
         A_g: Optional[np.ndarray] = None,
         A_u: Optional[np.ndarray] = None,
         Q_g: Optional[np.ndarray] = None,
@@ -115,6 +116,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         self.M = int(M)
         self.d_g = int(d_g)
         self.d_phi = int(d_phi)
+        self.d_y: Optional[int] = None
         self.d = self.d_phi
         self.feature_fn = feature_fn
 
@@ -124,12 +126,31 @@ class FactorizedSLDS(SLDSIMMRouter):
             if beta_arr.ndim == 1:
                 self.N = int(beta_arr.shape[0])
         if self.N is None and isinstance(R, np.ndarray) and R.ndim == 2:
-            self.N = int(R.shape[1])
+            if R.shape[0] == self.M:
+                self.N = int(R.shape[1])
+        if self.N is None and isinstance(R, np.ndarray) and R.ndim == 4:
+            if R.shape[0] == self.M:
+                self.N = int(R.shape[1])
+        if self.N is None and isinstance(R, np.ndarray) and R.ndim == 3:
+            if R.shape[0] != self.M:
+                self.N = int(R.shape[0])
         if self.N is None and B_dict:
             self.N = int(max(B_dict.keys()) + 1)
 
         self.beta = self._normalize_beta(beta)
         self.R = self._normalize_R(R)
+        self.R_mode = str(R_mode).lower()
+        if self.R_mode not in ("auto", "scalar", "full"):
+            raise ValueError("R_mode must be 'auto', 'scalar', or 'full'.")
+        if self.R_mode == "auto":
+            self.R_mode = "scalar"
+            if np.ndim(self.R) >= 3:
+                self.R_mode = "full"
+            elif np.ndim(self.R) == 2:
+                R_arr = np.asarray(self.R, dtype=float)
+                if not (self.N is not None and R_arr.shape == (self.M, self.N)):
+                    if R_arr.shape[0] == R_arr.shape[1]:
+                        self.R_mode = "full"
 
         self.A_g = self._normalize_matrix(A_g, self.d_g)
         self.A_u = self._normalize_matrix(A_u, self.d_phi)
@@ -317,9 +338,27 @@ class FactorizedSLDS(SLDSIMMRouter):
                 return np.repeat(R_arr[:, None], self.N, axis=1)
             if R_arr.shape == (self.N,):
                 return np.repeat(R_arr[None, :], self.M, axis=0)
-        if R_arr.shape == (self.M, self.N):
+        if R_arr.ndim == 2:
+            if self.N is not None and R_arr.shape == (self.M, self.N):
+                return R_arr
+            if R_arr.shape[0] == R_arr.shape[1]:
+                return R_arr
+            raise ValueError("R must be (M, N) or square when 2D.")
+        if R_arr.ndim == 3:
+            if R_arr.shape[1] != R_arr.shape[2]:
+                raise ValueError("R must have square trailing dims when 3D.")
+            if R_arr.shape[0] == self.M:
+                return R_arr
+            if self.N is not None and R_arr.shape[0] == self.N:
+                return R_arr
             return R_arr
-        raise ValueError("R must be scalar, (M,), (N,), or (M, N).")
+        if R_arr.ndim == 4:
+            if R_arr.shape[2] != R_arr.shape[3]:
+                raise ValueError("R must have square trailing dims when 4D.")
+            if R_arr.shape[0] != self.M:
+                raise ValueError("R must have first dim M when 4D.")
+            return R_arr
+        raise ValueError("R must be scalar, (M,), (N,), (M, N), or a covariance array.")
 
     def _normalize_matrix(self, A: Optional[np.ndarray], d: int) -> np.ndarray:
         if A is None:
@@ -385,7 +424,10 @@ class FactorizedSLDS(SLDSIMMRouter):
     def _get_R(self, m: int, k: int) -> float:
         if np.ndim(self.R) == 0:
             return float(self.R)
-        return float(self.R[m, k])
+        R_arr = np.asarray(self.R, dtype=float)
+        if R_arr.ndim == 2 and self.N is not None and R_arr.shape == (self.M, self.N):
+            return float(R_arr[m, k])
+        raise ValueError("Scalar R requested but R is not scalar.")
 
     def _ensure_B(self, k: int) -> np.ndarray:
         if k in self.B_dict:
@@ -396,11 +438,157 @@ class FactorizedSLDS(SLDSIMMRouter):
         self.B_dict[k] = B_k
         return B_k
 
+    def _check_dy(self, d_y: int) -> int:
+        if self.d_y is None:
+            self.d_y = int(d_y)
+        elif self.d_y != int(d_y):
+            raise ValueError("Inconsistent residual dimension across calls.")
+        return int(self.d_y)
+
     def _compute_phi(self, x: np.ndarray) -> np.ndarray:
-        phi = np.asarray(self.feature_fn(x), dtype=float).reshape(-1)
-        if phi.shape[0] != self.d_phi:
-            raise ValueError("feature_fn returned wrong dimension for d_phi.")
-        return phi
+        phi = np.asarray(self.feature_fn(x), dtype=float)
+        if phi.ndim == 1:
+            if phi.shape[0] != self.d_phi:
+                raise ValueError("feature_fn returned wrong dimension for d_phi.")
+            self._check_dy(1)
+            return phi.reshape(self.d_phi, 1)
+        if phi.ndim == 2:
+            if phi.shape[0] != self.d_phi:
+                raise ValueError("feature_fn returned wrong dimension for d_phi.")
+            self._check_dy(phi.shape[1])
+            return phi
+        raise ValueError("feature_fn must return a vector or (d_phi, d_y) matrix.")
+
+    def _as_residual_vector(self, residual: np.ndarray | float) -> np.ndarray:
+        arr = np.asarray(residual, dtype=float)
+        if arr.ndim == 0:
+            vec = np.array([float(arr)], dtype=float)
+        elif arr.ndim == 1:
+            vec = arr.reshape(-1)
+        else:
+            raise ValueError("Residual must be scalar or 1D.")
+        self._check_dy(vec.shape[0])
+        return vec
+
+    def _as_residual_matrix(self, residuals_full: np.ndarray) -> np.ndarray:
+        arr = np.asarray(residuals_full, dtype=float)
+        if arr.ndim == 1:
+            self._check_dy(1)
+            return arr.reshape(-1, 1)
+        if arr.ndim == 2:
+            self._check_dy(arr.shape[1])
+            return arr
+        raise ValueError("Full-feedback residuals must be 1D or 2D.")
+
+    def _get_R_matrix(self, m: int, k: int, d_y: int) -> np.ndarray:
+        if np.ndim(self.R) == 0:
+            return np.eye(d_y, dtype=float) * float(self.R)
+        R_arr = np.asarray(self.R, dtype=float)
+        if R_arr.ndim == 2:
+            if self.N is not None and R_arr.shape == (self.M, self.N):
+                return np.eye(d_y, dtype=float) * float(R_arr[m, k])
+            if R_arr.shape[0] != R_arr.shape[1]:
+                raise ValueError("R matrix must be square.")
+            if R_arr.shape[0] != d_y:
+                raise ValueError("R dimension mismatch.")
+            return R_arr
+        if R_arr.ndim == 3:
+            if R_arr.shape[1] != R_arr.shape[2]:
+                raise ValueError("R covariance must have square trailing dims.")
+            if R_arr.shape[0] == self.M:
+                if R_arr.shape[1] != d_y:
+                    raise ValueError("R dimension mismatch.")
+                return R_arr[m]
+            if R_arr.shape[0] == self.N:
+                if R_arr.shape[1] != d_y:
+                    raise ValueError("R dimension mismatch.")
+                return R_arr[k]
+            raise ValueError("R shape does not match M or N.")
+        if R_arr.ndim == 4:
+            if R_arr.shape[0] != self.M:
+                raise ValueError("R shape mismatch for M.")
+            if self.N is not None and R_arr.shape[1] != self.N:
+                raise ValueError("R shape mismatch for N.")
+            if R_arr.shape[2] != d_y or R_arr.shape[3] != d_y:
+                raise ValueError("R dimension mismatch.")
+            return R_arr[m, k]
+        raise ValueError("Unsupported R shape.")
+
+    def _ensure_full_R(self, d_y: int) -> None:
+        if np.ndim(self.R) == 4:
+            return
+        if self.N is None:
+            raise ValueError("num_experts required to expand full R.")
+        M = int(self.M)
+        N = int(self.N)
+        if np.ndim(self.R) == 0:
+            base = float(self.R)
+            R_full = np.zeros((M, N, d_y, d_y), dtype=float)
+            for m in range(M):
+                for k in range(N):
+                    R_full[m, k] = np.eye(d_y, dtype=float) * base
+            self.R = R_full
+            return
+        R_arr = np.asarray(self.R, dtype=float)
+        if R_arr.ndim == 2:
+            if R_arr.shape == (M, N):
+                R_full = np.zeros((M, N, d_y, d_y), dtype=float)
+                for m in range(M):
+                    for k in range(N):
+                        R_full[m, k] = np.eye(d_y, dtype=float) * float(R_arr[m, k])
+                self.R = R_full
+                return
+            if R_arr.shape[0] == R_arr.shape[1] == d_y:
+                R_full = np.zeros((M, N, d_y, d_y), dtype=float)
+                for m in range(M):
+                    for k in range(N):
+                        R_full[m, k] = R_arr
+                self.R = R_full
+                return
+        if R_arr.ndim == 3:
+            if R_arr.shape[1] != R_arr.shape[2] or R_arr.shape[1] != d_y:
+                raise ValueError("R dimension mismatch for full expansion.")
+            if R_arr.shape[0] == M:
+                R_full = np.zeros((M, N, d_y, d_y), dtype=float)
+                for m in range(M):
+                    for k in range(N):
+                        R_full[m, k] = R_arr[m]
+                self.R = R_full
+                return
+            if R_arr.shape[0] == N:
+                R_full = np.zeros((M, N, d_y, d_y), dtype=float)
+                for m in range(M):
+                    for k in range(N):
+                        R_full[m, k] = R_arr[k]
+                self.R = R_full
+                return
+        raise ValueError("Unable to expand R to full covariance shape.")
+
+    def _logdet_psd(self, cov: np.ndarray) -> float:
+        cov = np.asarray(cov, dtype=float)
+        cov = 0.5 * (cov + cov.T)
+        d = cov.shape[0]
+        for i in range(5):
+            jitter = (10.0**i) * self.eps
+            try:
+                L = np.linalg.cholesky(cov + jitter * np.eye(d, dtype=float))
+            except np.linalg.LinAlgError:
+                continue
+            return 2.0 * float(np.sum(np.log(np.diag(L))))
+        sign, logdet = np.linalg.slogdet(cov)
+        if sign <= 0:
+            return -np.inf
+        return float(logdet)
+
+    def _loss_from_residual(self, residual: np.ndarray) -> float:
+        residual = np.asarray(residual, dtype=float)
+        if self.loss_fn is None:
+            return float(np.sum(residual * residual))
+        val = self.loss_fn(residual)
+        val_arr = np.asarray(val, dtype=float)
+        if val_arr.ndim == 0:
+            return float(val_arr)
+        return float(np.sum(val_arr))
 
     def _softmax_rows(self, X: np.ndarray) -> np.ndarray:
         X = X - np.max(X, axis=1, keepdims=True)
@@ -686,8 +874,18 @@ class FactorizedSLDS(SLDSIMMRouter):
         if cfg.get("log_variances", True) and stats is not None:
             var_thresh = cfg.get("variance_collapse_threshold", 1e-6)
             for k, stat in stats.items():
-                var_modes = stat.get("var", None)
-                if var_modes is not None:
+                cov_modes = stat.get("cov", None)
+                if cov_modes is not None:
+                    cov_arr = np.asarray(cov_modes, dtype=float)
+                    if cov_arr.ndim == 3 and cov_arr.shape[1:] == (1, 1):
+                        var_modes = cov_arr.reshape(-1)
+                    elif cov_arr.ndim == 3:
+                        var_modes = np.array(
+                            [float(np.trace(cov_arr[m])) for m in range(cov_arr.shape[0])],
+                            dtype=float,
+                        )
+                    else:
+                        var_modes = cov_arr.reshape(-1)
                     min_var = float(np.min(var_modes))
                     record[f"var_min_k{k}"] = min_var
                     if should_print:
@@ -844,7 +1042,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         x_t: Optional[np.ndarray],
         available_experts: Sequence[int],
         action: int,
-        residual: float,
+        residual: float | np.ndarray,
         residuals_full: Optional[np.ndarray],
         state_override: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -869,7 +1067,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             "context": np.asarray(x_t, dtype=float).reshape(-1).copy(),
             "available": [int(k) for k in available_experts],
             "action": int(action),
-            "residual": float(residual),
+            "residual": self._as_residual_vector(residual).copy(),
             "residual_full": None
             if residuals_full is None
             else np.asarray(residuals_full, dtype=float).copy(),
@@ -1164,46 +1362,59 @@ class FactorizedSLDS(SLDSIMMRouter):
         info_gains: Dict[int, float] = {}
         stats: Dict[int, dict] = {}
 
+        phi_T = phi.T
+        d_y = int(phi_T.shape[0])
         for k in available_experts:
             k = int(k)
             if k not in mu_u_pred or k not in Sigma_u_pred:
                 continue
             if self.d_g > 0:
                 Bk = self._ensure_B(k)
-                h = Bk.T @ phi
+                H_g = phi_T @ Bk
             else:
-                h = np.zeros(0, dtype=float)
-            mean_modes = np.zeros(self.M, dtype=float)
-            var_modes = np.zeros(self.M, dtype=float)
+                H_g = np.zeros((d_y, 0), dtype=float)
+            mean_modes = np.zeros((self.M, d_y), dtype=float)
+            cov_modes = np.zeros((self.M, d_y, d_y), dtype=float)
             loss_modes = np.zeros(self.M, dtype=float)
-            signal_modes = np.zeros(self.M, dtype=float)
-            noise_modes = np.zeros(self.M, dtype=float)
-            b_modes = np.zeros(self.M, dtype=float)
-            s_modes = np.zeros(self.M, dtype=float)
+            signal_modes = np.zeros((self.M, d_y, d_y), dtype=float)
+            noise_modes = np.zeros((self.M, d_y, d_y), dtype=float)
+            b_modes = np.zeros((self.M, d_y), dtype=float)
             ig_modes = np.zeros(self.M, dtype=float)
             for m in range(self.M):
                 mu_u_m = mu_u_pred[k][m]
                 Sigma_u_m = Sigma_u_pred[k][m]
-                b_m = float(phi @ mu_u_m)
-                s_m = float(phi @ (Sigma_u_m @ phi)) + self._get_R(m, k)
-                s_m = max(s_m, self.eps)
+                b_m = phi_T @ mu_u_m
+                noise_cov = phi_T @ Sigma_u_m @ phi + self._get_R_matrix(m, k, d_y)
+                noise_cov = 0.5 * (noise_cov + noise_cov.T)
                 if self.d_g > 0:
                     mu_g_m = mu_g_pred[m]
                     Sigma_g_m = Sigma_g_pred[m]
-                    mean_m = float(h @ mu_g_m) + b_m
-                    signal = float(h @ (Sigma_g_m @ h))
-                    signal = max(signal, 0.0)
+                    mean_m = H_g @ mu_g_m + b_m
+                    signal_cov = H_g @ Sigma_g_m @ H_g.T
+                    signal_cov = 0.5 * (signal_cov + signal_cov.T)
                 else:
                     mean_m = b_m
-                    signal = 0.0
+                    signal_cov = np.zeros((d_y, d_y), dtype=float)
+                cov_m = signal_cov + noise_cov
                 mean_modes[m] = mean_m
-                var_modes[m] = signal + s_m
-                loss_modes[m] = self._expected_loss_gaussian(mean_modes[m], var_modes[m])
-                signal_modes[m] = signal
-                noise_modes[m] = s_m
+                cov_modes[m] = cov_m
+                loss_modes[m] = self._expected_loss_gaussian(mean_m, cov_m)
+                signal_modes[m] = signal_cov
+                noise_modes[m] = noise_cov
                 b_modes[m] = b_m
-                s_modes[m] = s_m
-                ig_modes[m] = 0.5 * np.log1p(signal / s_m)
+                if d_y == 1:
+                    denom = max(float(noise_cov[0, 0]), self.eps)
+                    numer = max(float(signal_cov[0, 0]), 0.0)
+                    ig_modes[m] = 0.5 * np.log1p(numer / denom)
+                else:
+                    S = noise_cov
+                    try:
+                        S_inv = np.linalg.solve(S, signal_cov)
+                        ig_modes[m] = 0.5 * max(
+                            self._logdet_psd(np.eye(d_y) + S_inv), 0.0
+                        )
+                    except np.linalg.LinAlgError:
+                        ig_modes[m] = 0.0
 
             cost = float(w_pred @ loss_modes) + self._get_beta(k)
             ig = float(w_pred @ ig_modes)
@@ -1211,13 +1422,12 @@ class FactorizedSLDS(SLDSIMMRouter):
             costs[k] = cost
             info_gains[k] = ig
             stats[k] = {
-                "h": h,
+                "H_g": H_g,
                 "mean": mean_modes,
-                "var": var_modes,
+                "cov": cov_modes,
                 "signal": signal_modes,
                 "noise": noise_modes,
                 "b": b_modes,
-                "s": s_modes,
             }
 
         return costs, info_gains, stats
@@ -1262,16 +1472,33 @@ class FactorizedSLDS(SLDSIMMRouter):
             vals = np.array([self.loss_fn(float(v)) for v in flat], dtype=float)
             return vals.reshape(np.asarray(x, dtype=float).shape)
 
-    def _expected_loss_gaussian(self, mean: float, var: float) -> float:
-        var = max(float(var), self.eps)
+    def _expected_loss_gaussian(self, mean: np.ndarray, cov: np.ndarray) -> float:
+        mean_arr = np.asarray(mean, dtype=float).reshape(-1)
+        if mean_arr.size == 0:
+            return 0.0
+        cov_arr = np.asarray(cov, dtype=float)
+        if cov_arr.ndim == 0:
+            var = max(float(cov_arr), self.eps)
+            if self.loss_fn is None:
+                return var + float(mean_arr[0]) ** 2
+            if self.loss_quad_points <= 0 or var <= self.eps:
+                return float(self._apply_loss_fn(np.array([mean_arr[0]], dtype=float))[0])
+            xs, ws = np.polynomial.hermite.hermgauss(self.loss_quad_points)
+            samples = float(mean_arr[0]) + np.sqrt(2.0 * var) * xs
+            vals = self._apply_loss_fn(samples)
+            return float(np.sum(ws * vals) / np.sqrt(np.pi))
+
+        if cov_arr.shape != (mean_arr.shape[0], mean_arr.shape[0]):
+            raise ValueError("Covariance dimension mismatch in expected loss.")
+        cov_arr = 0.5 * (cov_arr + cov_arr.T)
         if self.loss_fn is None:
-            return var + float(mean) ** 2
-        if self.loss_quad_points <= 0 or var <= self.eps:
-            return float(self._apply_loss_fn(np.array([mean], dtype=float))[0])
-        xs, ws = np.polynomial.hermite.hermgauss(self.loss_quad_points)
-        samples = float(mean) + np.sqrt(2.0 * var) * xs
-        vals = self._apply_loss_fn(samples)
-        return float(np.sum(ws * vals) / np.sqrt(np.pi))
+            return float(np.trace(cov_arr) + mean_arr @ mean_arr)
+        if self.loss_quad_points <= 0:
+            return self._loss_from_residual(mean_arr)
+        n_samples = int(max(self.loss_quad_points, 1))
+        samples = self._rng.multivariate_normal(mean_arr, cov_arr, size=n_samples)
+        vals = np.array([self._loss_from_residual(s) for s in samples], dtype=float)
+        return float(np.mean(vals))
 
     def _logsumexp_vec(self, values: np.ndarray, axis: int = 0) -> np.ndarray:
         vmax = np.max(values, axis=axis, keepdims=True)
@@ -1282,30 +1509,62 @@ class FactorizedSLDS(SLDSIMMRouter):
     def _estimate_iz(
         self,
         mean_modes: np.ndarray,
-        var_modes: np.ndarray,
+        cov_modes: np.ndarray,
         w_pred: np.ndarray,
         n_samples: int,
     ) -> float:
         M = int(w_pred.shape[0])
         if M <= 1 or n_samples <= 0:
             return 0.0
+        mean_arr = np.asarray(mean_modes, dtype=float)
+        cov_arr = np.asarray(cov_modes, dtype=float)
         log_w = np.log(np.maximum(w_pred, self.eps))
         ig = 0.0
+        if cov_arr.ndim == 3 and cov_arr.shape[1:] == (1, 1):
+            mean_vec = mean_arr.reshape(-1)
+            var_vec = cov_arr.reshape(-1)
+            for m in range(M):
+                weight = float(w_pred[m])
+                if weight <= 0.0:
+                    continue
+                samples = self._rng.normal(
+                    loc=float(mean_vec[m]),
+                    scale=float(np.sqrt(var_vec[m])),
+                    size=int(n_samples),
+                )
+                log_p_m = self._gaussian_logpdf_vec(
+                    samples, float(mean_vec[m]), float(var_vec[m])
+                )
+                log_p_all = self._gaussian_logpdf_vec(
+                    samples[None, :], mean_vec[:, None], var_vec[:, None]
+                )
+                log_mix = self._logsumexp_vec(log_w[:, None] + log_p_all, axis=0)
+                ig += weight * float(np.mean(log_p_m - log_mix))
+            return max(float(ig), 0.0)
+
         for m in range(M):
             weight = float(w_pred[m])
             if weight <= 0.0:
                 continue
-            samples = self._rng.normal(
-                loc=float(mean_modes[m]),
-                scale=float(np.sqrt(var_modes[m])),
-                size=int(n_samples),
+            samples = self._rng.multivariate_normal(
+                mean_arr[m], cov_arr[m], size=int(n_samples)
             )
-            log_p_m = self._gaussian_logpdf_vec(
-                samples, float(mean_modes[m]), float(var_modes[m])
+            log_p_m = np.array(
+                [
+                    self._gaussian_logpdf_mvn(s, mean_arr[m], cov_arr[m])
+                    for s in samples
+                ],
+                dtype=float,
             )
-            log_p_all = self._gaussian_logpdf_vec(
-                samples[None, :], mean_modes[:, None], var_modes[:, None]
-            )
+            log_p_all = np.zeros((M, int(n_samples)), dtype=float)
+            for j in range(M):
+                log_p_all[j] = np.array(
+                    [
+                        self._gaussian_logpdf_mvn(s, mean_arr[j], cov_arr[j])
+                        for s in samples
+                    ],
+                    dtype=float,
+                )
             log_mix = self._logsumexp_vec(log_w[:, None] + log_p_all, axis=0)
             ig += weight * float(np.mean(log_p_m - log_mix))
         return max(float(ig), 0.0)
@@ -1323,7 +1582,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             return iz_scores
         for k, stat in stats.items():
             iz_scores[int(k)] = self._estimate_iz(
-                stat["mean"], stat["var"], w_pred, n_samples
+                stat["mean"], stat["cov"], w_pred, n_samples
             )
         return iz_scores
 
@@ -1359,9 +1618,9 @@ class FactorizedSLDS(SLDSIMMRouter):
         avail = [int(k) for k in available_experts if int(k) in stats]
         if not avail or n_samples <= 0:
             return np.zeros((0, 0), dtype=float), avail
-        H = np.stack([stats[k]["h"] for k in avail], axis=0)
+        H = np.stack([stats[k]["H_g"] for k in avail], axis=0)
         b_modes = np.stack([stats[k]["b"] for k in avail], axis=0)
-        s_modes = np.stack([stats[k]["s"] for k in avail], axis=0)
+        noise_modes = np.stack([stats[k]["noise"] for k in avail], axis=0)
         beta = np.array([self._get_beta(k) for k in avail], dtype=float)
 
         costs = np.zeros((int(n_samples), len(avail)), dtype=float)
@@ -1369,24 +1628,25 @@ class FactorizedSLDS(SLDSIMMRouter):
             z = int(self._rng.choice(self.M, p=w_pred))
             if self.d_g > 0:
                 g = self._rng.multivariate_normal(mu_g_pred[z], Sigma_g_pred[z])
-                mean = H @ g + b_modes[:, z]
+                mean = np.einsum("kyd,d->ky", H, g) + b_modes[:, z]
             else:
                 mean = b_modes[:, z]
-            s = np.maximum(s_modes[:, z], self.eps)
             if deterministic:
-                if self.loss_fn is None:
-                    cost = s + mean**2
-                else:
-                    cost = np.array(
-                        [
-                            self._expected_loss_gaussian(float(mean[i]), float(s[i]))
-                            for i in range(len(mean))
-                        ],
-                        dtype=float,
-                    )
+                cost = np.array(
+                    [
+                        self._expected_loss_gaussian(mean[i], noise_modes[i, z])
+                        for i in range(len(mean))
+                    ],
+                    dtype=float,
+                )
             else:
-                e = mean + self._rng.normal(scale=np.sqrt(s), size=mean.shape)
-                cost = self._apply_loss_fn(e)
+                samples = []
+                for i in range(len(mean)):
+                    cov = noise_modes[i, z]
+                    cov = 0.5 * (cov + cov.T)
+                    samples.append(self._rng.multivariate_normal(mean[i], cov))
+                e = np.stack(samples, axis=0)
+                cost = np.array([self._loss_from_residual(e[i]) for i in range(len(e))])
             costs[n] = cost + beta
         return costs, avail
 
@@ -1519,9 +1779,6 @@ class FactorizedSLDS(SLDSIMMRouter):
             self.mu_u,
             self.Sigma_u,
         )
-        for k in entering:
-            mu_u_pred[int(k)] = self.u_mean0.copy()
-            Sigma_u_pred[int(k)] = self.u_cov0.copy()
 
         costs, info_gains, stats = self._compute_predictive_stats(
             phi,
@@ -1695,7 +1952,7 @@ class FactorizedSLDS(SLDSIMMRouter):
     def _update_from_predicted(
         self,
         selected_expert: int,
-        observed_value: float,
+        observed_value: float | np.ndarray,
         phi: np.ndarray,
         w_pred: np.ndarray,
         mu_g_pred: np.ndarray,
@@ -1716,6 +1973,9 @@ class FactorizedSLDS(SLDSIMMRouter):
 
         log_like = np.zeros(self.M, dtype=float)
         Bk = self._ensure_B(k)
+        obs_vec = self._as_residual_vector(observed_value)
+        phi_T = phi.T
+        d_y = int(obs_vec.shape[0])
 
         for m in range(self.M):
             mu_g = mu_g_pred[m]
@@ -1730,23 +1990,29 @@ class FactorizedSLDS(SLDSIMMRouter):
             )
             joint_Sigma = np.concatenate([top, bottom], axis=0)
 
-            H_g = (Bk.T @ phi).reshape(1, self.d_g)
-            H_u = phi.reshape(1, self.d_phi)
+            H_g = phi_T @ Bk
+            H_u = phi_T
             H = np.concatenate([H_g, H_u], axis=1)
 
-            pred_mean = float(H @ joint_mu)
-            pred_var = float(H @ joint_Sigma @ H.T) + self._get_R(m, k)
-            pred_var = max(pred_var, self.eps)
+            pred_mean = H @ joint_mu
+            R_mat = self._get_R_matrix(m, k, d_y)
+            S = H @ joint_Sigma @ H.T + R_mat
+            S = 0.5 * (S + S.T)
 
-            K = (joint_Sigma @ H.T) / pred_var
-            innovation = observed_value - pred_mean
-            joint_mu_post = joint_mu + (K.flatten() * innovation)
+            PHt = joint_Sigma @ H.T
+            try:
+                L = np.linalg.cholesky(S + self.eps * np.eye(d_y, dtype=float))
+                tmp = np.linalg.solve(L, PHt.T)
+                K = np.linalg.solve(L.T, tmp).T
+            except np.linalg.LinAlgError:
+                K = np.linalg.solve(S + self.eps * np.eye(d_y, dtype=float), PHt.T).T
+            innovation = obs_vec - pred_mean
+            joint_mu_post = joint_mu + K @ innovation
             dim = joint_Sigma.shape[0]
             I = np.eye(dim, dtype=float)
             KH = K @ H
             tmp = I - KH
-            R_val = self._get_R(m, k)
-            joint_Sigma_post = tmp @ joint_Sigma @ tmp.T + (K * R_val) @ K.T
+            joint_Sigma_post = tmp @ joint_Sigma @ tmp.T + K @ R_mat @ K.T
 
             mu_g_post[m] = joint_mu_post[: self.d_g]
             Sigma_g_post[m] = joint_Sigma_post[: self.d_g, : self.d_g]
@@ -1760,7 +2026,7 @@ class FactorizedSLDS(SLDSIMMRouter):
                 Sigma_u_post[k][m] + Sigma_u_post[k][m].T
             ) + self.eps * np.eye(self.d_phi, dtype=float)
 
-            log_like[m] = self._gaussian_logpdf(observed_value, pred_mean, pred_var)
+            log_like[m] = self._gaussian_logpdf_mvn(obs_vec, pred_mean, S)
 
         log_post = log_like + np.log(np.maximum(w_pred, self.eps))
         log_post -= np.max(log_post)
@@ -1799,9 +2065,8 @@ class FactorizedSLDS(SLDSIMMRouter):
                 )
             return w_pred, mu_g_pred, Sigma_g_pred, mu_u_pred, Sigma_u_pred
 
-        obs_arr = np.asarray(observed_residuals, dtype=float)
-        if obs_arr.ndim != 1:
-            raise ValueError("losses_full must be a 1D array for full feedback.")
+        obs_arr = self._as_residual_matrix(observed_residuals)
+        d_y = int(obs_arr.shape[1])
 
         mu_u_prior: Dict[int, np.ndarray] = {kk: vv.copy() for kk, vv in mu_u_pred.items()}
         Sigma_u_prior: Dict[int, np.ndarray] = {
@@ -1823,18 +2088,22 @@ class FactorizedSLDS(SLDSIMMRouter):
         for k in available:
             if k < 0 or k >= obs_arr.shape[0]:
                 raise ValueError("losses_full must include all expert residuals.")
-        y = np.array([float(obs_arr[k]) for k in available], dtype=float)
+        y = np.array([obs_arr[k] for k in available], dtype=float)
+        y_vec = y.reshape(-1)
         n_avail = len(available)
         dim = int(self.d_g + n_avail * self.d_phi)
 
-        H = np.zeros((n_avail, dim), dtype=float)
+        H = np.zeros((n_avail * d_y, dim), dtype=float)
+        phi_T = phi.T
         for idx, k in enumerate(available):
+            row_start = idx * d_y
+            row_end = row_start + d_y
             if self.d_g > 0:
                 Bk = self._ensure_B(k)
-                H[idx, : self.d_g] = (Bk.T @ phi).reshape(-1)
+                H[row_start:row_end, : self.d_g] = (phi_T @ Bk)
             if self.d_phi > 0:
                 start = self.d_g + idx * self.d_phi
-                H[idx, start : start + self.d_phi] = phi.reshape(-1)
+                H[row_start:row_end, start : start + self.d_phi] = phi_T
 
         log_like = np.zeros(self.M, dtype=float)
 
@@ -1862,11 +2131,15 @@ class FactorizedSLDS(SLDSIMMRouter):
                 joint_mu = np.zeros(0, dtype=float)
                 joint_Sigma = np.zeros((0, 0), dtype=float)
 
-            R_vec = np.array([self._get_R(m, k) for k in available], dtype=float)
+            R_blocks = [self._get_R_matrix(m, k, d_y) for k in available]
+            R_diag = np.zeros((n_avail * d_y, n_avail * d_y), dtype=float)
+            for idx, Rk in enumerate(R_blocks):
+                start = idx * d_y
+                R_diag[start : start + d_y, start : start + d_y] = Rk
             pred_mean = H @ joint_mu
-            S = H @ joint_Sigma @ H.T + np.diag(R_vec)
+            S = H @ joint_Sigma @ H.T + R_diag
             S = 0.5 * (S + S.T)
-            log_like[m] = self._gaussian_logpdf_mvn(y, pred_mean, S)
+            log_like[m] = self._gaussian_logpdf_mvn(y_vec, pred_mean, S)
 
             if dim == 0:
                 continue
@@ -1879,12 +2152,12 @@ class FactorizedSLDS(SLDSIMMRouter):
             except np.linalg.LinAlgError:
                 K = np.linalg.solve(S + self.eps * np.eye(n_avail, dtype=float), PHt.T).T
 
-            innovation = y - pred_mean
+            innovation = y_vec - pred_mean
             joint_mu_post = joint_mu + K @ innovation
             I = np.eye(dim, dtype=float)
             KH = K @ H
             tmp = I - KH
-            joint_Sigma_post = tmp @ joint_Sigma @ tmp.T + (K * R_vec) @ K.T
+            joint_Sigma_post = tmp @ joint_Sigma @ tmp.T + K @ R_diag @ K.T
 
             offset = 0
             if self.d_g > 0:
@@ -1921,7 +2194,7 @@ class FactorizedSLDS(SLDSIMMRouter):
     def update_beliefs(
         self,
         r_t: int,
-        loss_obs: float,
+        loss_obs: float | np.ndarray,
         losses_full: Optional[np.ndarray],
         available_experts: Sequence[int],
         cache: dict,
@@ -1996,7 +2269,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             x_t=x_t,
             available_experts=available_experts,
             action=int(r_t),
-            residual=float(loss_obs),
+            residual=loss_obs,
             residuals_full=residuals_full,
             state_override=state_prior,
         )
@@ -2052,7 +2325,7 @@ class FactorizedSLDS(SLDSIMMRouter):
     def update_step(
         self,
         selected_expert_id: int,
-        observed_residual: float,
+        observed_residual: float | np.ndarray,
         context_x: Optional[np.ndarray] = None,
     ) -> None:
         if context_x is None:
@@ -2198,16 +2471,19 @@ class FactorizedSLDS(SLDSIMMRouter):
         Sigma_u_pred: Dict[int, np.ndarray],
         k: int,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        mean_modes = np.zeros(self.M, dtype=float)
-        var_modes = np.zeros(self.M, dtype=float)
+        phi_T = phi.T
+        d_y = int(phi_T.shape[0])
+        mean_modes = np.zeros((self.M, d_y), dtype=float)
+        cov_modes = np.zeros((self.M, d_y, d_y), dtype=float)
         if self.d_g == 0:
             for m in range(self.M):
                 mu_u_m = mu_u_pred[k][m]
                 Sigma_u_m = Sigma_u_pred[k][m]
-                mean_modes[m] = float(phi @ mu_u_m)
-                noise = float(phi @ (Sigma_u_m @ phi)) + self._get_R(m, k)
-                var_modes[m] = max(noise, self.eps)
-            return mean_modes, var_modes
+                mean_modes[m] = phi_T @ mu_u_m
+                noise = phi_T @ Sigma_u_m @ phi + self._get_R_matrix(m, k, d_y)
+                noise = 0.5 * (noise + noise.T)
+                cov_modes[m] = noise
+            return mean_modes, cov_modes
 
         Bk = self._ensure_B(k)
         for m in range(self.M):
@@ -2215,11 +2491,14 @@ class FactorizedSLDS(SLDSIMMRouter):
             Sigma_g_m = Sigma_g_pred[m]
             mu_u_m = mu_u_pred[k][m]
             Sigma_u_m = Sigma_u_pred[k][m]
-            mean_modes[m] = float(phi @ (Bk @ mu_g_m + mu_u_m))
-            signal = float(phi @ (Bk @ (Sigma_g_m @ (Bk.T @ phi))))
-            noise = float(phi @ (Sigma_u_m @ phi)) + self._get_R(m, k)
-            var_modes[m] = max(signal + noise, self.eps)
-        return mean_modes, var_modes
+            H_g = phi_T @ Bk
+            mean_modes[m] = H_g @ mu_g_m + phi_T @ mu_u_m
+            signal = H_g @ Sigma_g_m @ H_g.T
+            signal = 0.5 * (signal + signal.T)
+            noise = phi_T @ Sigma_u_m @ phi + self._get_R_matrix(m, k, d_y)
+            noise = 0.5 * (noise + noise.T)
+            cov_modes[m] = signal + noise
+        return mean_modes, cov_modes
 
     def _filter_block_nll(
         self,
@@ -2248,12 +2527,9 @@ class FactorizedSLDS(SLDSIMMRouter):
                 self.mu_u,
                 self.Sigma_u,
             )
-            for k in entering:
-                mu_u_pred[int(k)] = self.u_mean0.copy()
-                Sigma_u_pred[int(k)] = self.u_cov0.copy()
 
             if full_feedback:
-                residuals_t = np.asarray(residuals_full[t], dtype=float)
+                residuals_t = self._as_residual_matrix(residuals_full[t])
                 (
                     w_post,
                     mu_g_post,
@@ -2271,21 +2547,21 @@ class FactorizedSLDS(SLDSIMMRouter):
                     mu_u_pred,
                     Sigma_u_pred,
                     return_log_like=True,
-                )
+                    )
                 if accumulate:
                     nll += -self._logsumexp(
                         log_like + np.log(np.maximum(w_pred, self.eps))
                     )
             else:
                 action = int(actions[t])
-                residual = float(residuals[t])
-                mean_modes, var_modes = self._mode_residual_stats(
+                residual = self._as_residual_vector(residuals[t])
+                mean_modes, cov_modes = self._mode_residual_stats(
                     phi, mu_g_pred, Sigma_g_pred, mu_u_pred, Sigma_u_pred, action
                 )
                 loglikes = np.log(np.maximum(w_pred, self.eps))
                 for m in range(self.M):
-                    loglikes[m] += self._gaussian_logpdf(
-                        residual, mean_modes[m], var_modes[m]
+                    loglikes[m] += self._gaussian_logpdf_mvn(
+                        residual, mean_modes[m], cov_modes[m]
                     )
                 if accumulate:
                     nll += -self._logsumexp(loglikes)
@@ -2484,10 +2760,10 @@ class FactorizedSLDS(SLDSIMMRouter):
     ) -> None:
         if self.transition_model is None and self.transition_hidden_dims is None:
             return
-        if torch is None or nn is None:
-            raise RuntimeError("Transition model requires PyTorch.")
         if steps <= 0:
             return
+        if torch is None or nn is None:
+            raise RuntimeError("Transition model requires PyTorch.")
         T_train = len(contexts)
         if T_train <= 1:
             return
@@ -2508,7 +2784,8 @@ class FactorizedSLDS(SLDSIMMRouter):
         xi_tensor = torch.as_tensor(xi, dtype=torch.float32, device=device)
         optimizer = torch.optim.AdamW(
             self.transition_model.parameters(),
-            lr=float(lr)
+            lr=float(lr),
+            weight_decay=float(weight_decay),
         )
         best_state = None
         best_loss = float("inf")
@@ -2552,10 +2829,10 @@ class FactorizedSLDS(SLDSIMMRouter):
         weight_decay: float,
         seed: Optional[int],
     ) -> None:
-        if torch is None:
-            raise RuntimeError("Transition model requires PyTorch.")
         if steps <= 0:
             return
+        if torch is None:
+            raise RuntimeError("Transition model requires PyTorch.")
         T_train = len(contexts)
         if T_train <= 1:
             return
@@ -2575,7 +2852,8 @@ class FactorizedSLDS(SLDSIMMRouter):
         b_lin = torch.as_tensor(self.b_lin, dtype=torch.float32, device=device).requires_grad_(True)
         optimizer = torch.optim.AdamW(
             [W_lin, b_lin],
-            lr=float(lr)
+            lr=float(lr),
+            weight_decay=float(weight_decay),
         )
         losses: list[float] = []
         step_dws: list[float] = []
@@ -2635,10 +2913,10 @@ class FactorizedSLDS(SLDSIMMRouter):
         weight_decay: float,
         seed: Optional[int],
     ) -> None:
-        if torch is None:
-            raise RuntimeError("Transition model requires PyTorch.")
         if steps <= 0:
             return
+        if torch is None:
+            raise RuntimeError("Transition model requires PyTorch.")
         T_train = len(contexts)
         if T_train <= 1:
             return
@@ -2663,7 +2941,8 @@ class FactorizedSLDS(SLDSIMMRouter):
             params.append(b_attn)
         optimizer = torch.optim.AdamW(
             params,
-            lr=float(lr)
+            lr=float(lr),
+            weight_decay=float(weight_decay),
         )
         scale = (W_q.shape[1] ** 0.5)
         denom = max(float(xi_tensor.sum().detach().cpu()), self.eps)
@@ -2743,15 +3022,48 @@ class FactorizedSLDS(SLDSIMMRouter):
             P_pred[t] = 0.5 * (P_pred[t] + P_pred[t].T) + self.eps * np.eye(d)
 
             if obs_mask[t]:
-                H_t = H_seq[t]
-                R_t = float(R_seq[t])
-                S = float(H_t @ P_pred[t] @ H_t.T + R_t)
-                S = max(S, self.eps)
-                K = (P_pred[t] @ H_t.T) / S
-                innovation = float(y_seq[t] - H_t @ m_pred[t])
-                m_filt[t] = m_pred[t] + (K.flatten() * innovation)
-                P_filt[t] = P_pred[t] - K @ H_t @ P_pred[t]
-                P_filt[t] = 0.5 * (P_filt[t] + P_filt[t].T) + self.eps * np.eye(d)
+                H_t = np.asarray(H_seq[t], dtype=float)
+                y_t = np.asarray(y_seq[t], dtype=float)
+                if H_t.ndim == 1:
+                    R_t = float(R_seq[t])
+                    S = float(H_t @ P_pred[t] @ H_t.T + R_t)
+                    S = max(S, self.eps)
+                    K = (P_pred[t] @ H_t.T) / S
+                    innovation = float(y_t - H_t @ m_pred[t])
+                    m_filt[t] = m_pred[t] + (K.flatten() * innovation)
+                    P_filt[t] = P_pred[t] - K @ H_t @ P_pred[t]
+                    P_filt[t] = 0.5 * (P_filt[t] + P_filt[t].T) + self.eps * np.eye(d)
+                else:
+                    y_vec = y_t.reshape(-1)
+                    n_obs = int(H_t.shape[0])
+                    if y_vec.shape[0] != n_obs:
+                        raise ValueError("Observation dimension mismatch in Kalman update.")
+                    R_t = R_seq[t]
+                    if np.ndim(R_t) == 0:
+                        R_mat = np.eye(n_obs, dtype=float) * float(R_t)
+                    else:
+                        R_arr = np.asarray(R_t, dtype=float)
+                        if R_arr.ndim == 1:
+                            if R_arr.shape[0] != n_obs:
+                                raise ValueError("R dimension mismatch in Kalman update.")
+                            R_mat = np.diag(R_arr)
+                        else:
+                            if R_arr.shape != (n_obs, n_obs):
+                                raise ValueError("R dimension mismatch in Kalman update.")
+                            R_mat = R_arr
+                    S = H_t @ P_pred[t] @ H_t.T + R_mat
+                    S = 0.5 * (S + S.T) + self.eps * np.eye(n_obs, dtype=float)
+                    PHt = P_pred[t] @ H_t.T
+                    try:
+                        L = np.linalg.cholesky(S)
+                        tmp = np.linalg.solve(L, PHt.T)
+                        K = np.linalg.solve(L.T, tmp).T
+                    except np.linalg.LinAlgError:
+                        K = np.linalg.solve(S, PHt.T).T
+                    innovation = y_vec - H_t @ m_pred[t]
+                    m_filt[t] = m_pred[t] + K @ innovation
+                    P_filt[t] = P_pred[t] - K @ H_t @ P_pred[t]
+                    P_filt[t] = 0.5 * (P_filt[t] + P_filt[t].T) + self.eps * np.eye(d)
             else:
                 m_filt[t] = m_pred[t]
                 P_filt[t] = P_pred[t]
@@ -2839,6 +3151,85 @@ class FactorizedSLDS(SLDSIMMRouter):
 
         return x
 
+    def _kalman_sample_flexible(
+        self,
+        A_seq: np.ndarray,
+        Q_seq: np.ndarray,
+        H_seq: Sequence[np.ndarray],
+        R_seq: Sequence[np.ndarray],
+        y_seq: Sequence[np.ndarray],
+        m0: np.ndarray,
+        P0: np.ndarray,
+        rng: np.random.Generator,
+    ) -> np.ndarray:
+        T, d = len(y_seq), m0.shape[0]
+        if d == 0:
+            return np.zeros((T, 0), dtype=float)
+        m_pred = np.zeros((T, d), dtype=float)
+        P_pred = np.zeros((T, d, d), dtype=float)
+        m_filt = np.zeros((T, d), dtype=float)
+        P_filt = np.zeros((T, d, d), dtype=float)
+
+        for t in range(T):
+            if t == 0:
+                m_pred[t] = m0
+                P_pred[t] = P0
+            else:
+                m_pred[t] = A_seq[t] @ m_filt[t - 1]
+                P_pred[t] = A_seq[t] @ P_filt[t - 1] @ A_seq[t].T + Q_seq[t]
+            P_pred[t] = 0.5 * (P_pred[t] + P_pred[t].T) + self.eps * np.eye(d)
+
+            H_t = np.asarray(H_seq[t], dtype=float)
+            y_t = np.asarray(y_seq[t], dtype=float).reshape(-1)
+            if y_t.size == 0 or H_t.size == 0:
+                m_filt[t] = m_pred[t]
+                P_filt[t] = P_pred[t]
+                continue
+            if H_t.ndim == 1:
+                H_t = H_t.reshape(1, -1)
+            R_t = np.asarray(R_seq[t], dtype=float)
+            if R_t.ndim == 0:
+                R_mat = np.eye(int(y_t.shape[0]), dtype=float) * float(R_t)
+            elif R_t.ndim == 1:
+                if R_t.shape[0] != y_t.shape[0]:
+                    raise ValueError("R dimension mismatch in Kalman update.")
+                R_mat = np.diag(R_t)
+            else:
+                if R_t.shape != (y_t.shape[0], y_t.shape[0]):
+                    raise ValueError("R dimension mismatch in Kalman update.")
+                R_mat = R_t
+            S = H_t @ P_pred[t] @ H_t.T + R_mat
+            S = 0.5 * (S + S.T) + self.eps * np.eye(int(y_t.shape[0]), dtype=float)
+            PHt = P_pred[t] @ H_t.T
+            try:
+                L = np.linalg.cholesky(S)
+                tmp = np.linalg.solve(L, PHt.T)
+                K = np.linalg.solve(L.T, tmp).T
+            except np.linalg.LinAlgError:
+                K = np.linalg.solve(S, PHt.T).T
+            innovation = y_t - H_t @ m_pred[t]
+            m_filt[t] = m_pred[t] + K @ innovation
+            P_filt[t] = P_pred[t] - K @ H_t @ P_pred[t]
+            P_filt[t] = 0.5 * (P_filt[t] + P_filt[t].T) + self.eps * np.eye(d)
+
+        x = np.zeros((T, d), dtype=float)
+        x[T - 1] = rng.multivariate_normal(m_filt[T - 1], P_filt[T - 1])
+        for t in range(T - 2, -1, -1):
+            P_pred_next = P_pred[t + 1] + self.eps * np.eye(d, dtype=float)
+            PHt = P_filt[t] @ A_seq[t + 1].T
+            try:
+                L = np.linalg.cholesky(P_pred_next)
+                tmp = np.linalg.solve(L, PHt.T)
+                J = np.linalg.solve(L.T, tmp).T
+            except np.linalg.LinAlgError:
+                J = np.linalg.solve(P_pred_next, PHt.T).T
+            mean = m_filt[t] + J @ (x[t + 1] - m_pred[t + 1])
+            cov = P_filt[t] - J @ P_pred_next @ J.T
+            cov = 0.5 * (cov + cov.T) + self.eps * np.eye(d)
+            x[t] = rng.multivariate_normal(mean, cov)
+
+        return x
+
     def _sample_z_sequence(
         self,
         contexts: Sequence[np.ndarray],
@@ -2875,24 +3266,29 @@ class FactorizedSLDS(SLDSIMMRouter):
 
         for t in range(T):
             phi_t = phi_seq[t]
+            phi_T = phi_t.T
+            d_y = int(phi_T.shape[0])
             if full_feedback:
+                residuals_full_t = self._as_residual_matrix(residuals_full[t])
                 for k in available_sets[t]:
                     k = int(k)
                     Bk = self._ensure_B(k)
-                    mean_shared = float(phi_t @ (Bk @ g_prev[t] + u_prev[k][t]))
+                    mean_shared = phi_T @ (Bk @ g_prev[t] + u_prev[k][t])
+                    resid_vec = self._as_residual_vector(residuals_full_t[k])
                     for m in range(self.M):
-                        var = self._get_R(m, k)
-                        log_emission[t, m] += self._gaussian_logpdf(
-                            float(residuals_full[t][k]), mean_shared, var
+                        R_mat = self._get_R_matrix(m, k, d_y)
+                        log_emission[t, m] += self._gaussian_logpdf_mvn(
+                            resid_vec, mean_shared, R_mat
                         )
             else:
                 k = int(actions[t])
                 Bk = self._ensure_B(k)
-                mean_shared = float(phi_t @ (Bk @ g_prev[t] + u_prev[k][t]))
+                mean_shared = phi_T @ (Bk @ g_prev[t] + u_prev[k][t])
+                resid_vec = self._as_residual_vector(residuals[t])
                 for m in range(self.M):
-                    var = self._get_R(m, k)
-                    log_emission[t, m] = self._gaussian_logpdf(
-                        float(residuals[t]), mean_shared, var
+                    R_mat = self._get_R_matrix(m, k, d_y)
+                    log_emission[t, m] = self._gaussian_logpdf_mvn(
+                        resid_vec, mean_shared, R_mat
                     )
             for m in range(self.M):
                 if self.d_g > 0:
@@ -3125,8 +3521,23 @@ class FactorizedSLDS(SLDSIMMRouter):
         for avail in train_avail:
             expert_ids.extend(int(k) for k in avail)
         expert_ids = sorted(set(expert_ids))
+        if self.N is None and expert_ids:
+            self.N = int(max(expert_ids) + 1)
         for k in expert_ids:
             self._ensure_B(k)
+
+        phi_probe = self._compute_phi(train_ctx[0])
+        d_y = int(phi_probe.shape[1])
+        psi_R_cfg = priors.get("Psi_R", None)
+        if psi_R_cfg is None:
+            Psi_R = np.zeros((d_y, d_y), dtype=float)
+        else:
+            Psi_R = np.asarray(psi_R_cfg, dtype=float)
+            if Psi_R.shape == ():
+                Psi_R = np.eye(d_y, dtype=float) * float(Psi_R)
+            elif Psi_R.shape != (d_y, d_y):
+                raise ValueError("Psi_R must be scalar or (d_y, d_y).")
+        nu_R = float(priors.get("nu_R", 0.0))
 
         g_prev = np.stack(
             [g_init_mean[rng.integers(self.M)] for _ in range(len(train_ctx))]
@@ -3177,21 +3588,36 @@ class FactorizedSLDS(SLDSIMMRouter):
                     y_seq_g = []
                     for t in range(len(train_ctx)):
                         phi_t = phi_seq[t]
+                        phi_T = phi_t.T
                         H_rows = []
-                        R_vals = []
+                        R_blocks = []
                         y_vals = []
+                        residuals_full_t = self._as_residual_matrix(train_residuals_full[t])
+                        z_m = int(z_seq[t])
                         for k in train_avail[t]:
                             k = int(k)
                             Bk = self._ensure_B(k)
-                            H_rows.append((Bk.T @ phi_t).reshape(self.d_g))
-                            R_vals.append(self._get_R(int(z_seq[t]), k))
-                            y_vals.append(
-                                float(train_residuals_full[t][k] - phi_t @ u_prev[k][t])
-                            )
-                        H_seq_g.append(np.asarray(H_rows, dtype=float))
-                        R_seq_g.append(np.asarray(R_vals, dtype=float))
-                        y_seq_g.append(np.asarray(y_vals, dtype=float))
-                    g_seq = self._kalman_sample_multi(
+                            H_g = phi_T @ Bk
+                            resid_vec = self._as_residual_vector(residuals_full_t[k])
+                            y_vec = resid_vec - phi_T @ u_prev[k][t]
+                            H_rows.append(H_g)
+                            R_blocks.append(self._get_R_matrix(z_m, k, d_y))
+                            y_vals.append(y_vec)
+                        if H_rows:
+                            H_t = np.vstack(H_rows)
+                            y_t = np.concatenate(y_vals)
+                            R_t = np.zeros((y_t.shape[0], y_t.shape[0]), dtype=float)
+                            for idx, Rk in enumerate(R_blocks):
+                                start = idx * d_y
+                                R_t[start : start + d_y, start : start + d_y] = Rk
+                        else:
+                            H_t = np.zeros((0, self.d_g), dtype=float)
+                            y_t = np.zeros(0, dtype=float)
+                            R_t = np.zeros((0, 0), dtype=float)
+                        H_seq_g.append(H_t)
+                        R_seq_g.append(R_t)
+                        y_seq_g.append(y_t)
+                    g_seq = self._kalman_sample_flexible(
                         A_seq_g,
                         Q_seq_g,
                         H_seq_g,
@@ -3202,23 +3628,25 @@ class FactorizedSLDS(SLDSIMMRouter):
                         rng,
                     )
                 else:
-                    H_seq_g = np.zeros((len(train_ctx), 1, self.d_g), dtype=float)
-                    R_seq_g = np.zeros(len(train_ctx), dtype=float)
-                    y_seq_g = np.zeros(len(train_ctx), dtype=float)
+                    H_seq_g = np.zeros((len(train_ctx), d_y, self.d_g), dtype=float)
+                    R_seq_g = np.zeros((len(train_ctx), d_y, d_y), dtype=float)
+                    y_seq_g = np.zeros((len(train_ctx), d_y), dtype=float)
                     obs_mask_g = np.ones(len(train_ctx), dtype=bool)
                     for t in range(len(train_ctx)):
                         k = int(train_actions[t])
                         phi_t = phi_seq[t]
+                        phi_T = phi_t.T
                         Bk = self._ensure_B(k)
-                        H_seq_g[t] = (Bk.T @ phi_t).reshape(1, self.d_g)
-                        R_seq_g[t] = self._get_R(int(z_seq[t]), k)
-                        y_seq_g[t] = float(train_residuals[t] - phi_t @ u_prev[k][t])
+                        H_seq_g[t] = phi_T @ Bk
+                        R_seq_g[t] = self._get_R_matrix(int(z_seq[t]), k, d_y)
+                        resid_vec = self._as_residual_vector(train_residuals[t])
+                        y_seq_g[t] = resid_vec - phi_T @ u_prev[k][t]
                     g_seq = self._kalman_sample(
                         A_seq_g,
                         Q_seq_g,
                         H_seq_g,
                         R_seq_g,
-                        y_seq_g.reshape(-1, 1),
+                        y_seq_g,
                         obs_mask_g,
                         g_init_mean[z_seq[0]],
                         g_init_cov[z_seq[0]],
@@ -3229,31 +3657,34 @@ class FactorizedSLDS(SLDSIMMRouter):
                 for k in expert_ids:
                     A_seq_u = self.A_u[z_seq]
                     Q_seq_u = self.Q_u[z_seq]
-                    H_seq_u = np.zeros((len(train_ctx), 1, self.d_phi), dtype=float)
-                    R_seq_u = np.zeros(len(train_ctx), dtype=float)
-                    y_seq_u = np.zeros(len(train_ctx), dtype=float)
+                    H_seq_u = np.zeros((len(train_ctx), d_y, self.d_phi), dtype=float)
+                    R_seq_u = np.zeros((len(train_ctx), d_y, d_y), dtype=float)
+                    y_seq_u = np.zeros((len(train_ctx), d_y), dtype=float)
                     obs_mask_u = np.zeros(len(train_ctx), dtype=bool)
                     Bk = self._ensure_B(k)
                     for t in range(len(train_ctx)):
                         if full_feedback:
                             if k not in train_avail[t]:
                                 continue
-                            resid_val = float(train_residuals_full[t][k])
+                            resid_val = self._as_residual_vector(
+                                self._as_residual_matrix(train_residuals_full[t])[k]
+                            )
                         else:
                             if int(train_actions[t]) != k:
                                 continue
-                            resid_val = float(train_residuals[t])
+                            resid_val = self._as_residual_vector(train_residuals[t])
                         phi_t = phi_seq[t]
-                        H_seq_u[t] = phi_t.reshape(1, self.d_phi)
-                        R_seq_u[t] = self._get_R(int(z_seq[t]), k)
-                        y_seq_u[t] = float(resid_val - phi_t @ (Bk @ g_seq[t]))
+                        phi_T = phi_t.T
+                        H_seq_u[t] = phi_T
+                        R_seq_u[t] = self._get_R_matrix(int(z_seq[t]), k, d_y)
+                        y_seq_u[t] = resid_val - phi_T @ (Bk @ g_seq[t])
                         obs_mask_u[t] = True
                     u_seq[k] = self._kalman_sample(
                         A_seq_u,
                         Q_seq_u,
                         H_seq_u,
                         R_seq_u,
-                        y_seq_u.reshape(-1, 1),
+                        y_seq_u,
                         obs_mask_u,
                         u_init_mean.get(k, self.u_mean0)[z_seq[0]],
                         u_init_cov.get(k, self.u_cov0)[z_seq[0]],
@@ -3413,7 +3844,7 @@ class FactorizedSLDS(SLDSIMMRouter):
                         else:
                             if int(train_actions[t]) != k:
                                 continue
-                        obs_count += 1
+                        obs_count += d_y
                     if obs_count <= epsilon_N:
                         continue
 
@@ -3425,62 +3856,113 @@ class FactorizedSLDS(SLDSIMMRouter):
                         if full_feedback:
                             if k not in train_avail[t]:
                                 continue
-                            resid_val = float(train_residuals_full[t][k])
+                            resid_val = self._as_residual_vector(
+                                self._as_residual_matrix(train_residuals_full[t])[k]
+                            )
                         else:
                             if int(train_actions[t]) != k:
                                 continue
-                            resid_val = float(train_residuals[t])
+                            resid_val = self._as_residual_vector(train_residuals[t])
                         phi_t = phi_seq[t]
+                        phi_T = phi_t.T
                         for s in range(z_samples.shape[0]):
                             m = int(z_samples[s, t])
                             g_t = g_samples[s, t]
                             u_t = u_samples[k][s, t]
-                            x_vec = np.kron(g_t, phi_t)
-                            y_val = float(resid_val - phi_t @ u_t)
-                            w_tm = 1.0 / max(self._get_R(m, k), self.eps)
-                            weight = w_tm / S
-                            XTX += weight * np.outer(x_vec, x_vec)
-                            XTy += weight * x_vec * y_val
+                            R_mat = self._get_R_matrix(m, k, d_y)
+                            R_mat = 0.5 * (R_mat + R_mat.T) + self.eps * np.eye(d_y)
+                            y_vec = resid_val - phi_T @ u_t
+                            X = np.stack(
+                                [np.kron(phi_t[:, r], g_t) for r in range(d_y)],
+                                axis=0,
+                            )
+                            try:
+                                X_weighted = np.linalg.solve(R_mat, X)
+                                y_weighted = np.linalg.solve(R_mat, y_vec)
+                            except np.linalg.LinAlgError:
+                                R_mat = R_mat + self.eps * np.eye(d_y)
+                                X_weighted = np.linalg.solve(R_mat, X)
+                                y_weighted = np.linalg.solve(R_mat, y_vec)
+                            weight = 1.0 / S
+                            XTX += weight * (X.T @ X_weighted)
+                            XTy += weight * (X.T @ y_weighted)
                     reg = lambda_B * np.eye(self.d_phi * self.d_g)
                     vec_M = M_B.reshape(-1)
                     vec_B = np.linalg.solve(XTX + reg, XTy + lambda_B * vec_M)
                     self.B_dict[k] = vec_B.reshape(self.d_phi, self.d_g)
 
             # Update R_{m,k}
-            if np.ndim(self.R) == 0:
-                self.R = np.full(
-                    (
-                        self.M,
-                        self.N if self.N is not None else max(expert_ids) + 1,
-                    ),
-                    float(self.R),
-                )
-            for m in range(self.M):
-                for k in expert_ids:
-                    num = 0.0
-                    denom = 0.0
-                    for t in range(T_train):
-                        if full_feedback:
-                            if k not in train_avail[t]:
-                                continue
-                            resid_val = float(train_residuals_full[t][k])
-                        else:
-                            if int(train_actions[t]) != k:
-                                continue
-                            resid_val = float(train_residuals[t])
-                        phi_t = phi_seq[t]
-                        Bk = self._ensure_B(k)
-                        for s in range(z_samples.shape[0]):
-                            if int(z_samples[s, t]) != m:
-                                continue
-                            g_t = g_samples[s, t]
-                            u_t = u_samples[k][s, t]
-                            resid = float(resid_val - phi_t @ (Bk @ g_t + u_t))
-                            num += (resid ** 2) / S
-                            denom += 1.0 / S
-                    if denom <= epsilon_N:
-                        continue
-                    self.R[m, k] = (b_R + 0.5 * num) / (a_R + 0.5 * denom + 1.0)
+            if self.R_mode == "full":
+                self._ensure_full_R(d_y)
+                for m in range(self.M):
+                    for k in expert_ids:
+                        sum_res = np.zeros((d_y, d_y), dtype=float)
+                        denom = 0.0
+                        for t in range(T_train):
+                            if full_feedback:
+                                if k not in train_avail[t]:
+                                    continue
+                                resid_val = self._as_residual_vector(
+                                    self._as_residual_matrix(train_residuals_full[t])[k]
+                                )
+                            else:
+                                if int(train_actions[t]) != k:
+                                    continue
+                                resid_val = self._as_residual_vector(train_residuals[t])
+                            phi_t = phi_seq[t]
+                            phi_T = phi_t.T
+                            Bk = self._ensure_B(k)
+                            for s in range(z_samples.shape[0]):
+                                if int(z_samples[s, t]) != m:
+                                    continue
+                                g_t = g_samples[s, t]
+                                u_t = u_samples[k][s, t]
+                                resid_vec = resid_val - phi_T @ (Bk @ g_t + u_t)
+                                sum_res += np.outer(resid_vec, resid_vec) / S
+                                denom += 1.0 / S
+                        if denom <= epsilon_N:
+                            continue
+                        self.R[m, k] = (Psi_R + sum_res) / max(
+                            nu_R + denom, self.eps
+                        )
+            else:
+                if np.ndim(self.R) == 0:
+                    self.R = np.full(
+                        (
+                            self.M,
+                            self.N if self.N is not None else max(expert_ids) + 1,
+                        ),
+                        float(self.R),
+                    )
+                for m in range(self.M):
+                    for k in expert_ids:
+                        num = 0.0
+                        denom = 0.0
+                        for t in range(T_train):
+                            if full_feedback:
+                                if k not in train_avail[t]:
+                                    continue
+                                resid_val = self._as_residual_vector(
+                                    self._as_residual_matrix(train_residuals_full[t])[k]
+                                )
+                            else:
+                                if int(train_actions[t]) != k:
+                                    continue
+                                resid_val = self._as_residual_vector(train_residuals[t])
+                            phi_t = phi_seq[t]
+                            phi_T = phi_t.T
+                            Bk = self._ensure_B(k)
+                            for s in range(z_samples.shape[0]):
+                                if int(z_samples[s, t]) != m:
+                                    continue
+                                g_t = g_samples[s, t]
+                                u_t = u_samples[k][s, t]
+                                resid_vec = resid_val - phi_T @ (Bk @ g_t + u_t)
+                                num += float(resid_vec @ resid_vec) / S
+                                denom += float(d_y) / S
+                        if denom <= epsilon_N:
+                            continue
+                        self.R[m, k] = (b_R + 0.5 * num) / (a_R + 0.5 * denom)
 
             # Update transition parameters (torch model, attention, or linear).
             if self.transition_model is not None or self.transition_hidden_dims is not None:

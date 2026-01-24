@@ -222,15 +222,19 @@ def _get_router_observation(
     r_t: int,
 ) -> Tuple[float, float, Optional[np.ndarray]]:
     if _router_observes_residual(router):
-        y_t = float(env.y[t])
-        preds = env.all_expert_predictions(x_t)
+        y_t = np.asarray(env.y[t], dtype=float)
+        preds = np.asarray(env.all_expert_predictions(x_t), dtype=float)
         residuals = preds - y_t
-        residual_r = float(residuals[int(r_t)])
+        residual_r = np.asarray(residuals[int(r_t)], dtype=float)
         # Use router's loss_fn if available (e.g., custom ψ), else squared loss.
-        if hasattr(router, "loss_fn") and router.loss_fn is not None:
-            loss_r = float(router._apply_loss_fn(np.array([residual_r]))[0])
+        if hasattr(router, "_loss_from_residual"):
+            loss_r = float(router._loss_from_residual(residual_r))
+        elif hasattr(router, "loss_fn") and router.loss_fn is not None:
+            val = router.loss_fn(residual_r)
+            val_arr = np.asarray(val, dtype=float)
+            loss_r = float(val_arr) if val_arr.ndim == 0 else float(np.sum(val_arr))
         else:
-            loss_r = residual_r ** 2
+            loss_r = float(np.sum(residual_r * residual_r))
         residuals_full = None
         if router.feedback_mode == "full":
             residuals_full = _mask_feedback_vector(

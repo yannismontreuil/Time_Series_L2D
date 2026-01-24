@@ -10,7 +10,7 @@ transition_log:
   print_wlin_blin: false
   plot: true
   plot_show: true
-  plot_save: false
+  plot_save: true
   plot_na: true
   online_only: true
   plot_only_ours: true
@@ -20,60 +20,51 @@ environment:
   # Main experiment environment for ETTh1 (oil temperature as target).
   # We reuse the same router code as for the synthetic environment, but
   # the data now comes from a real-world dataset.
-  T: 10000 # total 17536 time steps
+#  T: 8000 # total 17536 time steps
   data_source: etth1
   csv_path: data/ETTh1.csv
   target_column: OT
 
-#  # Number of experts and regimes.
-  num_experts: 4
-  num_regimes: 4
+  # Expert configuration: flexible enable/disable system
+  # Available expert types:
+  # - ar1_low_var: AR(1) with low variance (base model)
+  # - ar1_high_var: AR(1) with higher variance
+  # - nn_early: NN trained on early portion of data
+  # - nn_late: NN trained on late portion of data
+  # - ar2_segment1: AR(2) trained on first data segment
+  # - ar2_segment2: AR(2) trained on second data segment
 
-  # Context features (multivariate): sensor channels + lagged OT + time features.
-  context_columns:
-    - HUFL
-    - HULL
-    - MUFL
-    - MULL
-    - LUFL
-    - LULL
-  context_lags: [1, 24, 168]
-  include_time_features: true
-  time_features: ["hour", "dayofweek", "month"]
-  feature_expansions: ["diff1", "squared", "lag_diff"]
-  lag_diff_pairs:
-    - [1, 24]
-    - [1, 168]
-    - [24, 168]
-  normalize_context: true
-  normalization_mode: "zscore"
-  # Use the first N points to compute normalization stats; set null to use full series.
-  normalization_window: 12000
-  normalization_eps: 1.0e-6
+  # Method 1: Enable specific expert types by name
+  enabled_experts:
+    - ar1_low_var
+    - ar1_high_var
+    - nn_early
+    - nn_late
+    - ar2_segment1
+    - ar2_segment2
 
-  # State dimension d = dim φ(x). Must match the context feature length.
-  state_dim: 48
-
-  # Optional: limit the number of time steps T used from the dataset.
-  # If omitted or null, the full ETTh1 series is used.
-  # For example, to use only the first 2000 points, set T: 2000.
-  # T: 2000
+  # State dimension d = dim φ(x). The current feature map returns 1D features.
+  state_dim: 1
 
   seed: 42
 
   # Expert availability controls. In this ETTh1 experiment we introduce
   # multiple experts whose availability switches over time:
-  #   - Expert 1 (index 0) is unavailable on several disjoint intervals.
-  #   - Expert 4 (index 3) arrives late and is only available on
+  #   - Expert at index 0 is unavailable on several disjoint intervals.
+  #   - Experts at indices 3 and 2 arrive late and are only available on
   #     specified arrival intervals.
-  unavailable_expert_idx: 0
+
+  # At most 2 unavailable experts and at most 2 arriving experts can be specified.
+  unavailable_expert_idx: [0, 1]
   unavailable_intervals:
-    - [1000, 3000]
-    - [6000, 9000]
-  arrival_expert_idx: 3
+    - []
+    - []
+  arrival_expert_idx: [4, 5]
   arrival_intervals:
-    # Expert 4 becomes available only later in the series.
-    - [2000, 3000]
+    # Expert 5 becomes available only later in the series.
+    - []
+    - []
+
   analysis_window: 500
   analysis_adoption_threshold: 0.5
 
@@ -83,9 +74,9 @@ routers:
 
   factorized_slds:
     enabled: true
-    num_regimes: 4
+    num_regimes: 5
     shared_dim: 2
-    idiosyncratic_dim: 48
+    idiosyncratic_dim: 1
     delta_max: 250
     R_scalar: 0.0009
     A_g:
@@ -93,24 +84,36 @@ routers:
       - [[0.95, 0.0], [0.0, 0.95]]
       - [[0.95, 0.0], [0.0, 0.95]]
       - [[0.95, 0.0], [0.0, 0.95]]
-    A_u: null
-    A_u_scale: 0.95
+      - [[0.95, 0.0], [0.0, 0.95]]
+    A_u:
+      - [[0.95]]
+      - [[0.95]]
+      - [[0.95]]
+      - [[0.95]]
+      - [[0.95]]
     Q_g:
       - [[0.2, 0.0], [0.0, 0.01]]
       - [[0.01, 0.0], [0.0, 0.2]]
-      - [[0.2, 0.0], [0.0, 0.01]]
-      - [[0.01, 0.0], [0.0, 0.2]]
-    Q_u_scales: [0.015, 0.015, 0.015, 0.015]
+      - [[0.1, 0.0], [0.0, 0.05]]
+      - [[0.05, 0.0], [0.0, 0.1]]
+      - [[0.15, 0.0], [0.0, 0.15]]
+    Q_u:
+      - [[0.015]]
+      - [[0.015]]
+      - [[0.02]]
+      - [[0.02]]
+      - [[0.01]]
+    Q_u_scales: [0.015, 0.015, 0.02, 0.02, 0.01]
     exploration: ["g_z"]
     exploration_diag_enabled: true
     exploration_diag_stride: 200
     exploration_diag_samples: 50
     exploration_diag_print: true
 
-    em_enabled: false
+    em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 400
-    em_n: 5
+    em_tk: 1700
+    em_n: 3
     em_samples: 10
     em_burn_in: 100
     em_use_validation: true
@@ -125,8 +128,8 @@ routers:
     em_print_val_loss: true
     em_eps_n: 1.0e-3
 
-    em_online_enabled: false
-    em_online_window: 400
+    em_online_enabled: true
+    em_online_window: 600
     em_online_period: 300
     em_online_n: 1
     em_online_samples: 20
@@ -171,9 +174,9 @@ baselines:
 analysis:
   baselines_train_from_start: true
   tri_cycle_corr:
-    enabled: true
+    enabled: false
     router: "factorized_full"
-    out_dir: "out/ETTh1"
+    out_dir: "out/tri_cycle_corr"
     show_plots: false
     save_plots: true
     save_png: true

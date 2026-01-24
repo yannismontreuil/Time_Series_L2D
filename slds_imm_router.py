@@ -111,9 +111,10 @@ def _collect_factorized_em_data(
             # estimates under partial feedback.
             r_t, cache = router.select_expert(x_t, available)
 
-            preds = env.all_expert_predictions(x_t)
-            residuals_all = preds - float(env.y[t])
-            residual = float(residuals_all[int(r_t)])
+            preds = np.asarray(env.all_expert_predictions(x_t), dtype=float)
+            y_t = np.asarray(env.y[t], dtype=float)
+            residuals_all = preds - y_t
+            residual = np.asarray(residuals_all[int(r_t)], dtype=float)
             if force_full_feedback:
                 residuals_masked = np.full(residuals_all.shape, np.nan, dtype=float)
                 residuals_masked[available] = residuals_all[available]
@@ -123,7 +124,7 @@ def _collect_factorized_em_data(
             contexts.append(x_t)
             available_sets.append(list(available))
             actions.append(int(r_t))
-            residuals.append(residual)
+            residuals.append(np.asarray(residual, dtype=float).copy())
             if force_full_feedback:
                 residuals_full.append(residuals_masked)
 
@@ -161,7 +162,7 @@ def _clone_factorized_em_data(
         list[np.ndarray],
         list[list[int]],
         list[int],
-        list[float],
+        list[np.ndarray],
         Optional[list[np.ndarray]],
     ],
 ):
@@ -169,7 +170,7 @@ def _clone_factorized_em_data(
     ctx_out = [np.asarray(x, dtype=float).copy() for x in ctx]
     avail_out = [list(a) for a in avail]
     actions_out = [int(a) for a in actions]
-    residuals_out = [float(r) for r in residuals]
+    residuals_out = [np.asarray(r, dtype=float).copy() for r in residuals]
     if residuals_full is None:
         residuals_full_out = None
     else:
@@ -1074,7 +1075,15 @@ if __name__ == "__main__":
     linucb_full = None
     if linucb_cfg:
         alpha_ucb = float(linucb_cfg.get("alpha_ucb", 1.0))
-        lambda_reg = float(linucb_cfg.get("lambda_reg", 1.0))
+        lambda_reg = linucb_cfg.get("lambda_reg", None)
+        if lambda_reg is None:
+            lambda_reg = linucb_cfg.get("l2_reg", 1.0)
+        else:
+            if "l2_reg" in linucb_cfg and float(linucb_cfg.get("l2_reg")) != float(lambda_reg):
+                print(
+                    "[config] linucb: both lambda_reg and l2_reg set; using lambda_reg."
+                )
+        lambda_reg = float(lambda_reg)
         lin_mode = _resolve_feedback_mode(linucb_cfg)
 
         if lin_mode in ("partial", "both"):
@@ -1181,6 +1190,7 @@ if __name__ == "__main__":
             r_scalar_fact = float(slds_cfg.get("R_scalar", 0.5))
         else:
             r_scalar_fact = float(r_scalar_fact_cfg)
+        r_mode_fact = str(factorized_slds_cfg.get("R_mode", "auto"))
         B_intercept_load_fact = float(
             factorized_slds_cfg.get("B_intercept_load", 1.0)
         )
@@ -1370,6 +1380,7 @@ if __name__ == "__main__":
                 beta=beta,
                 Delta_max=delta_max_fact,
                 R=r_scalar_fact,
+                R_mode=r_mode_fact,
                 num_experts=N,
                 B_intercept_load=B_intercept_load_fact,
                 attn_dim=attn_dim_fact,
@@ -1416,6 +1427,7 @@ if __name__ == "__main__":
                 beta=beta,
                 Delta_max=delta_max_fact,
                 R=r_scalar_fact,
+                R_mode=r_mode_fact,
                 num_experts=N,
                 B_intercept_load=B_intercept_load_fact,
                 attn_dim=attn_dim_fact,
@@ -1527,11 +1539,12 @@ if __name__ == "__main__":
     # --------------------------------------------------------
     
     # Environment: either synthetic or ETTh1, depending on env_cfg.
-    if data_source == "etth1":
-        # Real-world ETTh1 experiment (oil temperature as target).
+    if data_source in ("etth1", "etth2"):
+        # Real-world ETTh experiment (oil temperature as target).
         T_raw = env_cfg.get("T", None)
         T_env = None if T_raw is None else int(T_raw)
-        csv_path = env_cfg.get("csv_path", "data/ETTh1.csv")
+        default_csv = "data/ETTh2.csv" if data_source == "etth2" else "data/ETTh1.csv"
+        csv_path = env_cfg.get("csv_path", default_csv)
         target_column = env_cfg.get("target_column", "OT")
 
         env = ETTh1TimeSeriesEnv(

@@ -17,12 +17,12 @@ transition_log:
   plot_entropy: true
 
 environment:
-  # Main experiment environment for ETTh1 (oil temperature as target).
+  # Main experiment environment for ETTh2 (oil temperature as target).
   # We reuse the same router code as for the synthetic environment, but
   # the data now comes from a real-world dataset.
-#  T: 17536 # total 17536 time steps
-  data_source: etth1
-  csv_path: data/ETTh1.csv
+  T: 17535 # total 17536 time steps
+  data_source: etth2
+  csv_path: data/ETTh2.csv
   target_column: OT
 
 #  # Number of experts and regimes.
@@ -68,12 +68,11 @@ environment:
   #     specified arrival intervals.
   unavailable_expert_idx: 0
   unavailable_intervals:
-    - [1000, 3000]
-    - [9000, 22000]
+    - [9000, 12000]
   arrival_expert_idx: 3
   arrival_intervals:
     # Expert 4 becomes available only later in the series.
-    - [9000, 22000]
+    - [9000, 12000]
   analysis_window: 500
   analysis_adoption_threshold: 0.5
 
@@ -86,8 +85,9 @@ routers:
     num_regimes: 4
     shared_dim: 2
     idiosyncratic_dim: 48
-    delta_max: 250
+    delta_max: 10000
     R_scalar: 0.0009
+    R_mode: "full"
     A_g:
       - [[0.95, 0.0], [0.0, 0.95]]
       - [[0.95, 0.0], [0.0, 0.95]]
@@ -107,23 +107,26 @@ routers:
     exploration_diag_samples: 50
     exploration_diag_print: true
 
-    em_enabled: false
+    em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 400
-    em_n: 5
-    em_samples: 10
-    em_burn_in: 100
+    em_tk: 5000
+    em_n: 10
+    em_samples: 50
+    em_burn_in: 10
     em_use_validation: true
     em_val_strategy: "rolling"
     em_val_fraction: 0.4
-    em_val_roll_len: 100
+    em_val_roll_len: 200
     em_val_roll_splits: 2
     em_val_roll_stride: null
     em_val_len: null
-    em_theta_lr: 0.01
+    em_theta_lr: 0.001
     em_theta_steps: 10
     em_print_val_loss: true
     em_eps_n: 1.0e-3
+    em_priors:
+      Psi_R: 0.0
+      nu_R: 0.0
 
     em_online_enabled: false
     em_online_window: 400
@@ -136,6 +139,9 @@ routers:
     em_online_eps_n: 1.0e-3
     em_online_print_val_loss: true
     em_online_start_t: null
+    em_online_priors:
+      Psi_R: 0.0
+      nu_R: 0.0
 
     transition_mode: "attention"
 

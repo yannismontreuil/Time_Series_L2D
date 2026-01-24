@@ -2695,8 +2695,20 @@ def plot_pruning_dynamics(
             w_pred = cache.get("w_pred", None)
             stats = cache.get("stats", {})
             if w_pred is not None and j in stats:
-                var_modes = np.asarray(stats[j]["var"], dtype=float)
-                pred_var[idx] = float(np.dot(np.asarray(w_pred, dtype=float), var_modes))
+                cov_modes = np.asarray(stats[j]["cov"], dtype=float)
+                w_arr = np.asarray(w_pred, dtype=float)
+                if cov_modes.ndim == 3 and cov_modes.shape[1:] == (1, 1):
+                    var_modes = cov_modes.reshape(-1)
+                    pred_var[idx] = float(np.dot(w_arr, var_modes))
+                else:
+                    pred_var[idx] = float(
+                        np.sum(
+                            [
+                                w_arr[m] * float(np.trace(cov_modes[m]))
+                                for m in range(w_arr.shape[0])
+                            ]
+                        )
+                    )
             elif curr_in_registry and w_pred is not None:
                 phi = cache["phi"]
                 mu_g_pred = cache["mu_g_pred"]
@@ -2713,14 +2725,26 @@ def plot_pruning_dynamics(
                     [j],
                 )
                 if j in stats_tmp:
-                    var_modes = np.asarray(stats_tmp[j]["var"], dtype=float)
-                    pred_var[idx] = float(np.dot(np.asarray(w_pred, dtype=float), var_modes))
+                    cov_modes = np.asarray(stats_tmp[j]["cov"], dtype=float)
+                    w_arr = np.asarray(w_pred, dtype=float)
+                    if cov_modes.ndim == 3 and cov_modes.shape[1:] == (1, 1):
+                        var_modes = cov_modes.reshape(-1)
+                        pred_var[idx] = float(np.dot(w_arr, var_modes))
+                    else:
+                        pred_var[idx] = float(
+                            np.sum(
+                                [
+                                    w_arr[m] * float(np.trace(cov_modes[m]))
+                                    for m in range(w_arr.shape[0])
+                                ]
+                            )
+                        )
 
             if getattr(router, "observation_mode", "loss") == "residual":
-                y_t = float(env.y[int(t)])
-                preds = env.all_expert_predictions(x_t)
+                y_t = np.asarray(env.y[int(t)], dtype=float)
+                preds = np.asarray(env.all_expert_predictions(x_t), dtype=float)
                 residuals = preds - y_t
-                residual_r = float(residuals[int(r_t)])
+                residual_r = np.asarray(residuals[int(r_t)], dtype=float)
                 loss_obs = residual_r
                 losses_full = None
                 if getattr(router, "feedback_mode", "partial") == "full":
@@ -3007,8 +3031,13 @@ def _compute_residual_matrix(
     residuals = np.zeros((t_end - t_start + 1, env.num_experts), dtype=float)
     for idx, t in enumerate(range(t_start, t_end + 1)):
         x_t = env.get_context(t)
-        preds = env.all_expert_predictions(x_t)
-        residuals[idx] = preds - float(env.y[t])
+        preds = np.asarray(env.all_expert_predictions(x_t), dtype=float)
+        y_t = np.asarray(env.y[t], dtype=float)
+        res_all = preds - y_t
+        if res_all.ndim == 2:
+            residuals[idx] = np.linalg.norm(res_all, axis=1)
+        else:
+            residuals[idx] = res_all
     return residuals
 
 
@@ -3108,11 +3137,24 @@ def _predictive_corr_from_cache(
     else:
         d_g = 0
     if d_g > 0:
-        H = np.vstack([stats[k]["h"] for k in avail]).astype(float)
+        H_rows = []
+        for k in avail:
+            H_g = np.asarray(stats[k]["H_g"], dtype=float)
+            if H_g.ndim == 2:
+                H_rows.append(H_g[0])
+            else:
+                H_rows.append(np.asarray(H_g, dtype=float).reshape(-1))
+        H = np.vstack(H_rows).astype(float)
     for m in range(M):
         for idx, k in enumerate(avail):
-            means_m[m, idx] = float(stats[k]["mean"][m])
-            s_m[m, idx] = float(stats[k]["s"][m])
+            mean_modes = np.asarray(stats[k]["mean"], dtype=float)
+            noise_modes = np.asarray(stats[k]["noise"], dtype=float)
+            if mean_modes.ndim == 2 and mean_modes.shape[1] > 1:
+                means_m[m, idx] = float(mean_modes[m, 0])
+                s_m[m, idx] = float(noise_modes[m, 0, 0])
+            else:
+                means_m[m, idx] = float(mean_modes.reshape(-1)[m])
+                s_m[m, idx] = float(noise_modes.reshape(-1)[m])
     mu = w_pred @ means_m
     cov = np.zeros((len(avail), len(avail)), dtype=float)
     for m in range(M):
@@ -3149,7 +3191,14 @@ def _predictive_corrs_by_regime_from_cache(
         d_g = 0
     H = None
     if d_g > 0:
-        H = np.vstack([stats[k]["h"] for k in avail]).astype(float)
+        H_rows = []
+        for k in avail:
+            H_g = np.asarray(stats[k]["H_g"], dtype=float)
+            if H_g.ndim == 2:
+                H_rows.append(H_g[0])
+            else:
+                H_rows.append(np.asarray(H_g, dtype=float).reshape(-1))
+        H = np.vstack(H_rows).astype(float)
     for m in range(num_regimes):
         if d_g > 0:
             cov_shared = H @ Sigma_g_pred[m] @ H.T
@@ -3157,8 +3206,12 @@ def _predictive_corrs_by_regime_from_cache(
             cov_shared = np.zeros((len(avail), len(avail)), dtype=float)
         s_m = np.zeros(len(avail), dtype=float)
         for idx, k in enumerate(avail):
-            s_arr = np.asarray(stats[k].get("s", []), dtype=float).reshape(-1)
-            s_m[idx] = float(s_arr[m]) if m < s_arr.size else float("nan")
+            noise_modes = np.asarray(stats[k].get("noise", []), dtype=float)
+            if noise_modes.ndim == 3 and noise_modes.shape[1] > 1:
+                s_m[idx] = float(noise_modes[m, 0, 0])
+            else:
+                s_arr = noise_modes.reshape(-1)
+                s_m[idx] = float(s_arr[m]) if m < s_arr.size else float("nan")
         cov = cov_shared + np.diag(s_m)
         corr_small = _cov_to_corr(cov)
         for i, ki in enumerate(avail):
@@ -3203,21 +3256,25 @@ def _collect_factorized_diagnostics(
         stats = cache.get("stats", {}) or {}
         if w_pred.size > 0 and stats:
             for k, stat in stats.items():
-                mean_modes = np.asarray(stat.get("mean", []), dtype=float).reshape(-1)
-                var_modes = np.asarray(stat.get("var", []), dtype=float).reshape(-1)
-                if mean_modes.size != w_pred.size or var_modes.size != w_pred.size:
+                mean_modes = np.asarray(stat.get("mean", []), dtype=float)
+                cov_modes = np.asarray(stat.get("cov", []), dtype=float)
+                if mean_modes.shape[0] != w_pred.size or cov_modes.shape[0] != w_pred.size:
                     continue
                 loss_modes = np.zeros(w_pred.size, dtype=float)
                 for m in range(w_pred.size):
                     loss_modes[m] = router_local._expected_loss_gaussian(
-                        float(mean_modes[m]), float(var_modes[m])
+                        mean_modes[m], cov_modes[m]
                     )
                 pred_loss[int(k)] = float(w_pred @ loss_modes)
 
-        preds = env.all_expert_predictions(x_t)
-        residuals = preds - float(env.y[t])
-        residual_r = float(residuals[int(r_t)])
-        loss_r = residual_r * residual_r
+        preds = np.asarray(env.all_expert_predictions(x_t), dtype=float)
+        y_t = np.asarray(env.y[t], dtype=float)
+        residuals = preds - y_t
+        residual_r = np.asarray(residuals[int(r_t)], dtype=float)
+        if hasattr(router_local, "_loss_from_residual"):
+            loss_r = float(router_local._loss_from_residual(residual_r))
+        else:
+            loss_r = float(np.sum(residual_r * residual_r))
         cost_t = loss_r + router_local._get_beta(int(r_t))
         if router_local.feedback_mode == "full":
             residuals_full = _mask_feedback_vector_local(
@@ -3386,11 +3443,23 @@ def _compute_probe_stats(
     if int(expert) not in stats:
         return float("nan"), float("nan"), float("nan")
     mean_modes = np.asarray(stats[int(expert)]["mean"], dtype=float)
-    var_modes = np.asarray(stats[int(expert)]["var"], dtype=float)
+    cov_modes = np.asarray(stats[int(expert)]["cov"], dtype=float)
     w = np.asarray(w, dtype=float)
-    mean = float(w @ mean_modes)
-    second = float(w @ (var_modes + mean_modes * mean_modes))
-    var = max(second - mean * mean, 0.0)
+    if mean_modes.ndim == 1 or (mean_modes.ndim == 2 and mean_modes.shape[1] == 1):
+        mean_vec = mean_modes.reshape(-1)
+        var_vec = cov_modes.reshape(-1)
+        mean = float(w @ mean_vec)
+        second = float(w @ (var_vec + mean_vec * mean_vec))
+        var = max(second - mean * mean, 0.0)
+    else:
+        mean_vec = w @ mean_modes
+        second = 0.0
+        for m in range(w.shape[0]):
+            second += float(w[m]) * (
+                float(np.trace(cov_modes[m])) + float(mean_modes[m] @ mean_modes[m])
+            )
+        mean = float(np.linalg.norm(mean_vec))
+        var = max(second - mean * mean, 0.0)
     loss = float(costs[int(expert)] - router._get_beta(int(expert)))
     return mean, var, loss
 
@@ -3438,9 +3507,10 @@ def _collect_transfer_probe(
             target_expert,
         )
 
-        preds = env.all_expert_predictions(x_t)
-        residuals = preds - float(env.y[t])
-        residual_r = float(residuals[int(r_t)])
+        preds = np.asarray(env.all_expert_predictions(x_t), dtype=float)
+        y_t = np.asarray(env.y[t], dtype=float)
+        residuals = preds - y_t
+        residual_r = np.asarray(residuals[int(r_t)], dtype=float)
         if router_local.feedback_mode == "full":
             residuals_full = _mask_feedback_vector_local(
                 residuals, np.asarray(available, dtype=int), int(r_t), True
@@ -3482,7 +3552,8 @@ def _collect_transfer_probe(
         post_mean.append(mean_post)
         post_var.append(var_post)
         post_loss.append(loss_post)
-        true_loss.append(float(residuals[int(target_expert)] ** 2))
+        true_resid = np.asarray(residuals[int(target_expert)], dtype=float)
+        true_loss.append(float(np.sum(true_resid * true_resid)))
 
     return {
         "times": np.asarray(times, dtype=int),

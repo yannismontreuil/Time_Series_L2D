@@ -70,11 +70,14 @@ def _get_router_observation(
     r_t: int,
 ) -> Tuple[float, float, Optional[np.ndarray]]:
     if _router_observes_residual(router):
-        y_t = float(env.y[t])
-        preds = env.all_expert_predictions(x_t)
+        y_t = np.asarray(env.y[t], dtype=float)
+        preds = np.asarray(env.all_expert_predictions(x_t), dtype=float)
         residuals = preds - y_t
-        residual_r = float(residuals[int(r_t)])
-        loss_r = residual_r ** 2
+        residual_r = np.asarray(residuals[int(r_t)], dtype=float)
+        if hasattr(router, "_loss_from_residual"):
+            loss_r = float(router._loss_from_residual(residual_r))
+        else:
+            loss_r = float(np.sum(residual_r * residual_r))
         residuals_full = None
         if getattr(router, "feedback_mode", "partial") == "full":
             residuals_full = _mask_feedback_vector(
