@@ -481,8 +481,8 @@ class ETTh1TimeSeriesEnv:
         # Define training segments - use more data for each expert
         if expert_type == "nn_early":
             # Train on first 70% of data
-            start_idx = max(1, int(0.2 * n_all))
-            end_idx = max(1, int(0.4 * n_all))
+            start_idx = max(1, int(0.1 * n_all))
+            end_idx = max(1, int(0.3 * n_all))
             x_train = x_all[start_idx:end_idx]
             y_train = y_all[start_idx:end_idx]
         else:  # nn_late
