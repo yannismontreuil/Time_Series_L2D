@@ -23,7 +23,7 @@ from models.linucb_baseline import LinUCB
 from models.neuralucb_baseline import NeuralUCB
 from models.factorized_slds import FactorizedSLDS
 
-from router_eval import set_transition_log_config, register_transition_log_label, get_transition_log_config
+from router_eval import set_transition_log_config, register_transition_log_label
 
 from plot_utils import (
     evaluate_routers_and_baselines,
@@ -237,7 +237,7 @@ def _parse_args() -> argparse.Namespace:
         "--config",
         "-c",
         type=str,
-        default="config/config_etth1.yaml",
+        default="config/config.yaml",
         help="Path to YAML/JSON configuration file (default: config.yaml).",
     )
     parser.add_argument(
@@ -343,10 +343,7 @@ if __name__ == "__main__":
     setting = env_cfg.get("setting", "easy_setting")
     data_source = env_cfg.get("data_source", "synthetic")
     # Default: universe of 5 experts indexed j=0,...,4.
-    if data_source == "etth1":
-        N = len(env_cfg.get("enabled_experts"))
-    else:
-        N = int(env_cfg.get("num_experts"))   # experts
+    N = int(env_cfg.get("num_experts"))   # experts
     # State dimension (= dim φ(x)); feature map in router_model.py currently
     # returns a 2D feature, so d must be compatible with that.
     d = int(env_cfg.get("state_dim"))

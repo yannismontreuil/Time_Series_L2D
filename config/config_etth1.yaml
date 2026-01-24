@@ -43,8 +43,6 @@ environment:
     - ar2_segment1
     - ar2_segment2
 
-  num_experts: 6
-
   # State dimension d = dim φ(x). The current feature map returns 1D features.
   state_dim: 1
 
@@ -57,13 +55,16 @@ environment:
   #     specified arrival intervals.
 
   # At most 2 unavailable experts and at most 2 arriving experts can be specified.
-  unavailable_expert_idx: 0
+  unavailable_expert_idx: [0, 1]
   unavailable_intervals:
-    - [1000, 2000]
-  arrival_expert_idx: 4
+    - []
+    - []
+  arrival_expert_idx: [4, 5]
   arrival_intervals:
     # Expert 5 becomes available only later in the series.
-    - [1000, 2000]
+    - []
+    - []
+
   analysis_window: 500
   analysis_adoption_threshold: 0.5
 
