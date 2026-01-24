@@ -126,9 +126,9 @@ routers:
     em_eps_n: 1.0e-3
 
     em_online_enabled: true
-    em_online_window: 400
+    em_online_window: 600
     em_online_period: 300
-    em_online_n: 1
+    em_online_n: 2
     em_online_samples: 20
     em_online_burn_in: 3
     em_online_theta_lr: 0.001
