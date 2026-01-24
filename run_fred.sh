@@ -1,17 +1,18 @@
 #!/bin/bash
-#SBATCH --job-name=l2d_etth2
+#SBATCH --job-name=l2d_fred
 #SBATCH --partition=long
-#SBATCH --output=logs/etth2_%A_%a.out
-#SBATCH --error=logs/etth2_%A_%a.err
+#SBATCH --output=logs/fred_%A_%a.out
+#SBATCH --error=logs/fred_%A_%a.err
 #SBATCH --nodes=1
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
-#SBATCH --time=24:00:00
+#SBATCH --time=2:00:00
 #SBATCH --array=0-2
 #SBATCH --mail-user=yannis.montreuil@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
 
-# Create logs directory if it doesn't exist
+set -euo pipefail
+
 mkdir -p logs
 
 echo "================================================="
@@ -23,26 +24,21 @@ echo "================================================="
 
 cd "${SLURM_SUBMIT_DIR}"
 
-# Optionally activate your conda/virtualenv here
-# Load conda
 source ~/miniconda3/etc/profile.d/conda.sh
-
-# Activate your environment
 conda activate Routing_LLM
 
-# Ensure local package imports (ablation, utils, model, etc.) work
 export PYTHONPATH="${SLURM_SUBMIT_DIR}:${PYTHONPATH:-}"
 
-echo "Running ETTh2 hyperparameter sweep under Slurm (array)..."
+echo "Running FRED hyperparameter sweep under Slurm (array)..."
 
-BASE_CONFIG="${SLURM_SUBMIT_DIR}/config/config_etth2.yaml"
-RUN_DIR="${SLURM_SUBMIT_DIR}/out/etth2_sweep_${SLURM_JOB_ID}"
+BASE_CONFIG="${SLURM_SUBMIT_DIR}/config/exp_FRED.yaml"
+RUN_DIR="${SLURM_SUBMIT_DIR}/out/fred_sweep_${SLURM_JOB_ID}"
 mkdir -p "${RUN_DIR}"
 
 RUNS=(
-  "em_online_enabled=true em_online_window=200 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1 em_online_n=1 em_online_samples=10 em_online_burn_in=3"
-  "em_online_enabled=true em_online_window=400 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1 em_online_n=1 em_online_samples=20 em_online_burn_in=3"
-  "em_online_enabled=true em_online_window=800 em_online_period=500 em_online_theta_lr=0.002 em_online_theta_steps=1 em_online_n=1 em_online_samples=20 em_online_burn_in=5"
+  "em_online_enabled=true em_online_window=400 em_online_period=400 em_online_theta_lr=0.001 em_online_theta_steps=1 em_online_n=1 em_online_samples=15 em_online_burn_in=3"
+  "em_online_enabled=true em_online_window=800 em_online_period=600 em_online_theta_lr=0.002 em_online_theta_steps=1 em_online_n=1 em_online_samples=25 em_online_burn_in=4"
+  "em_online_enabled=true em_online_window=1200 em_online_period=800 em_online_theta_lr=0.002 em_online_theta_steps=2 em_online_n=1 em_online_samples=30 em_online_burn_in=5"
 )
 
 if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
@@ -50,29 +46,31 @@ if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
   exit 1
 fi
 
-run_id=$((SLURM_ARRAY_TASK_ID + 1))
-run_cfg="${RUNS[$SLURM_ARRAY_TASK_ID]}"
+task_id=${SLURM_ARRAY_TASK_ID}
+if [[ task_id =~ ^[0-9]+$ ]]; then
+  array_idx=$task_id
+else
+  array_idx=0
+fi
+
+run_id=$((array_idx + 1))
+run_cfg="${RUNS[array_idx]:-}"
 if [[ -z "${run_cfg}" ]]; then
   echo "ERROR: No run config for SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
   exit 1
 fi
 
-cfg_out="${RUN_DIR}/config_etth2_online_${run_id}.yaml"
+cfg_out="${RUN_DIR}/config_fred_sweep_${run_id}.yaml"
 echo "-------------------------------------------------"
 echo "Array task: ${SLURM_ARRAY_TASK_ID}"
 echo "Run ${run_id}: ${run_cfg}"
 echo "Config: ${cfg_out}"
 
-  python - <<'PY' "${BASE_CONFIG}" "${cfg_out}" "${run_cfg}"
+python - <<'PY' "${BASE_CONFIG}" "${cfg_out}" "${run_cfg}"
 import sys
-try:
-    import yaml  # type: ignore
-except Exception as exc:
-    raise SystemExit(f"PyYAML is required to build configs: {exc}")
+import yaml
 
-base_path = sys.argv[1]
-out_path = sys.argv[2]
-updates_raw = sys.argv[3]
+base_path, out_path, updates_raw = sys.argv[1:]
 
 updates = {}
 for token in updates_raw.split():
@@ -96,8 +94,7 @@ with open(base_path, "r", encoding="utf-8") as f:
 
 routers = cfg.setdefault("routers", {})
 fact = routers.setdefault("factorized_slds", {})
-for k, v in updates.items():
-    fact[k] = v
+fact.update(updates)
 
 with open(out_path, "w", encoding="utf-8") as f:
     yaml.safe_dump(cfg, f, sort_keys=False)
