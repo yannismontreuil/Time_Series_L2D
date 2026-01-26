@@ -449,6 +449,89 @@ def plot_time_series(
         plt.show()
 
 
+def plot_time_series_experts_only(
+    env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,
+    num_points: Optional[int] = None,
+    out_dir: str = "out/plots",
+    name: str = "time_series_experts",
+    save_pdf: bool = True,
+    save_png: bool = False,
+    show: bool = False,
+) -> None:
+    """
+    Plot the true time series (top) and per-expert absolute errors below.
+    Intended for clean ICML-style figures (no titles).
+    """
+    if not _plots_available():
+        print("[plot_utils] plotting disabled or matplotlib missing; skip time series plot.")
+        return
+    T = env.T if num_points is None else min(num_points, env.T)
+    t_grid = np.arange(T)
+
+    plot_target = str(getattr(env, "plot_target", "y")).lower()
+    if plot_target == "x":
+        y = env.x[:T]
+        if y.ndim > 1:
+            feat_names = getattr(env, "context_feature_names", None)
+            feat_label = (
+                str(feat_names[0]) if feat_names and len(feat_names) > 0 else "x_t[0]"
+            )
+            y = y[:, 0]
+            true_label = f"Context $x_t$ ({feat_label})"
+        else:
+            true_label = "Context $x_t$ (lagged)"
+    else:
+        y = env.y[:T]
+        true_label = "True $y_t$"
+
+    preds = np.zeros((T, env.num_experts), dtype=float)
+    for t in range(T):
+        x_t = env.get_context(t)
+        preds[t, :] = env.all_expert_predictions(x_t)
+
+    abs_err = np.abs(preds - y.reshape(-1, 1))
+    err_mask = t_grid > 10
+
+    n_rows = 1 + int(env.num_experts)
+    fig_h = max(3.5, 1.4 * n_rows)
+    fig, axes = plt.subplots(n_rows, 1, sharex=True, figsize=(10, fig_h))
+    if n_rows == 1:
+        axes = [axes]
+    ax_top = axes[0]
+
+    ax_top.plot(
+        t_grid,
+        y,
+        color=get_model_color("true"),
+        linewidth=2,
+    )
+    ax_top.set_ylabel("Value")
+
+    for j in range(env.num_experts):
+        ax = axes[j + 1]
+        ax.plot(
+            t_grid[err_mask],
+            abs_err[err_mask, j],
+            color=get_expert_color(j),
+            linewidth=1.2,
+            alpha=0.85,
+        )
+        ax.set_ylabel(f"Expert {j}\nabs. error")
+        ax.set_ylim(bottom=0.0)
+    axes[-1].set_xlabel("Time $t$")
+    for ax in axes:
+        ax.set_xlim(0, max(0, T - 1))
+    plt.tight_layout()
+
+    if save_pdf or save_png:
+        os.makedirs(out_dir, exist_ok=True)
+        _save_fig(fig, out_dir, name, save_png, save_pdf, show)
+    else:
+        if show:
+            plt.show()
+        plt.close(fig)
+
+
 def evaluate_routers_and_baselines(
     env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,
     router_partial: SLDSIMMRouter,
@@ -539,7 +622,11 @@ def evaluate_routers_and_baselines(
             set_transition_log_config(transition_cfg)
 
     # Run both base routers to obtain costs and choices
-    def _run_base_router(router: SLDSIMMRouter, snapshot_key: Optional[str] = None):
+    def _run_base_router(
+        router: Optional[SLDSIMMRouter], snapshot_key: Optional[str] = None
+    ):
+        if router is None:
+            return None, None
         em_tk = getattr(router, "em_tk", None)
         if em_tk is not None:
             return run_router_on_env_em_split(
@@ -558,7 +645,9 @@ def evaluate_routers_and_baselines(
             snapshot_key=snapshot_key,
         )
 
-    costs_partial, choices_partial = _run_base_router(router_partial, "router_partial")
+    costs_partial, choices_partial = _run_base_router(
+        router_partial, "router_partial"
+    )
     costs_full, choices_full = _run_base_router(router_full, "router_full")
 
     costs_factorial_partial = None
@@ -760,15 +849,26 @@ def evaluate_routers_and_baselines(
         costs_neuralucb_full, choices_neuralucb_full = None, None
 
     # Common consultation costs (assumed shared across methods)
-    beta = router_partial.beta[: env.num_experts]
+    beta_source = router_partial if router_partial is not None else router_full
+    if beta_source is None:
+        raise ValueError("At least one base router must be provided for beta.")
+    beta = beta_source.beta[: env.num_experts]
 
     # Random and oracle baselines
     costs_random, choices_random = run_random_on_env(env, beta, seed=int(seed))
     costs_oracle, choices_oracle = run_oracle_on_env(env, beta)
 
     # Prediction series induced by router and L2D choices
-    preds_partial = compute_predictions_from_choices(env, choices_partial)
-    preds_full = compute_predictions_from_choices(env, choices_full)
+    preds_partial = (
+        compute_predictions_from_choices(env, choices_partial)
+        if choices_partial is not None
+        else None
+    )
+    preds_full = (
+        compute_predictions_from_choices(env, choices_full)
+        if choices_full is not None
+        else None
+    )
     preds_factorized_partial = (
         compute_predictions_from_choices(env, choices_factorial_partial)
         if choices_factorial_partial is not None
@@ -881,9 +981,13 @@ def evaluate_routers_and_baselines(
         return arr
 
     costs_partial = _mask_em_costs(
-        costs_partial, getattr(router_partial, "em_tk", None)
+        costs_partial,
+        getattr(router_partial, "em_tk", None) if router_partial is not None else None,
     )
-    costs_full = _mask_em_costs(costs_full, getattr(router_full, "em_tk", None))
+    costs_full = _mask_em_costs(
+        costs_full,
+        getattr(router_full, "em_tk", None) if router_full is not None else None,
+    )
     if router_partial_corr_em is not None:
         costs_partial_corr_em = _mask_em_costs(
             costs_partial_corr_em, getattr(router_partial_corr_em, "em_tk", None)
@@ -921,10 +1025,12 @@ def evaluate_routers_and_baselines(
         costs_oracle = _mask_em_costs(costs_oracle, em_tk_anchor)
 
     choices_partial_plot = _mask_em_choices(
-        choices_partial, getattr(router_partial, "em_tk", None)
+        choices_partial,
+        getattr(router_partial, "em_tk", None) if router_partial is not None else None,
     )
     choices_full_plot = _mask_em_choices(
-        choices_full, getattr(router_full, "em_tk", None)
+        choices_full,
+        getattr(router_full, "em_tk", None) if router_full is not None else None,
     )
     choices_partial_corr_em_plot = _mask_em_choices(
         choices_partial_corr_em,
@@ -1029,8 +1135,16 @@ def evaluate_routers_and_baselines(
             cum_costs += loss_all + beta
         avg_cost_experts = cum_costs / float(T - t_start)
 
-    avg_cost_partial = float(np.nanmean(costs_partial))
-    avg_cost_full = float(np.nanmean(costs_full))
+    def _safe_nanmean(costs: Optional[np.ndarray]) -> Optional[float]:
+        if costs is None:
+            return None
+        arr = np.asarray(costs, dtype=float)
+        if arr.size == 0:
+            return None
+        return float(np.nanmean(arr))
+
+    avg_cost_partial = _safe_nanmean(costs_partial)
+    avg_cost_full = _safe_nanmean(costs_full)
     avg_cost_partial_corr = (
         float(np.nanmean(costs_partial_corr)) if costs_partial_corr is not None else None
     )
@@ -1499,10 +1613,11 @@ def evaluate_routers_and_baselines(
                     )
 
     # Selection distribution (how often each expert is chosen)
-    entries = [
-        ("partial", choices_partial_plot),
-        ("full", choices_full_plot),
-    ]
+    entries = []
+    if choices_partial_plot is not None:
+        entries.append(("partial", choices_partial_plot))
+    if choices_full_plot is not None:
+        entries.append(("full", choices_full_plot))
     if choices_partial_corr_plot is not None:
         entries.append(("partial_corr", choices_partial_corr_plot))
     if choices_full_corr_plot is not None:
@@ -1622,22 +1737,24 @@ def evaluate_routers_and_baselines(
         linewidth=2,
         linestyle="-",
     )
-    ax_pred.plot(
-        t_grid_plot,
-        preds_partial_plot,
-        label="L2D SLDS w/t $g_t$ (partial)",
-        color=get_model_color("partial"),
-        linestyle="-",
-        alpha=0.8,
-    )
-    ax_pred.plot(
-        t_grid_plot,
-        preds_full_plot,
-        label="L2D SLDS w/t $g_t$ (full)",
-        color=get_model_color("full"),
-        linestyle="-",
-        alpha=0.8,
-    )
+    if preds_partial_plot is not None:
+        ax_pred.plot(
+            t_grid_plot,
+            preds_partial_plot,
+            label="L2D SLDS w/t $g_t$ (partial)",
+            color=get_model_color("partial"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_full_plot is not None:
+        ax_pred.plot(
+            t_grid_plot,
+            preds_full_plot,
+            label="L2D SLDS w/t $g_t$ (full)",
+            color=get_model_color("full"),
+            linestyle="-",
+            alpha=0.8,
+        )
     if preds_partial_corr_plot is not None:
         ax_pred.plot(
             t_grid_plot,
@@ -1880,20 +1997,22 @@ def evaluate_routers_and_baselines(
         else None
     )
 
-    ax_cost.plot(
-        t_grid,
-        avg_partial_t,
-        label="L2D SLDS w/t $g_t$ (partial, avg cost)",
-        color=get_model_color("partial"),
-        linestyle="-",
-    )
-    ax_cost.plot(
-        t_grid,
-        avg_full_t,
-        label="L2D SLDS w/t $g_t$ (full, avg cost)",
-        color=get_model_color("full"),
-        linestyle="-",
-    )
+    if avg_partial_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_partial_t,
+            label="L2D SLDS w/t $g_t$ (partial, avg cost)",
+            color=get_model_color("partial"),
+            linestyle="-",
+        )
+    if avg_full_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_full_t,
+            label="L2D SLDS w/t $g_t$ (full, avg cost)",
+            color=get_model_color("full"),
+            linestyle="-",
+        )
     if avg_partial_corr_t is not None:
         ax_cost.plot(
             t_grid,
@@ -2121,9 +2240,11 @@ def evaluate_routers_and_baselines(
         mean_linucb_full = mean_cost(costs_linucb_full)
 
         print(f"\n=== Sidekick Trap: mean costs from t={t0_regret} ===")
-        print(f"Oracle (truth):                {mean_oracle:.4f}")
-        print(f"L2D SLDS w/t $g_t$ (partial): {mean_partial:.4f}")
-        print(f"L2D SLDS w/t $g_t$ (full):    {mean_full:.4f}")
+        print(f"Oracle (truth):                {_fmt(mean_oracle)}")
+        if mean_partial is not None:
+            print(f"L2D SLDS w/t $g_t$ (partial): {_fmt(mean_partial)}")
+        if mean_full is not None:
+            print(f"L2D SLDS w/t $g_t$ (full):    {_fmt(mean_full)}")
         if mean_factorized_partial is not None:
             print(f"{factorized_label} (partial):        {mean_factorized_partial:.4f}")
         if mean_factorized_full is not None:
@@ -2137,17 +2258,17 @@ def evaluate_routers_and_baselines(
                 f"{factorized_linear_label} (full):    {mean_factorized_linear_full:.4f}"
             )
         if mean_partial_corr is not None:
-            print(f"Router Corr (partial):         {mean_partial_corr:.4f}")
+            print(f"Router Corr (partial):         {_fmt(mean_partial_corr)}")
         if mean_full_corr is not None:
-            print(f"Router Corr (full):            {mean_full_corr:.4f}")
+            print(f"Router Corr (full):            {_fmt(mean_full_corr)}")
         if mean_l2d is not None:
-            print(f"L2D (full feedback):           {mean_l2d:.4f}")
+            print(f"L2D (full feedback):           {_fmt(mean_l2d)}")
         if mean_l2d_sw is not None:
-            print(f"L2D_SW (full feedback):        {mean_l2d_sw:.4f}")
+            print(f"L2D_SW (full feedback):        {_fmt(mean_l2d_sw)}")
         if mean_linucb_partial is not None:
-            print(f"LinUCB (partial):              {mean_linucb_partial:.4f}")
+            print(f"LinUCB (partial):              {_fmt(mean_linucb_partial)}")
         if mean_linucb_full is not None:
-            print(f"LinUCB (full):                 {mean_linucb_full:.4f}")
+            print(f"LinUCB (full):                 {_fmt(mean_linucb_full)}")
 
         t_reg = t_grid[idx0:]
         fig_reg, ax_reg = plt.subplots(1, 1, figsize=(10, 4))
@@ -2217,322 +2338,153 @@ def evaluate_routers_and_baselines(
         plt.tight_layout()
         plt.show()
 
-    # Plot the expert index chosen over time for each router and baseline,
-    # together with expert availability (0 = not available, 1 = available).
-    avail = getattr(env, "availability", None)
-    has_l2d = choices_l2d is not None
-    has_l2d_sw = choices_l2d_sw is not None
-    has_linucb_partial = choices_linucb_partial is not None
-    has_linucb_full = choices_linucb_full is not None
-    has_neuralucb_partial = choices_neuralucb_partial is not None
-    has_neuralucb_full = choices_neuralucb_full is not None
-    has_avail = avail is not None
-    has_partial_corr = choices_partial_corr is not None
-    has_full_corr = choices_full_corr is not None
-    has_partial_corr_em = choices_partial_corr_em is not None
-    has_full_corr_em = choices_full_corr_em is not None
-    has_neural_partial = choices_partial_neural is not None
-    has_neural_full = choices_full_neural is not None
-    has_factorized_partial = choices_factorial_partial is not None
-    has_factorized_full = choices_factorial_full is not None
-    has_factorized_linear_partial = choices_factorial_linear_partial is not None
-    has_factorized_linear_full = choices_factorial_linear_full is not None
+    # Plot the expert index chosen over time for partial-feedback methods
+    # (ICML style: no titles; partial baselines only).
+    if _plots_available():
+        sel_cfg = analysis_cfg or {}
+        plot_enabled = bool(sel_cfg.get("selection_plot", True))
+        if plot_enabled:
+            avail = getattr(env, "availability", None)
+            has_avail = avail is not None
 
-    # Rows: base routers, optional correlated routers, optional L2D / L2D_SW /
-    # LinUCB partial/full / NeuralUCB partial/full, oracle baseline,
-    # and optional availability.
-    n_rows = 3 + (1 if has_l2d else 0) + (1 if has_l2d_sw else 0)
-    n_rows += (1 if has_linucb_partial else 0) + (1 if has_linucb_full else 0)
-    n_rows += (1 if has_neuralucb_partial else 0) + (1 if has_neuralucb_full else 0)
-    n_rows += (1 if has_avail else 0)
-    n_rows += (1 if has_partial_corr else 0) + (1 if has_full_corr else 0)
-    n_rows += (1 if has_partial_corr_em else 0) + (1 if has_full_corr_em else 0)
-    n_rows += (1 if has_neural_partial else 0) + (1 if has_neural_full else 0)
-    n_rows += (1 if has_factorized_partial else 0) + (1 if has_factorized_full else 0)
-    n_rows += (1 if has_factorized_linear_partial else 0) + (
-        1 if has_factorized_linear_full else 0
-    )
-    fig2, axes = plt.subplots(n_rows, 1, sharex=True, figsize=(10, 2 * n_rows))
+            # Labels consistent with Paper/Section/AppendixParts/Experiments.tex.
+            label_main = "L2D-SLDS"
+            label_ablation = r"L2D-SLDS w/o $\mathbf{g}_t$"
 
-    idx = 0
-    ax_p = axes[idx]
-    ax_p.step(
-        t_grid,
-        choices_partial_plot,
-        where="post",
-        color=get_model_color("partial"),
-    )
-    ax_p.set_ylabel("Expert\n(L2D w/t $g_t$ P)")
-    ax_p.set_yticks(np.arange(env.num_experts))
-    ax_p.set_title("Selections and availability over time")
-    idx += 1
+            series = []
+            if choices_factorial_partial_plot is not None:
+                series.append(
+                    (label_main, choices_factorial_partial_plot, "factorized_partial")
+                )
+            if choices_partial_plot is not None:
+                base_label = label_ablation if choices_factorial_partial_plot is not None else label_main
+                series.append((base_label, choices_partial_plot, "partial"))
+            if choices_linucb_partial_plot is not None:
+                series.append(("LinUCB", choices_linucb_partial_plot, "linucb_partial"))
+            if choices_neuralucb_partial_plot is not None:
+                series.append(("NeuralUCB", choices_neuralucb_partial_plot, "neuralucb"))
+            if choices_oracle_plot is not None:
+                series.append(("Oracle", choices_oracle_plot, "oracle"))
 
-    ax_f = axes[idx]
-    ax_f.step(
-        t_grid,
-        choices_full_plot,
-        where="post",
-        color=get_model_color("full"),
-    )
-    ax_f.set_ylabel("Expert\n(L2D w/t $g_t$ F)")
-    ax_f.set_yticks(np.arange(env.num_experts))
-    idx += 1
+            if series or has_avail:
+                n_rows = len(series) + (1 if has_avail else 0)
+                fig2, axes = plt.subplots(
+                    n_rows, 1, sharex=True, figsize=(10, 2 * n_rows)
+                )
+                if n_rows == 1:
+                    axes = [axes]
 
-    if has_partial_corr:
-        ax_pc = axes[idx]
-        ax_pc.step(
-            t_grid,
-            choices_partial_corr_plot,
-            where="post",
-            color=get_model_color("partial_corr"),
-        )
-        ax_pc.set_ylabel("Expert\n(partial corr)")
-        ax_pc.set_yticks(np.arange(env.num_experts))
-        idx += 1
+                idx = 0
+                for label, choices_plot, color_key in series:
+                    ax = axes[idx]
+                    ax.step(
+                        t_grid,
+                        choices_plot,
+                        where="post",
+                        color=get_model_color(color_key),
+                    )
+                    ax.set_ylabel(f"{label}")
+                    ax.set_yticks(np.arange(env.num_experts))
+                    idx += 1
 
-    if has_full_corr:
-        ax_fc = axes[idx]
-        ax_fc.step(
-            t_grid,
-            choices_full_corr_plot,
-            where="post",
-            color=get_model_color("full_corr"),
-        )
-        ax_fc.set_ylabel("Expert\n(full corr)")
-        ax_fc.set_yticks(np.arange(env.num_experts))
-        idx += 1
+                if has_avail:
+                    ax_avail = axes[idx]
+                    t_grid_avail = np.arange(1, T)
+                    avail_sub = avail[1:T, :]
+                    for j in range(env.num_experts):
+                        ax_avail.step(
+                            t_grid_avail,
+                            avail_sub[:, j],
+                            where="post",
+                            label=f"Expert {j}",
+                            color=get_expert_color(j),
+                        )
+                    ax_avail.set_ylabel("Availability")
+                    ax_avail.set_yticks([0, 1])
+                    ax_avail.set_xlabel("Time $t$")
+                    ax_avail.legend(
+                        loc="upper left",
+                        bbox_to_anchor=(1.01, 1.0),
+                        borderaxespad=0.0,
+                        ncol=1,
+                        fontsize=9,
+                        frameon=False,
+                    )
+                else:
+                    axes[idx - 1].set_xlabel("Time $t$")
 
-    if has_partial_corr_em:
-        ax_pc_em = axes[idx]
-        ax_pc_em.step(
-            t_grid,
-            choices_partial_corr_em_plot,
-            where="post",
-            color=get_model_color("partial_corr_em"),
-        )
-        ax_pc_em.set_ylabel("Expert\n(partial corr EM)")
-        ax_pc_em.set_yticks(np.arange(env.num_experts))
-        idx += 1
+                plt.tight_layout()
 
-    if has_full_corr_em:
-        ax_fc_em = axes[idx]
-        ax_fc_em.step(
-            t_grid,
-            choices_full_corr_em_plot,
-            where="post",
-            color=get_model_color("full_corr_em"),
-        )
-        ax_fc_em.set_ylabel("Expert\n(full corr EM)")
-        ax_fc_em.set_yticks(np.arange(env.num_experts))
-        idx += 1
-
-    if has_neural_partial:
-        ax_np = axes[idx]
-        ax_np.step(
-            t_grid,
-            choices_partial_neural_plot,
-            where="post",
-            color=get_model_color("neural_partial"),
-        )
-        ax_np.set_ylabel("Expert\n(neural partial)")
-        ax_np.set_yticks(np.arange(env.num_experts))
-        idx += 1
-
-    if has_neural_full:
-        ax_nf = axes[idx]
-        ax_nf.step(
-            t_grid,
-            choices_full_neural_plot,
-            where="post",
-            color=get_model_color("neural_full"),
-        )
-        ax_nf.set_ylabel("Expert\n(neural full)")
-        ax_nf.set_yticks(np.arange(env.num_experts))
-        idx += 1
-
-    if has_l2d:
-        ax_l2d = axes[idx]
-        ax_l2d.step(
-            t_grid,
-            choices_l2d_plot,
-            where="post",
-            color=get_model_color("l2d"),
-        )
-        ax_l2d.set_ylabel("Expert\n(L2D full)")
-        ax_l2d.set_yticks(np.arange(env.num_experts))
-        idx += 1
-    if has_l2d_sw:
-        ax_l2d_sw = axes[idx]
-        ax_l2d_sw.step(
-            t_grid,
-            choices_l2d_sw_plot,
-            where="post",
-            color=get_model_color("l2d_sw"),
-        )
-        ax_l2d_sw.set_ylabel("Expert\n(L2D_SW full)")
-        ax_l2d_sw.set_yticks(np.arange(env.num_experts))
-        idx += 1
-    if has_linucb_partial:
-        ax_lin_p = axes[idx]
-        ax_lin_p.step(
-            t_grid,
-            choices_linucb_partial_plot,
-            where="post",
-            color=get_model_color("linucb_partial"),
-        )
-        ax_lin_p.set_ylabel("Expert\n(LinUCB P)")
-        ax_lin_p.set_yticks(np.arange(env.num_experts))
-        idx += 1
-    if has_linucb_full:
-        ax_lin_f = axes[idx]
-        ax_lin_f.step(
-            t_grid,
-            choices_linucb_full_plot,
-            where="post",
-            color=get_model_color("linucb_full"),
-        )
-        ax_lin_f.set_ylabel("Expert\n(LinUCB F)")
-        ax_lin_f.set_yticks(np.arange(env.num_experts))
-        idx += 1
-
-    if has_neuralucb_partial:
-        ax_nucb_p = axes[idx]
-        ax_nucb_p.step(
-            t_grid,
-            choices_neuralucb_partial_plot,
-            where="post",
-            color=get_model_color("neuralucb"),
-        )
-        ax_nucb_p.set_ylabel("Expert\n(NeuralUCB P)")
-        ax_nucb_p.set_yticks(np.arange(env.num_experts))
-        idx += 1
-    if has_neuralucb_full:
-        ax_nucb_f = axes[idx]
-        ax_nucb_f.step(
-            t_grid,
-            choices_neuralucb_full_plot,
-            where="post",
-            color=get_model_color("neuralucb"),
-        )
-        ax_nucb_f.set_ylabel("Expert\n(NeuralUCB F)")
-        ax_nucb_f.set_yticks(np.arange(env.num_experts))
-        idx += 1
-
-    if has_factorized_partial:
-        ax_fact_p = axes[idx]
-        ax_fact_p.step(
-            t_grid,
-            choices_factorial_partial_plot,
-            where="post",
-            color=get_model_color("factorized_partial"),
-        )
-        ax_fact_p.set_ylabel("Expert\n(Fact P)")
-        ax_fact_p.set_yticks(np.arange(env.num_experts))
-        idx += 1
-    if has_factorized_full:
-        ax_fact_f = axes[idx]
-        ax_fact_f.step(
-            t_grid,
-            choices_factorial_full_plot,
-            where="post",
-            color=get_model_color("factorized_full"),
-        )
-        ax_fact_f.set_ylabel("Expert\n(Fact F)")
-        ax_fact_f.set_yticks(np.arange(env.num_experts))
-        idx += 1
-
-    if has_factorized_linear_partial:
-        ax_fact_lp = axes[idx]
-        ax_fact_lp.step(
-            t_grid,
-            choices_factorial_linear_partial_plot,
-            where="post",
-            color=get_model_color("factorized_linear_partial"),
-        )
-        ax_fact_lp.set_ylabel("Expert\n(L2D P)")
-        ax_fact_lp.set_yticks(np.arange(env.num_experts))
-        idx += 1
-    if has_factorized_linear_full:
-        ax_fact_lf = axes[idx]
-        ax_fact_lf.step(
-            t_grid,
-            choices_factorial_linear_full_plot,
-            where="post",
-            color=get_model_color("factorized_linear_full"),
-        )
-        ax_fact_lf.set_ylabel("Expert\n(L2D F)")
-        ax_fact_lf.set_yticks(np.arange(env.num_experts))
-        idx += 1
-
-    ax_oracle = axes[idx]
-    ax_oracle.step(
-        t_grid,
-        choices_oracle_plot,
-        where="post",
-        color=get_model_color("oracle"),
-    )
-    ax_oracle.set_ylabel("Expert\n(oracle)")
-    ax_oracle.set_yticks(np.arange(env.num_experts))
-    idx += 1
-
-    if has_avail:
-        ax_avail = axes[idx]
-        t_grid_avail = np.arange(1, T)
-        avail_sub = avail[1:T, :]
-        for j in range(env.num_experts):
-            ax_avail.step(
-                t_grid_avail,
-                avail_sub[:, j],
-                where="post",
-                label=f"Expert {j}",
-                color=get_expert_color(j),
-            )
-        ax_avail.set_ylabel("Avail.")
-        ax_avail.set_yticks([0, 1])
-        ax_avail.set_xlabel("Time $t$")
-        ax_avail.legend(loc="upper right")
-    else:
-        axes[idx - 1].set_xlabel("Time $t$")
-
-    plt.tight_layout()
-    plt.show()
+                out_dir = str(sel_cfg.get("selection_plot_out_dir", "out/plots"))
+                name = str(sel_cfg.get("selection_plot_name", "selections_availability"))
+                save_pdf = bool(sel_cfg.get("selection_plot_save_pdf", True))
+                save_png = bool(sel_cfg.get("selection_plot_save_png", False))
+                show_plots = bool(sel_cfg.get("selection_plot_show", False))
+                if save_pdf or save_png:
+                    os.makedirs(out_dir, exist_ok=True)
+                    _save_fig(fig2, out_dir, name, save_png, save_pdf, show_plots)
+                else:
+                    if show_plots:
+                        plt.show()
+                    plt.close(fig2)
 
     tri_cfg = analysis_cfg.get("tri_cycle_corr", {}) if analysis_cfg else {}
     if tri_cfg.get("expert_structure_baselines", False):
         out_dir = str(tri_cfg.get("out_dir", "out/tri_cycle_corr"))
         os.makedirs(out_dir, exist_ok=True)
+        def _label_for_factorized(
+            router_obj: Optional[object],
+            with_g_label: str = "L2D-SLDS",
+            no_g_label: str = "L2D-SLDS w/o $g_t$",
+            fallback: str = "SLDS-IMM",
+        ) -> str:
+            if isinstance(router_obj, FactorizedSLDS):
+                d_g_val = getattr(router_obj, "d_g", None)
+                if d_g_val == 0:
+                    return no_g_label
+                return with_g_label
+            return fallback
+
+        base_partial_label = _label_for_factorized(router_partial)
+        base_full_label = _label_for_factorized(router_full)
+        factorized_partial_label = _label_for_factorized(
+            router_factorial_partial, with_g_label="L2D-SLDS", fallback="L2D-SLDS"
+        )
+        factorized_full_label = _label_for_factorized(
+            router_factorial_full, with_g_label="L2D-SLDS", fallback="L2D-SLDS"
+        )
         choices_map = {
-            "L2D SLDS w/t $g_t$ (partial)": (choices_partial, costs_partial),
-            "L2D SLDS w/t $g_t$ (full)": (choices_full, costs_full),
-            "Corr partial": (choices_partial_corr, costs_partial_corr),
-            "Corr full": (choices_full_corr, costs_full_corr),
-            "Corr EM partial": (choices_partial_corr_em, costs_partial_corr_em),
-            "Corr EM full": (choices_full_corr_em, costs_full_corr_em),
-            "L2D SLDS (partial)": (choices_factorial_partial, costs_factorial_partial),
-            "L2D SLDS (full)": (choices_factorial_full, costs_factorial_full),
+            f"{base_partial_label}": (choices_partial, costs_partial),
+            f"{base_full_label} (full)": (choices_full, costs_full),
+            "Corr SLDS-IMM": (choices_partial_corr, costs_partial_corr),
+            "Corr SLDS-IMM (full)": (choices_full_corr, costs_full_corr),
+            "Corr SLDS-IMM EM": (choices_partial_corr_em, costs_partial_corr_em),
+            "Corr SLDS-IMM EM (full)": (choices_full_corr_em, costs_full_corr_em),
+            f"{factorized_partial_label}": (choices_factorial_partial, costs_factorial_partial),
+            f"{factorized_full_label} (full)": (choices_factorial_full, costs_factorial_full),
             "L2D": (choices_l2d, costs_l2d),
             "L2D_SW": (choices_l2d_sw, costs_l2d_sw),
-            "LinUCB partial": (choices_linucb_partial, costs_linucb_partial),
+            "LinUCB": (choices_linucb_partial, costs_linucb_partial),
             "LinUCB full": (choices_linucb_full, costs_linucb_full),
-            "NeuralUCB partial": (choices_neuralucb_partial, costs_neuralucb_partial),
+            "NeuralUCB": (choices_neuralucb_partial, costs_neuralucb_partial),
             "NeuralUCB full": (choices_neuralucb_full, costs_neuralucb_full),
             "Oracle": (choices_oracle, costs_oracle),
         }
         rows = [
             [("Oracle", (choices_oracle, costs_oracle))],
             [
-                ("L2D SLDS (partial)", (choices_factorial_partial, costs_factorial_partial)),
-                ("L2D SLDS w/t $g_t$ (partial)", (choices_partial, costs_partial)),
-                ("Corr partial", (choices_partial_corr, costs_partial_corr)),
-                ("Corr EM partial", (choices_partial_corr_em, costs_partial_corr_em)),
-                ("LinUCB partial", (choices_linucb_partial, costs_linucb_partial)),
-                ("NeuralUCB partial", (choices_neuralucb_partial, costs_neuralucb_partial)),
+                (f"{factorized_partial_label}", (choices_factorial_partial, costs_factorial_partial)),
+                (f"{base_partial_label}", (choices_partial, costs_partial)),
+                ("Corr SLDS-IMM", (choices_partial_corr, costs_partial_corr)),
+                ("Corr SLDS-IMM EM", (choices_partial_corr_em, costs_partial_corr_em)),
+                ("LinUCB", (choices_linucb_partial, costs_linucb_partial)),
+                ("NeuralUCB", (choices_neuralucb_partial, costs_neuralucb_partial)),
             ],
             [
-                ("L2D SLDS (full)", (choices_factorial_full, costs_factorial_full)),
-                ("L2D SLDS w/t $g_t$ (full)", (choices_full, costs_full)),
-                ("Corr full", (choices_full_corr, costs_full_corr)),
-                ("Corr EM full", (choices_full_corr_em, costs_full_corr_em)),
+                (f"{factorized_full_label} (full)", (choices_factorial_full, costs_factorial_full)),
+                (f"{base_full_label} (full)", (choices_full, costs_full)),
+                ("Corr SLDS-IMM (full)", (choices_full_corr, costs_full_corr)),
+                ("Corr SLDS-IMM EM (full)", (choices_full_corr_em, costs_full_corr_em)),
                 ("L2D", (choices_l2d, costs_l2d)),
                 ("L2D_SW", (choices_l2d_sw, costs_l2d_sw)),
                 ("LinUCB full", (choices_linucb_full, costs_linucb_full)),
@@ -2548,6 +2500,7 @@ def evaluate_routers_and_baselines(
             save_png=bool(tri_cfg.get("save_png", True)),
             save_pdf=bool(tri_cfg.get("save_pdf", True)),
             rows=rows,
+            show_figure_title=False,
         )
 
 
@@ -2643,13 +2596,16 @@ def plot_pruning_dynamics(
     router_no_g: FactorizedSLDS,
     expert_idx: int,
     rolling_window: int = 100,
+    event_window_pre: int = 100,
+    event_window_post: int = 200,
+    adoption_threshold: float = 0.5,
     out_dir: str = "out/pruning",
     show_plots: bool = False,
     save_plots: bool = True,
     save_png: bool = True,
     save_pdf: bool = True,
-    label_full: str = "L2D SLDS w/ $g_t$",
-    label_no_g: str = "L2D SLDS w/t $g_t$",
+    label_full: str = "L2D-SLDS",
+    label_no_g: str = "L2D-SLDS w/o $g_t$",
 ) -> None:
     if not _plots_available():
         print("[plot_utils] plotting disabled or matplotlib missing; skip pruning dynamics.")
@@ -2658,6 +2614,10 @@ def plot_pruning_dynamics(
         raise ValueError("plot_pruning_dynamics expects FactorizedSLDS routers.")
     if rolling_window <= 0:
         raise ValueError("rolling_window must be positive.")
+    if event_window_pre < 0 or event_window_post < 0:
+        raise ValueError("event_window_pre/post must be non-negative.")
+    if not (0.0 < adoption_threshold <= 1.0):
+        raise ValueError("adoption_threshold must be in (0, 1].")
 
     env_avail = getattr(env, "availability", None)
     if env_avail is None:
@@ -2678,6 +2638,7 @@ def plot_pruning_dynamics(
         selected = np.full(times.shape[0], -1, dtype=int)
         pred_var = np.full(times.shape[0], np.nan, dtype=float)
         prune_times = []
+        rebirth_times = []
         prev_in_registry = None
 
         for idx, t in enumerate(times):
@@ -2690,6 +2651,8 @@ def plot_pruning_dynamics(
             in_registry[idx] = curr_in_registry
             if prev_in_registry is not None and prev_in_registry and not curr_in_registry:
                 prune_times.append(int(t))
+            if prev_in_registry is not None and not prev_in_registry and curr_in_registry:
+                rebirth_times.append(int(t))
             prev_in_registry = curr_in_registry
 
             w_pred = cache.get("w_pred", None)
@@ -2766,10 +2729,14 @@ def plot_pruning_dynamics(
                 cache=cache,
             )
 
-        return in_registry, selected, pred_var, prune_times
+        return in_registry, selected, pred_var, prune_times, rebirth_times
 
-    in_reg_full, sel_full, var_full, prune_full = _run_router(router_full)
-    in_reg_no_g, sel_no_g, var_no_g, prune_no_g = _run_router(router_no_g)
+    in_reg_full, sel_full, var_full, prune_full, rebirth_full = _run_router(
+        router_full
+    )
+    in_reg_no_g, sel_no_g, var_no_g, prune_no_g, rebirth_no_g = _run_router(
+        router_no_g
+    )
 
     def _rolling_mean(mask: np.ndarray, window: int) -> np.ndarray:
         if mask.size == 0:
@@ -2839,6 +2806,140 @@ def plot_pruning_dynamics(
         do_save_pdf,
         show_plots,
     )
+
+    def _align_series(
+        series: np.ndarray, event_times: Sequence[int]
+    ) -> Optional[np.ndarray]:
+        if not event_times:
+            return None
+        series = np.asarray(series, dtype=float).reshape(-1)
+        aligned = []
+        for t_ev in event_times:
+            idx_ev = int(t_ev) - int(times[0])
+            start = idx_ev - int(event_window_pre)
+            end = idx_ev + int(event_window_post)
+            window = np.full(event_window_pre + event_window_post + 1, np.nan, dtype=float)
+            src_start = max(start, 0)
+            src_end = min(end, series.size - 1)
+            dst_start = src_start - start
+            dst_end = dst_start + (src_end - src_start) + 1
+            if src_end >= src_start:
+                window[dst_start:dst_end] = series[src_start : src_end + 1]
+            aligned.append(window)
+        return np.vstack(aligned) if aligned else None
+
+    def _event_mean_ci(arr: Optional[np.ndarray]) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        if arr is None or arr.size == 0:
+            return None
+        n = np.sum(np.isfinite(arr), axis=0)
+        if not np.any(n > 0):
+            return None
+        mean = np.nanmean(arr, axis=0)
+        std = np.nanstd(arr, axis=0, ddof=0)
+        sem = np.where(n > 1, std / np.sqrt(n), np.nan)
+        return mean, mean - 1.96 * sem, mean + 1.96 * sem
+
+    sel_ind_full = (sel_full == j).astype(float)
+    sel_ind_no_g = (sel_no_g == j).astype(float)
+    sel_smooth_full = _rolling_mean(sel_ind_full, rolling_window)
+    sel_smooth_no_g = _rolling_mean(sel_ind_no_g, rolling_window)
+
+    aligned_sel_full = _align_series(sel_smooth_full, rebirth_full)
+    aligned_sel_no_g = _align_series(sel_smooth_no_g, rebirth_no_g)
+    aligned_var_full = _align_series(var_full, rebirth_full)
+    aligned_var_no_g = _align_series(var_no_g, rebirth_no_g)
+
+    stats_sel_full = _event_mean_ci(aligned_sel_full)
+    stats_sel_no_g = _event_mean_ci(aligned_sel_no_g)
+    stats_var_full = _event_mean_ci(aligned_var_full)
+    stats_var_no_g = _event_mean_ci(aligned_var_no_g)
+
+    if stats_sel_full or stats_sel_no_g:
+        x_rel = np.arange(-event_window_pre, event_window_post + 1, dtype=int)
+        fig2, axes2 = plt.subplots(2, 1, figsize=(8.2, 5.2), sharex=True)
+        axes2[0].axvline(0, color="black", linewidth=1.0, alpha=0.6)
+        axes2[1].axvline(0, color="black", linewidth=1.0, alpha=0.6)
+
+        if stats_sel_full:
+            mean, lo, hi = stats_sel_full
+            axes2[0].plot(x_rel, mean, color="tab:blue", label=label_full)
+            axes2[0].fill_between(x_rel, lo, hi, color="tab:blue", alpha=0.2)
+        if stats_sel_no_g:
+            mean, lo, hi = stats_sel_no_g
+            axes2[0].plot(x_rel, mean, color="tab:orange", linestyle="--", label=label_no_g)
+            axes2[0].fill_between(x_rel, lo, hi, color="tab:orange", alpha=0.2)
+        axes2[0].set_ylabel(f"Selection freq (win={rolling_window})")
+        axes2[0].set_title(f"Expert {j}: rebirth-aligned selection frequency")
+        axes2[0].legend(loc="upper right", fontsize=9)
+
+        if stats_var_full:
+            mean, lo, hi = stats_var_full
+            axes2[1].plot(x_rel, mean, color="tab:blue", label=label_full)
+            axes2[1].fill_between(x_rel, lo, hi, color="tab:blue", alpha=0.2)
+        if stats_var_no_g:
+            mean, lo, hi = stats_var_no_g
+            axes2[1].plot(x_rel, mean, color="tab:orange", linestyle="--", label=label_no_g)
+            axes2[1].fill_between(x_rel, lo, hi, color="tab:orange", alpha=0.2)
+        axes2[1].set_ylabel("Predictive variance")
+        axes2[1].set_xlabel("Time since rebirth")
+        axes2[1].set_title(f"Expert {j}: rebirth-aligned uncertainty")
+
+        plt.tight_layout()
+        _save_fig(
+            fig2,
+            out_dir,
+            f"pruning_rebirth_event_study_expert_{j}",
+            do_save_png,
+            do_save_pdf,
+            show_plots,
+            keep_axis_titles_pdf=True,
+        )
+
+        def _recovery_times(
+            aligned_sel: Optional[np.ndarray],
+            threshold: float,
+        ) -> list[int]:
+            if aligned_sel is None:
+                return []
+            times_list = []
+            for row in aligned_sel:
+                post = row[event_window_pre:]
+                above = np.where(post >= threshold)[0]
+                if above.size == 0:
+                    continue
+                times_list.append(int(above[0]))
+            return times_list
+
+        rec_full = _recovery_times(aligned_sel_full, adoption_threshold)
+        rec_no_g = _recovery_times(aligned_sel_no_g, adoption_threshold)
+        summary = {
+            "expert_idx": int(j),
+            "event_window_pre": int(event_window_pre),
+            "event_window_post": int(event_window_post),
+            "rolling_window": int(rolling_window),
+            "adoption_threshold": float(adoption_threshold),
+            "n_rebirth_full": int(len(rebirth_full)),
+            "n_rebirth_no_g": int(len(rebirth_no_g)),
+            "recovery_times_full": rec_full,
+            "recovery_times_no_g": rec_no_g,
+        }
+        summary["recovery_mean_full"] = (
+            float(np.mean(rec_full)) if rec_full else float("nan")
+        )
+        summary["recovery_mean_no_g"] = (
+            float(np.mean(rec_no_g)) if rec_no_g else float("nan")
+        )
+        summary["recovery_median_full"] = (
+            float(np.median(rec_full)) if rec_full else float("nan")
+        )
+        summary["recovery_median_no_g"] = (
+            float(np.median(rec_no_g)) if rec_no_g else float("nan")
+        )
+        summary_path = os.path.join(
+            out_dir, f"pruning_rebirth_summary_expert_{j}.json"
+        )
+        with open(summary_path, "w") as f:
+            json.dump(summary, f, indent=2)
 
 def _mask_feedback_vector_local(
     values: np.ndarray,
@@ -3643,6 +3744,7 @@ def plot_selection_freq_by_regime(
     save_png: bool,
     save_pdf: bool,
     rows: Optional[list[list[tuple[str, Optional[np.ndarray]]]]] = None,
+    show_figure_title: bool = True,
 ) -> None:
     if not choices_map and not rows:
         return
@@ -3758,14 +3860,23 @@ def plot_selection_freq_by_regime(
         return
     cax = fig.add_axes([0.92, 0.15, 0.015, 0.7])
     fig.colorbar(last_im, cax=cax, label="Selection freq")
-    fig.suptitle("Selection frequency by regime (all baselines)", y=0.98)
+    if show_figure_title:
+        fig.suptitle("Selection frequency by regime (all baselines)", y=0.98)
     fig.subplots_adjust(top=0.88, bottom=0.12, left=0.08, right=0.9)
     if debug_lines:
         with open(os.path.join(out_dir, "expert_structure_all_debug.txt"), "w") as f:
             f.write("Selection freq debug\n")
             f.write("\n".join(debug_lines))
             f.write("\n")
-    _save_fig(fig, out_dir, "expert_structure_all", save_png, save_pdf, show_plots)
+    _save_fig(
+        fig,
+        out_dir,
+        "expert_structure_all",
+        save_png,
+        save_pdf,
+        show_plots,
+        keep_axis_titles_pdf=True,
+    )
 
 
 def run_tri_cycle_corr_diagnostics(
@@ -3865,21 +3976,37 @@ def run_tri_cycle_corr_diagnostics(
         )
     t_grid = diag["times"]
 
-    router_full_local = router_full if router_full is not None else router
+    router_mode = getattr(router, "feedback_mode", None)
+    router_full_local = router_full
     router_partial_local = router_partial
-    diag_full_v2 = diag if router_full_local is router else _collect_factorized_diagnostics(
-        router_full_local, env, t_start, t_end
-    )
-    pred_loss_corr_full_v2 = _corr_by_regime_masked(
-        np.asarray(diag_full_v2.get("pred_loss", []), dtype=float), z, num_regimes
-    )
+
+    diag_full_v2 = None
+    pred_loss_corr_full_v2 = None
+    if router_full_local is not None:
+        diag_full_v2 = _collect_factorized_diagnostics(
+            router_full_local, env, t_start, t_end
+        )
+    elif router_mode == "full":
+        diag_full_v2 = diag
+    if diag_full_v2 is not None:
+        pred_loss_corr_full_v2 = _corr_by_regime_masked(
+            np.asarray(diag_full_v2.get("pred_loss", []), dtype=float),
+            z,
+            num_regimes,
+        )
     pred_loss_corr_partial_v2 = None
+    diag_partial_v2 = None
     if router_partial_local is not None:
         diag_partial_v2 = _collect_factorized_diagnostics(
             router_partial_local, env, t_start, t_end
         )
+    elif router_mode == "partial":
+        diag_partial_v2 = diag
+    if diag_partial_v2 is not None:
         pred_loss_corr_partial_v2 = _corr_by_regime_masked(
-            np.asarray(diag_partial_v2.get("pred_loss", []), dtype=float), z, num_regimes
+            np.asarray(diag_partial_v2.get("pred_loss", []), dtype=float),
+            z,
+            num_regimes,
         )
     pred_loss_corr_no_g_full_v2 = None
     if router_no_g_full_local is not None:
@@ -4042,6 +4169,22 @@ def run_tri_cycle_corr_diagnostics(
         for p in pairs
         if int(p[0]) < n_experts and int(p[1]) < n_experts
     ]
+    tick_step = max(1, int(np.ceil(n_experts / 10)))
+    tick_locs = np.arange(0, n_experts, tick_step)
+
+    def _normalize_corr_matrix(corr: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        if corr is None:
+            return None
+        corr = np.asarray(corr, dtype=float)
+        if corr.ndim != 2 or corr.shape[0] != corr.shape[1]:
+            return None
+        if corr.shape[0] == n_experts:
+            return corr
+        if corr.shape[0] > n_experts:
+            return corr[:n_experts, :n_experts]
+        out = np.full((n_experts, n_experts), np.nan, dtype=float)
+        out[: corr.shape[0], : corr.shape[1]] = corr
+        return out
 
     summary = {
         "label": label,
@@ -4245,81 +4388,128 @@ def run_tri_cycle_corr_diagnostics(
     # Regime-0 summary: partial vs full baselines
     reg_idx = 0
     if num_regimes > 0 and reg_idx < num_regimes:
-        partial_entries_v2: list[tuple[str, np.ndarray]] = [
-            ("Ground truth", true_loss_corr[reg_idx])
-        ]
-        full_entries_v2: list[tuple[str, np.ndarray]] = [
-            ("Ground truth", true_loss_corr[reg_idx])
-        ]
+        if num_regimes > 1:
+            reg_counts = np.bincount(z, minlength=num_regimes)
+            reg_idx = int(np.argmax(reg_counts))
+        has_partial_v2 = (
+            pred_loss_corr_partial_v2 is not None
+            or pred_loss_corr_no_g_partial_v2 is not None
+            or linucb_partial_corr is not None
+            or neuralucb_partial_corr is not None
+        )
+        has_full_v2 = (
+            pred_loss_corr_full_v2 is not None
+            or pred_loss_corr_no_g_full_v2 is not None
+            or linucb_full_corr is not None
+            or neuralucb_full_corr is not None
+            or l2d_score_corr is not None
+            or l2d_sw_score_corr is not None
+        )
 
-        if pred_loss_corr_partial_v2 is not None:
-            partial_entries_v2.append(("L2D-SLDS", pred_loss_corr_partial_v2[reg_idx]))
-        if pred_loss_corr_no_g_partial_v2 is not None:
-            partial_entries_v2.append(
-                ("L2D-SLDS w/o $g_t$", pred_loss_corr_no_g_partial_v2[reg_idx])
+        rows_v2: list[list[tuple[str, np.ndarray]]] = []
+        row_labels_v2: list[str] = []
+        def _append_v2_entry(
+            entries: list[tuple[str, np.ndarray]],
+            title: str,
+            corr_list: Optional[list[np.ndarray]],
+        ) -> None:
+            if corr_list is None or reg_idx >= len(corr_list):
+                return
+            corr_mat = _normalize_corr_matrix(corr_list[reg_idx])
+            if corr_mat is None or corr_mat.size == 0:
+                return
+            entries.append((title, corr_mat))
+
+        if has_partial_v2:
+            partial_entries_v2: list[tuple[str, np.ndarray]] = []
+            _append_v2_entry(partial_entries_v2, "Ground truth", true_loss_corr)
+            _append_v2_entry(partial_entries_v2, "L2D-SLDS", pred_loss_corr_partial_v2)
+            _append_v2_entry(
+                partial_entries_v2,
+                "L2D-SLDS w/o $g_t$",
+                pred_loss_corr_no_g_partial_v2,
             )
-        if linucb_partial_corr is not None:
-            partial_entries_v2.append(("LinUCB", linucb_partial_corr[reg_idx]))
-        if neuralucb_partial_corr is not None:
-            partial_entries_v2.append(("NeuralUCB", neuralucb_partial_corr[reg_idx]))
+            _append_v2_entry(partial_entries_v2, "LinUCB", linucb_partial_corr)
+            _append_v2_entry(partial_entries_v2, "NeuralUCB", neuralucb_partial_corr)
+            if partial_entries_v2:
+                rows_v2.append(partial_entries_v2)
+                row_labels_v2.append("Partial baselines")
 
-        if pred_loss_corr_full_v2 is not None:
-            full_entries_v2.append(("L2D-SLDS", pred_loss_corr_full_v2[reg_idx]))
-        if pred_loss_corr_no_g_full_v2 is not None:
-            full_entries_v2.append(
-                ("L2D-SLDS w/o $g_t$", pred_loss_corr_no_g_full_v2[reg_idx])
+        if has_full_v2:
+            full_entries_v2: list[tuple[str, np.ndarray]] = []
+            _append_v2_entry(full_entries_v2, "Ground truth", true_loss_corr)
+            _append_v2_entry(full_entries_v2, "L2D-SLDS", pred_loss_corr_full_v2)
+            _append_v2_entry(
+                full_entries_v2,
+                "L2D-SLDS w/o $g_t$",
+                pred_loss_corr_no_g_full_v2,
             )
-        if linucb_full_corr is not None:
-            full_entries_v2.append(("LinUCB", linucb_full_corr[reg_idx]))
-        if neuralucb_full_corr is not None:
-            full_entries_v2.append(("NeuralUCB", neuralucb_full_corr[reg_idx]))
-        if l2d_score_corr is not None:
-            full_entries_v2.append(("L2D", l2d_score_corr[reg_idx]))
-        if l2d_sw_score_corr is not None:
-            full_entries_v2.append(("L2D_SW (W=500)", l2d_sw_score_corr[reg_idx]))
+            _append_v2_entry(full_entries_v2, "LinUCB", linucb_full_corr)
+            _append_v2_entry(full_entries_v2, "NeuralUCB", neuralucb_full_corr)
+            _append_v2_entry(full_entries_v2, "L2D", l2d_score_corr)
+            _append_v2_entry(
+                full_entries_v2,
+                "L2D_SW (W=500)",
+                l2d_sw_score_corr,
+            )
+            if full_entries_v2:
+                rows_v2.append(full_entries_v2)
+                row_labels_v2.append("Full baselines")
 
-        n_cols_v2 = max(len(partial_entries_v2), len(full_entries_v2), 1)
-        fig, axes = plt.subplots(
-            2,
-            n_cols_v2,
-            figsize=(3.4 * n_cols_v2, 5.4),
-            sharex=True,
-            sharey=True,
-        )
-        if n_cols_v2 == 1:
-            axes = np.array([[axes[0]], [axes[1]]])
-        last_im = None
-        for r_idx, entries in enumerate([partial_entries_v2, full_entries_v2]):
-            for c_idx in range(n_cols_v2):
-                ax = axes[r_idx, c_idx]
-                if c_idx >= len(entries):
-                    ax.axis("off")
-                    continue
-                title, corr_mat = entries[c_idx]
-                im = ax.imshow(corr_mat, vmin=-1.0, vmax=1.0, cmap="coolwarm")
-                last_im = im
-                ax.set_title(title, fontsize=9, pad=6)
-                ax.set_xticks(np.arange(n_experts))
-                ax.set_yticks(np.arange(n_experts))
-                if c_idx == 0:
-                    ax.set_ylabel("Partial baselines" if r_idx == 0 else "Full baselines")
+        if rows_v2:
+            n_rows_v2 = len(rows_v2)
+            n_cols_v2 = max(len(entries) for entries in rows_v2)
+            fig, axes = plt.subplots(
+                n_rows_v2,
+                n_cols_v2,
+                figsize=(3.4 * n_cols_v2, 2.7 * n_rows_v2),
+                sharex=True,
+                sharey=True,
+            )
+            if n_rows_v2 == 1:
+                axes = np.array([axes])
+            if n_cols_v2 == 1:
+                axes = axes.reshape(n_rows_v2, 1)
+            last_im = None
+            for r_idx, entries in enumerate(rows_v2):
+                for c_idx in range(n_cols_v2):
+                    ax = axes[r_idx, c_idx]
+                    if c_idx >= len(entries):
+                        ax.axis("off")
+                        continue
+                    title, corr_mat = entries[c_idx]
+                    im = ax.imshow(corr_mat, vmin=-1.0, vmax=1.0, cmap="coolwarm")
+                    last_im = im
+                    ax.set_title(title, fontsize=9, pad=6)
+                    ax.set_xticks(tick_locs)
+                    ax.set_yticks(tick_locs)
+                    if c_idx == 0:
+                        row_label = row_labels_v2[r_idx]
+                        if str(row_label).strip().lower() == "partial baselines":
+                            row_label = ""
+                        ax.set_ylabel(row_label)
 
-        if last_im is not None:
-            cax = fig.add_axes([0.92, 0.15, 0.015, 0.7])
-            fig.colorbar(last_im, cax=cax, label="Corr")
-        fig.suptitle("Regime 0: correlation between experts", y=0.98)
-        fig.subplots_adjust(
-            top=0.86, bottom=0.08, left=0.08, right=0.9, wspace=0.25, hspace=0.3
-        )
-        _save_fig(
-            fig,
-            out_dir,
-            "corr_new_v2",
-            save_png,
-            save_pdf,
-            show_plots,
-            keep_axis_titles_pdf=True,
-        )
+            if last_im is not None:
+                cax = fig.add_axes([0.92, 0.15, 0.015, 0.7])
+                fig.colorbar(last_im, cax=cax, label="Corr")
+            fig.suptitle(f"Regime {reg_idx}: correlation between experts", y=0.98)
+            try:
+                fig.supxlabel("Experts")
+                fig.supylabel("Experts")
+            except Exception:
+                pass
+            fig.subplots_adjust(
+                top=0.86, bottom=0.08, left=0.08, right=0.9, wspace=0.25, hspace=0.3
+            )
+            _save_fig(
+                fig,
+                out_dir,
+                "corr_new_v2",
+                save_png,
+                save_pdf,
+                show_plots,
+                keep_axis_titles_pdf=True,
+            )
 
     # Pairwise correlation tracking over time
     if pairs:

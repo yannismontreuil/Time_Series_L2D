@@ -1,0 +1,15 @@
+{
+  "expert_idx": 1,
+  "event_window_pre": 100,
+  "event_window_post": 200,
+  "rolling_window": 100,
+  "adoption_threshold": 0.5,
+  "n_rebirth_full": 1,
+  "n_rebirth_no_g": 1,
+  "recovery_times_full": [],
+  "recovery_times_no_g": [],
+  "recovery_mean_full": NaN,
+  "recovery_mean_no_g": NaN,
+  "recovery_median_full": NaN,
+  "recovery_median_no_g": NaN
+}

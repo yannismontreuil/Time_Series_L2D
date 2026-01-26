@@ -185,6 +185,7 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
         T_env = None if T_raw is None else int(T_raw)
         csv_path = env_cfg.get("csv_path", "data/ETTh1.csv")
         target_column = env_cfg.get("target_column", "OT")
+        data_seed = env_cfg.get("data_seed", None)
         unavailable_expert_idx = env_cfg.get("unavailable_expert_idx", None)
         unavailable_intervals = env_cfg.get("unavailable_intervals", None)
         arrival_expert_idx = env_cfg.get("arrival_expert_idx", None)
@@ -209,6 +210,7 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
         key: Tuple[Any, ...] = (
             "etth1",
             int(seed),
+            None if data_seed is None else int(data_seed),
             int(N),
             int(M),
             T_env,
@@ -239,6 +241,7 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
             num_regimes=M,
             T=T_env,
             seed=int(seed),
+            data_seed=data_seed,
             unavailable_expert_idx=unavailable_expert_idx,
             unavailable_intervals=unavailable_intervals,
             arrival_expert_idx=arrival_expert_idx,

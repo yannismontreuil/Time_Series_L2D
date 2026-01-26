@@ -29,6 +29,7 @@ from plot_utils import (
     evaluate_routers_and_baselines,
     analysis_late_arrival,
     plot_time_series,
+    plot_time_series_experts_only,
     run_tri_cycle_corr_diagnostics,
     plot_pruning_dynamics,
 )
@@ -333,8 +334,8 @@ if __name__ == "__main__":
                 sys.exit(0)
 
     baselines_cfg = cfg.get("baselines", {})
-    l2d_cfg = baselines_cfg.get("l2d", {})
-    l2d_sw_cfg = baselines_cfg.get("l2d_sw", {})
+    l2d_cfg = baselines_cfg.get("l2d", None)
+    l2d_sw_cfg = baselines_cfg.get("l2d_sw", None)
     linucb_cfg = baselines_cfg.get("linucb", {})
     neuralucb_cfg = baselines_cfg.get("neural_ucb", {})
     horizon_cfg = cfg.get("horizon_planning", {})
@@ -1011,38 +1012,40 @@ if __name__ == "__main__":
         )
 
     # L2D baselines (configurable MLP/RNN, with and without sliding window)
-    alpha_l2d = _resolve_vector(l2d_cfg.get("alpha", 1.0), 1.0, N)
-    beta_l2d_cfg = l2d_cfg.get("beta", None)
-    beta_l2d = beta.copy() if beta_l2d_cfg is None else _resolve_vector(
-        beta_l2d_cfg, 0.0, N
-    )
-    lr_l2d = float(l2d_cfg.get("learning_rate", 1e-2))
-    arch_l2d = str(l2d_cfg.get("arch", "mlp")).lower()
-    hidden_dim_l2d = int(l2d_cfg.get("hidden_dim", 8))
-
-    l2d_baseline = L2D(
-        num_experts=N,
-        feature_fn=feature_phi,
-        alpha=alpha_l2d,
-        beta=beta_l2d,
-        learning_rate=lr_l2d,
-        arch=arch_l2d,
-        hidden_dim=hidden_dim_l2d,
-        window_size=int(l2d_cfg.get("window_size", 1)),
-        seed=seed,
-        context_dim=d,
-    )
-
+    l2d_baseline = None
     l2d_sw_baseline = None
-    if l2d_sw_cfg: # overridden with RNN architecture with sliding window
+    if l2d_cfg:
+        alpha_l2d = _resolve_vector(l2d_cfg.get("alpha", 1.0), 1.0, N)
+        beta_l2d_cfg = l2d_cfg.get("beta", None)
+        beta_l2d = beta.copy() if beta_l2d_cfg is None else _resolve_vector(
+            beta_l2d_cfg, 0.0, N
+        )
+        lr_l2d = float(l2d_cfg.get("learning_rate", 1e-2))
+        arch_l2d = str(l2d_cfg.get("arch", "mlp")).lower()
+        hidden_dim_l2d = int(l2d_cfg.get("hidden_dim", 8))
+
+        l2d_baseline = L2D(
+            num_experts=N,
+            feature_fn=feature_phi,
+            alpha=alpha_l2d,
+            beta=beta_l2d,
+            learning_rate=lr_l2d,
+            arch=arch_l2d,
+            hidden_dim=hidden_dim_l2d,
+            window_size=int(l2d_cfg.get("window_size", 1)),
+            seed=seed,
+            context_dim=d,
+        )
+
+    if l2d_sw_cfg:
         alpha_l2d_sw = _resolve_vector(l2d_sw_cfg.get("alpha", 1.0), 1.0, N)
         beta_l2d_sw_cfg = l2d_sw_cfg.get("beta", None)
         beta_l2d_sw = beta.copy() if beta_l2d_sw_cfg is None else _resolve_vector(
             beta_l2d_sw_cfg, 0.0, N
         )
-        lr_l2d_sw = float(l2d_sw_cfg.get("learning_rate", lr_l2d))
-        arch_l2d_sw = str(l2d_sw_cfg.get("arch", arch_l2d)).lower()
-        hidden_dim_l2d_sw = int(l2d_sw_cfg.get("hidden_dim", hidden_dim_l2d))
+        lr_l2d_sw = float(l2d_sw_cfg.get("learning_rate", 1e-2))
+        arch_l2d_sw = str(l2d_sw_cfg.get("arch", "mlp")).lower()
+        hidden_dim_l2d_sw = int(l2d_sw_cfg.get("hidden_dim", 8))
         window_size_sw = int(l2d_sw_cfg.get("window_size", 5))
 
         l2d_sw_baseline = L2D_SW(
@@ -1460,22 +1463,32 @@ if __name__ == "__main__":
                 seed=seed,
             )
 
+        factorized_feedback_mode = _resolve_feedback_mode(
+            factorized_slds_cfg, default="both"
+        )
+        allow_partial = factorized_feedback_mode in ("partial", "both")
+        allow_full = factorized_feedback_mode in ("full", "both")
+
         factorized_runs = []
         primary_run = None
 
         for exploration_mode in exploration_modes:
-            print(
-                f"\n--- Running L2D SLDS Router (partial, {base_transition_mode}, {exploration_mode}) ---"
-            )
-            fact_router_partial = _build_factorized_router(
-                "partial", base_transition_mode, exploration_mode
-            )
-            print(
-                f"\n--- Running L2D SLDS Router (full, {base_transition_mode}, {exploration_mode}) ---"
-            )
-            fact_router_full = _build_factorized_router(
-                "full", base_transition_mode, exploration_mode
-            )
+            fact_router_partial = None
+            fact_router_full = None
+            if allow_partial:
+                print(
+                    f"\n--- Running L2D SLDS Router (partial, {base_transition_mode}, {exploration_mode}) ---"
+                )
+                fact_router_partial = _build_factorized_router(
+                    "partial", base_transition_mode, exploration_mode
+                )
+            if allow_full:
+                print(
+                    f"\n--- Running L2D SLDS Router (full, {base_transition_mode}, {exploration_mode}) ---"
+                )
+                fact_router_full = _build_factorized_router(
+                    "full", base_transition_mode, exploration_mode
+                )
             factorized_label_local = (
                 f"L2D SLDS w/ $g_t$ {base_transition_mode} ({exploration_mode})"
             )
@@ -1484,28 +1497,34 @@ if __name__ == "__main__":
             fact_router_full_linear = None
             factorized_linear_label_local = factorized_linear_label
             if extra_transition_mode is not None:
-                print(
-                    f"\n--- Running L2D SLDS Router (partial, {extra_transition_mode}, {exploration_mode}) ---"
-                )
-                fact_router_partial_linear = _build_factorized_router(
-                    "partial", extra_transition_mode, exploration_mode
-                )
-                print(
-                    f"\n--- Running L2D SLDS Router (full, {extra_transition_mode}, {exploration_mode}) ---"
-                )
-                fact_router_full_linear = _build_factorized_router(
-                    "full", extra_transition_mode, exploration_mode
-                )
+                if allow_partial:
+                    print(
+                        f"\n--- Running L2D SLDS Router (partial, {extra_transition_mode}, {exploration_mode}) ---"
+                    )
+                    fact_router_partial_linear = _build_factorized_router(
+                        "partial", extra_transition_mode, exploration_mode
+                    )
+                if allow_full:
+                    print(
+                        f"\n--- Running L2D SLDS Router (full, {extra_transition_mode}, {exploration_mode}) ---"
+                    )
+                    fact_router_full_linear = _build_factorized_router(
+                        "full", extra_transition_mode, exploration_mode
+                    )
                 factorized_linear_label_local = (
                     f"L2D SLDS {extra_transition_mode} ({exploration_mode})"
                 )
 
-            router_partial_no_g = _build_factorized_router_no_g(
-                "partial", base_transition_mode, exploration_mode
-            )
-            router_full_no_g = _build_factorized_router_no_g(
-                "full", base_transition_mode, exploration_mode
-            )
+            router_partial_no_g = None
+            router_full_no_g = None
+            if allow_partial:
+                router_partial_no_g = _build_factorized_router_no_g(
+                    "partial", base_transition_mode, exploration_mode
+                )
+            if allow_full:
+                router_full_no_g = _build_factorized_router_no_g(
+                    "full", base_transition_mode, exploration_mode
+                )
 
             run_bundle = {
                 "exploration_mode": exploration_mode,
@@ -1554,6 +1573,7 @@ if __name__ == "__main__":
             num_regimes=M,
             T=T_env,
             seed=int(env_cfg.get("seed", 42)),
+            data_seed=env_cfg.get("data_seed", None),
             unavailable_expert_idx=env_cfg.get("unavailable_expert_idx", None),
             unavailable_intervals=env_cfg.get("unavailable_intervals", None),
             arrival_expert_idx=env_cfg.get("arrival_expert_idx", None),
@@ -1617,8 +1637,32 @@ if __name__ == "__main__":
     # Visualization-only settings for plots.
     env.plot_shift = int(cfg.get("plot_shift", 1))
     env.plot_target = str(cfg.get("plot_target", "y")).lower()
-    if bool(cfg.get("plot_synth_preview", False)):
-        plot_time_series(env)
+    plot_root = str(cfg.get("plot_dir", "out/plots"))
+    config_stem = os.path.splitext(os.path.basename(args.config))[0]
+    plot_out_dir = os.path.join(plot_root, config_stem)
+    plot_time_series_pdf = bool(cfg.get("plot_time_series_pdf", True))
+    plot_time_series_png = bool(cfg.get("plot_time_series_png", False))
+    plot_show = bool(cfg.get("plot_synth_preview", False))
+    if plot_time_series_pdf or plot_time_series_png or plot_show:
+        plot_time_series_experts_only(
+            env,
+            out_dir=plot_out_dir,
+            name="time_series_experts",
+            save_pdf=plot_time_series_pdf,
+            save_png=plot_time_series_png,
+            show=plot_show,
+        )
+    # Ensure selection/availability plots land next to the time-series PDF.
+    if analysis_cfg is None:
+        analysis_cfg = {}
+    else:
+        analysis_cfg = dict(analysis_cfg)
+    analysis_cfg.setdefault("selection_plot", True)
+    analysis_cfg.setdefault("selection_plot_out_dir", plot_out_dir)
+    analysis_cfg.setdefault("selection_plot_name", "selection_availability")
+    analysis_cfg.setdefault("selection_plot_save_pdf", True)
+    analysis_cfg.setdefault("selection_plot_save_png", False)
+    analysis_cfg.setdefault("selection_plot_show", False)
 
     em_data_cache = {}
 
@@ -2166,6 +2210,9 @@ if __name__ == "__main__":
                     )
                 prune_cfg = analysis_cfg.get("pruning", {}) or {}
                 if prune_cfg.get("enabled", False):
+                    if not tri_cfg.get("enabled", False):
+                        print("[pruning] tri_cycle_corr disabled; skipping pruning analysis.")
+                        continue
                     run_idx_cfg = prune_cfg.get("run_index", None)
                     run_mode_cfg = prune_cfg.get("exploration_mode", None)
                     if run_idx_cfg is not None and int(run_idx_cfg) != run_idx:
@@ -2174,8 +2221,8 @@ if __name__ == "__main__":
                         run.get("exploration_mode")
                     ):
                         continue
-                    router_full = run.get("fact_router_full")
-                    router_no_g = run.get("router_full_no_g")
+                    router_full = run.get("fact_router_full") or run.get("fact_router_partial")
+                    router_no_g = run.get("router_full_no_g") or run.get("router_partial_no_g")
                     if router_full is None or router_no_g is None:
                         print("[pruning] Required routers unavailable; skipping.")
                         continue
@@ -2185,19 +2232,25 @@ if __name__ == "__main__":
                         continue
                     out_dir = str(prune_cfg.get("out_dir", "out/pruning"))
                     rolling_window = int(prune_cfg.get("rolling_window", 100))
+                    event_window_pre = int(prune_cfg.get("event_window_pre", 100))
+                    event_window_post = int(prune_cfg.get("event_window_post", 200))
+                    adoption_threshold = float(prune_cfg.get("adoption_threshold", 0.5))
                     plot_pruning_dynamics(
                         env=env,
                         router_full=router_full,
                         router_no_g=router_no_g,
                         expert_idx=int(expert_idx_cfg),
                         rolling_window=rolling_window,
+                        event_window_pre=event_window_pre,
+                        event_window_post=event_window_post,
+                        adoption_threshold=adoption_threshold,
                         out_dir=out_dir,
                         show_plots=bool(prune_cfg.get("show_plots", False)),
                         save_plots=bool(prune_cfg.get("save_plots", True)),
                         save_png=bool(prune_cfg.get("save_png", True)),
                         save_pdf=bool(prune_cfg.get("save_pdf", True)),
-                        label_full=str(prune_cfg.get("label_full", run.get("factorized_label", "L2D SLDS w/ $g_t$"))),
-                        label_no_g=str(prune_cfg.get("label_no_g", "L2D SLDS w/t $g_t$")),
+                        label_full=str(prune_cfg.get("label_full", run.get("factorized_label", "L2D-SLDS"))),
+                        label_no_g=str(prune_cfg.get("label_no_g", "L2D-SLDS w/o $g_t$")),
                     )
     else:
         evaluate_routers_and_baselines(

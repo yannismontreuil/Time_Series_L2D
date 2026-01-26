@@ -4,18 +4,28 @@
 We provide additional details on the experiments of Section~\ref{section:experiments}, including
 experimental setup, hyperparameters, and implementation details.
 
-\subsection{Baselines}
+\paragraph{Compared methods.}
+We compare our \textbf{L2D-SLDS} router under bandit feedback to the following baselines.
+\emph{(i) Ablation:} L2D-SLDS without the shared global factor (set \(d_g=0\)).
+\emph{(ii) Contextual bandits:} LinUCB \citep{li2010contextual} and NeuralUCB
+\citep{zhou2020neuralcontextualbanditsucbbased} with more details in \ref{subsection:baselines}.
 
-\paragraph{Feedback regimes (partial vs.\ full).}
+\paragraph{Metric.}
+We report the time-averaged cumulative routing cost over horizon \(T\) (Eq.~\eqref{eq:routing_objective}). Concretely, we
+compute the estimate
+\(
+\hat{J}(\pi) \coloneqq \frac{1}{T}\sum_{t=1}^T C_{t,I_t},
+\)
+where \(C_{t,I_t}\) is the realized cost of deferring to the selected expert at round \(t\). Lower is better.
+
+\subsection{Baselines} \label{subsection:baselines}
+
+\paragraph{Feedback regimes.}
 At round \(t\), the router observes \((\mathbf{x}_t,\mathcal{E}_t)\), chooses \(I_t\in\mathcal{E}_t\),
 and then observes \((\vhaty_{t,I_t},\vy_t)\), hence the realized residual \(e_t=e_{t,I_t}\) and realized
 cost \(C_t=C_{t,I_t}\), where \(C_{t,k}\coloneqq \psi(e_{t,k})+\beta_k\) and
 \(e_{t,k}=\vhaty_{t,k}-\vy_t\) (Appendix~\ref{app:notation}).
 \emph{Partial feedback} means only \((\vhaty_{t,I_t},\vy_t)\) is observed after acting.
-\emph{Full feedback} means \(\{(\vhaty_{t,k},\vy_t)\}_{k\in\mathcal{E}_t}\) is observed after acting, hence all
-\(\{C_{t,k}\}_{k\in\mathcal{E}_t}\) are available for evaluation and parameter updates.
-Importantly, in our experiments this additional information is revealed \emph{after} selecting \(I_t\), so it does not
-change the decision-time information \(\mathcal{F}_t\); it only changes what supervision is available to update a baseline.
 
 \paragraph{L2D-SLDS and ablation without \(\mathbf{g}_t\).}
 Our method is the model-based router of Algorithm~\ref{alg:router_main} under the generative residual
@@ -73,7 +83,6 @@ The decision rule is
 I_t \in \arg\min_{k\in\mathcal{E}_t}\ \widehat{C}_{t,k}-u_t(k).
 \]
 \emph{Partial feedback LinUCB} updates only the chosen arm \(I_t\) (so only \(C_{t,I_t}=C_t\) is observed).
-\emph{Full feedback LinUCB} updates every \(k\in\mathcal{E}_t\) at each round; we set \(\alpha_t=0\) (no exploration), hence \(I_t\in\arg\min_{k\in\mathcal{E}_t}\widehat{C}_{t,k}\).
 
 \subparagraph{NeuralUCB.}
 Let \(f_{\boldsymbol{\omega}}(\mathbf{x},k)\) be a neural predictor of the conditional mean cost of expert
@@ -103,7 +112,6 @@ I_t \in \arg\min_{k\in\mathcal{E}_t}\ \widehat{C}_{t,k}-u_t(k).
 \]
 The network is trained online by stochastic gradient steps on squared error.
 \emph{Partial feedback NeuralUCB} uses the loss \((f_{\boldsymbol{\omega}}(\mathbf{x}_t,I_t)-C_t)^2\) (only \(C_t\) observed).
-\emph{Full feedback NeuralUCB} uses \(\sum_{k\in\mathcal{E}_t}(f_{\boldsymbol{\omega}}(\mathbf{x}_t,k)-C_{t,k})^2\); we set \(\alpha_t=0\) (no exploration), hence \(I_t\in\arg\min_{k\in\mathcal{E}_t}\widehat{C}_{t,k}\).
 
 \paragraph{Oracle baseline.}
 The (per-round) oracle chooses the best available expert in hindsight:
@@ -113,49 +121,9 @@ I_t^{\mathrm{oracle}} \in \arg\min_{k\in\mathcal{E}_t} C_{t,k}.
 This is infeasible under partial feedback because \(C_{t,k}\) is not observed for all \(k\), but we
 report it as a lower bound on achievable cumulative cost.
 
-\paragraph{Learning-to-Defer baselines (full feedback).}
-The Learning-to-Defer baselines assume access to full-feedback costs \(\{C_{t,k}\}_{k\in\mathcal{E}_t}\)
-at each round and are therefore reported only as full-feedback methods in our tables.
-In our implementation, L2D trains a parametric router score function
-\(r_{\boldsymbol{\phi}}:\mathcal{X}\to\mathbb{R}^{K}\) \citep{mao2024regressionmultiexpertdeferral, montreuil2024twostagelearningtodefermultitasklearning}.
-At round \(t\), it induces a distribution over the available experts via a masked softmax:
-\begin{equation}
-\label{eq:exp_l2d_policy}
-\pi_{\boldsymbol{\phi}}(k\mid \mathbf{x}_t)
-\coloneqq
-\frac{\exp(r_{\boldsymbol{\phi}}(\mathbf{x}_t)_k)}{\sum_{j\in\mathcal{E}_t}\exp(r_{\boldsymbol{\phi}}(\mathbf{x}_t)_j)},
-\qquad k\in\mathcal{E}_t.
-\end{equation}
-With full-feedback supervision \(\{C_{t,k}\}_{k\in\mathcal{E}_t}\), we train the router using a cost-sensitive log-softmax loss:
-\begin{equation}
-\label{eq:exp_l2d_logsoftmax}
-\mathcal{L}_t^{\mathrm{L2D}}(\boldsymbol{\phi})
-\coloneqq
--\sum_{k\in\mathcal{E}_t} w_{t,k}\,\log \pi_{\boldsymbol{\phi}}(k\mid \mathbf{x}_t),
-\qquad
-w_{t,k}\coloneqq \sum_{\substack{i\in\mathcal{E}_t\\ i\neq k}} C_{t,i}.
-\end{equation}
-Equivalently, \(w_{t,k}=\sum_{i\in\mathcal{E}_t}C_{t,i}-C_{t,k}\), so experts with smaller cost \(C_{t,k}\) receive larger weight.
-The sliding-window variant L2D\_SW minimizes \(\sum_{t=T-W+1}^{T}\mathcal{L}_t^{\mathrm{L2D}}(\boldsymbol{\phi})\) using only the most recent \(W\) rounds.
-
-
-
 
 \subsection{Synthetic: Regime-Dependent Correlation and Information Transfer}
 \label{sec:exp_synthetic_transfer_appendix}
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=1\textwidth]{figures/corr_new_v2.pdf}
-    \caption{Regime-0 expert dependence in the synthetic transfer experiment. Each heatmap shows the
-    pairwise Pearson correlation (color: \([-1,1]\)) between experts' per-round losses (experts indexed
-    \(0\)--\(3\)). Top row: partial feedback (only queried losses observed); bottom row: full feedback.
-    Columns (left-to-right) show the ground-truth correlation implied by the simulator and the
-    correlations estimated by each method. L2D-SLDS best recovers the block-structured correlations
-    (experts \(\{0,1\}\) vs.\ \(\{2,3\}\)), highlighting the benefit of modeling shared latent factors for
-    cross-expert information transfer under censoring.}
-    \label{fig:exp_synthetic_transfer_regime_estimation_attention}
-\end{figure}
 
 \paragraph{Design goal.}
 We construct a controlled routing instance in which (i) experts are \emph{correlated} in a
@@ -175,7 +143,7 @@ We set the router's context to \(x_t\coloneqq y_{t-1}\).
 The regime \(z_t\) is latent to the router: the router observes only \(x_t\) (before acting) and the
 single queried prediction \(\hat y_{t,I_t}\) (after acting).
 
-\paragraph{Experts.}
+\paragraph{Experts and availability.}
 We use \(K=4\) experts indexed \(k\in\{0,1,2,3\}\). Expert \(k=1\) is removed from the available set \(\mathcal{E}_t\)
 for a contiguous interval \(t\in[2000,2500]\) and then re-enters. Each expert is a one-step forecaster
 \(\hat y_{t,k}=f_k(x_t)\) with a shared slope and expert-specific intercept plus noise:
@@ -201,17 +169,6 @@ correlated in regime \(1\) and experts \(\{2,3\}\) strongly correlated in regime
 Table~\ref{tab:exp_avg_costs}.
 
 
-\paragraph{Compared methods.}
-We compare our \textbf{L2D-SLDS} router under bandit feedback to the following baselines.
-\emph{(i) Ablation:} L2D-SLDS without the shared global factor (set \(d_g=0\)).
-\emph{(ii) Contextual bandits:} LinUCB \citep{li2010contextual} and NeuralUCB \citep{zhou2020neuralcontextualbanditsucbbased}.
-\emph{(iii) Full-feedback:} a full-feedback variant of L2D-SLDS and online
-Learning-to-Defer baselines \citep{mao2024regressionmultiexpertdeferral,Narasimhan} that assume access
-to all experts' predictions each round (hence are not feasible under censoring): standard L2D \citep{Narasimhan, mao2024regressionmultiexpertdeferral}, and a
-sliding-window L2D (L2D\_SW) with \(W=500\) taking the most recent data to handle
-non-stationarity. We use an RNN encoder \citep{rumelhart1985learning} as a drop-in context
-representation for methods that require learned features.
-
 \begin{table}[ht]
 \centering
 \small
@@ -221,24 +178,28 @@ We report mean \(\pm\) standard error across five runs. Lower is better.}
 \label{tab:exp_avg_costs_appendix}
 \begin{tabular}{@{}lcc@{}}
 \toprule
-Method & Partial feedback & Full feedback \\
+Method & Averaged Cumulative Cost \\
 \midrule
-\textbf{L2D-SLDS} & \(\mathbf{13.58 \pm 0.07}\) & \(\mathbf{10.17 \pm 0.01}\) \\
-L2D-SLDS w/o \(\mathbf{g}_t\) & \(14.68 \pm 0.01\) & \(10.18 \pm 0.01\) \\
+\textbf{L2D-SLDS} & \(\mathbf{13.58 \pm 0.07}\)  \\
+L2D-SLDS w/o \(\mathbf{g}_t\) & \(14.68 \pm 0.01\)  \\
 \midrule
-L2D & \multicolumn{1}{c}{--} & \(16.69 \pm 0.25\) \\
-L2D\_SW (\(W=500\)) & \multicolumn{1}{c}{--} & \(13.26 \pm 0.11\) \\
-LinUCB & \(22.94 \pm 0.01\) & \(23.24 \pm 0.01\) \\
-NeuralUCB & \(21.92 \pm 0.31\) & \(21.39 \pm 1.89\) \\
-Random & \(26.13 \pm 0.25\) & \(26.13 \pm 0.25\)  \\
-Always expert 0 & \(23.07\) & \multicolumn{1}{c}{--} \\
-Always expert 1 & \(28.66\) & \multicolumn{1}{c}{--} \\
-Always expert 2 & \(23.05\) & \multicolumn{1}{c}{--} \\
-Always expert 3 & \(29.36\) & \multicolumn{1}{c}{--} \\
-Oracle & \(9.04\) & \(9.04\) \\
+LinUCB & \(22.94 \pm 0.01\)  \\
+NeuralUCB & \(21.92 \pm 0.31\)  \\
+Random & \(26.13 \pm 0.25\)   \\
+Always expert 0 & \(23.07\)  \\
+Always expert 1 & \(28.66\)  \\
+Always expert 2 & \(23.05\)  \\
+Always expert 3 & \(29.36\)  \\
+Oracle & \(9.04\)\\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\textbf{Model Configuration.}
+We use $M = 2$ regimes with shared factor dimension $d_g = 1$ and idiosyncratic dimension $d_\alpha = 1$.
+The staleness horizon for pruning is $\Delta_{\max} = 500$. We simply run a small warmup of 100 steps before
+running L2D-SLDS and UCBs.
+
 
 \paragraph{Correlation recovery.}
 Figure~\ref{fig:exp_synthetic_transfer_regime_estimation} compares the regime-0 loss correlation
@@ -249,12 +210,9 @@ partial observations, whereas removing the shared factor \(\mathbf{g}_t\) blurs 
 inflates cross-group correlations, consistent with losing cross-expert information transfer. In
 contrast, LinUCB/NeuralUCB yield near-degenerate correlation estimates (e.g., overly uniform or
 unstable patterns), reflecting that purely discriminative bandit updates do not maintain a coherent
-joint belief over experts' latent error processes. Under full feedback, the gap between L2D-SLDS and
-its ablation largely closes, as observing all experts makes explicit transfer less critical; however,
-the remaining baselines can still exhibit spurious structure, highlighting that modeling regime-wise
-coupling is beneficial beyond simply having access to more feedback.
+joint belief over experts' latent error processes.
 
-\paragraph{Results.}
+\paragraph{Results and Analysis.}
 Table~\ref{tab:exp_avg_costs} shows that \textbf{L2D-SLDS} achieves the lowest routing cost under
 partial feedback (\(13.58\pm 0.07\)), improving over LinUCB/NeuralUCB by a wide margin and also
 outperforming the best fixed expert. Crucially, it also beats the ablation that removes the shared
@@ -263,10 +221,191 @@ our central claim: under censoring, modeling a \emph{global} latent component en
 \emph{cross-expert information transfer} from a single queried residual (see Proposition \ref{prop:transfer}). Intuitively, \(\mathbf{g}_t\)
 captures regime-dependent common shocks that couple experts; thus, querying one expert updates beliefs
 about unqueried experts in a way that contextual bandits (which treat arms largely independently) and
-independent per-expert dynamics cannot replicate. Under full feedback, the gap between L2D-SLDS and
-its ablation essentially vanishes (\(\approx 10.17\)), as expected when all experts are observed and
-explicit transfer is no longer the bottleneck; in this setting L2D-SLDS is close to the oracle and
-substantially improves over full-feedback L2D and L2D\_SW.
+independent per-expert dynamics cannot replicate.
 
-In Appendix, we provide additional experiments and study in depth this regime-dependant experiment notably by studying how our approach treat the pruning and
-the re-birth of experts.
+In Appendix, we provide additional experiments that probe this regime-dependent setting in more depth, including detailed
+analyses of expert pruning and re-entry.
+
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\textwidth]{figures/expert_structure_all}
+    \caption{We report the selection frequency of each expert over time as a function of the underlying regime.
+The top figure corresponds to the oracle, while the bottom figure shows our approach evaluated against the baselines.
+By construction, experts~0 and~1 perform better in regime~1, whereas experts~2 and~3 perform better in regime~2.
+Accordingly, a well-adapted router should select experts~0 and~1 more frequently in regime~1 and experts~2 and~3 more frequently in regime~2.
+L2D-SLDS (with and without $g_t$) is the only method that captures this structure, closely matching the oracle’s selection behavior.
+In contrast, LinUCB and NeuralUCB fail to adapt their selection frequencies to the regimes.}
+    \label{fig:expert_structure_all}
+\end{figure}
+
+\subsection{ETTh1}
+\label{sec:exp_etth1_appendix}
+
+\paragraph{Environment.}
+We evaluate L2D-SLDS on the ETTh1 electricity transformer temperature dataset~\cite{haoyietal-informer-2021}, using the oil
+temperature (OT) channel as the target \(y_t\). We run the router over the full horizon (\(T=17420\) hourly observations).
+Following the synthetic setup, the router uses a one-step lag as context, \(x_t \coloneqq y_{t-1}\) (with \(x_0=0\)).
+There is no observed regime annotation for ETTh1; the router observes only \(x_t\) before acting and, after selecting
+\(I_t\in\mathcal{E}_t\), it observes the realized outcome \(y_t\) and the single queried prediction \(\hat y_{t,I_t}\) (hence the
+queried residual \(e_{t,I_t}\)).
+
+\paragraph{Experts and availability.}
+We consider \(K=6\) fixed experts (Table~\ref{tab:experts_etth}). To stress-test dynamic availability and our pruning/re-birth
+mechanism, we enforce time-varying expert sets: the strong multi-lag baseline (Expert~4) is available only on the interval
+\(t\in[1000,2000]\), while Expert~0 is unavailable on the same interval. This prevents degenerate ``always-pick-the-best''
+policies and forces the router to handle both expert arrival/departure (Expert~4) and temporary unavailability with later
+return (Expert~0).
+
+\begin{table}[ht]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Configuration of experts for ETTh1.}
+\label{tab:experts_etth_appendix}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Index & Base & Modification \\
+\midrule
+\textbf{0} & AR(1) & small variance \\
+\textbf{1} & AR(1) & large variance \\
+\textbf{2} & MLP & trained on early 2/3 of data \\
+\textbf{3} & MLP & trained on late 2/3 of data \\
+\textbf{4} & AR multi-lag baseline & using lags [1, 24, 168] \\
+\textbf{5} & Constant &  always predict 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Model Configuration.}
+We use $M = 5$ regimes with shared factor dimension $d_g = 2$ and idiosyncratic dimension $d_\alpha = 1$.
+The staleness horizon for pruning is $\Delta_{\max} = 250$. The exploration term considers information gain on both global factor $g$ and regime $z$.
+Online EM adaptation is enabled with a sliding window of $W = 600$ and updates every 300 steps.
+
+
+\begin{table}[ht]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Averaged cumulative cost \eqref{eq:routing_objective} on ETTh1 (Section~\ref{sec:exp_etth1}).
+We report the mean $\pm$ standard error over five runs; lower is better.
+The averaged cumulative cost is computed both over the full time horizon and, for each expert, only over the periods during which that expert is available.
+This explains why Expert~4 attains a low cost despite being available for only a short duration.
+Consequently, it is expected that baseline methods exhibit higher averaged costs than Expert~4.}
+\label{tab:exp_avg_costs_etth_appendix}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Method & Averaged Cumulative Cost  \\
+\midrule
+\textbf{L2D-SLDS} & \(\mathbf{0.80 \pm 0.06}\)  \\
+L2D-SLDS w/o \(\mathbf{g}_t\) & \(0.93 \pm 0.08\) \\
+\midrule
+LinUCB & \(0.84 \pm 0.01\)  \\
+NeuralUCB & \(1.09 \pm 0.19\)  \\
+Random & \(14.51 \pm 0.73\)  \\
+Always expert 0 & \(0.81\)  \\
+Always expert 1 & \(1.19\) \\
+Always expert 2 & \(0.77\) \\
+Always expert 3 & \(1.21\) \\
+Always expert 4 & \(0.74\)  \\
+Always expert 5 & \(166.65\) \\
+Oracle & \(0.24 \pm 0.01\)  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Results and analysis.}
+Table~\ref{tab:exp_avg_costs_etth_appendix} reports the averaged cumulative routing cost. Under \emph{partial feedback}, L2D-SLDS achieves
+the lowest cost among adaptive methods that learn online from bandit feedback (\(0.80\pm 0.06\)), improving over LinUCB
+(\(0.84\)) and substantially outperforming NeuralUCB (\(1.09\pm 0.19\)). Most importantly, removing the shared factor
+\(\mathbf{g}_t\) degrades performance
+(\(0.93\pm 0.08\)), a relative increase of \(\approx 15\%\). This gap is consistent with the role of \(\mathbf{g}_t\) under
+censoring: ETTh1 exhibits common shocks (e.g., global load/temperature patterns) that affect multiple experts similarly, so a
+shared latent component lets a single queried residual update beliefs about \emph{unqueried} experts via the learned
+cross-expert dependence.
+
+
+
+\subsection{FRED: Treasury Securities at 10-Year Constant Maturity}
+\label{subsection_appendix_fred}
+
+\paragraph{Environment.}
+We evaluate on the FRED DGS10 series (10-year U.S.\ Treasury constant-maturity yield)~\cite{FRED_DGS10}, using the daily
+observations in \texttt{data/FRED\_DGS10.csv} from 1990-01-02 through 2023-12-29 (\(T=8506\)).
+The target is \(y_t\coloneqq \text{DGS10}_t\). The router uses a fixed context vector \(x_t\in\mathbb{R}^{10}\) consisting of
+yield lags at \(\{1,5,20,60,120,250\}\) days and calendar features for day-of-week and month encoded as sine/cosine pairs.
+We z-score normalize each context dimension using the first 2520 observations.
+As in all partial-feedback experiments, at each round \(t\) the router observes \((x_t,\mathcal{E}_t)\), chooses \(I_t\), and
+then observes \(\hat y_{t,I_t}\) and \(y_t\) (hence the queried residual \(e_{t,I_t}\)).
+
+\paragraph{Experts.}
+We use \(K=4\) ridge-regularized linear autoregressive experts (AR) of the form \(\hat y_{t,k}=w_k^\top x_t+b_k\), each trained
+offline on a disjoint historical date range and then deployed across the full evaluation horizon. To avoid a single expert
+becoming deterministically dominant, we add mild i.i.d.\ Gaussian prediction noise with standard deviation \(0.03\) to each
+expert's output. All experts are available at all times (\(\mathcal{E}_t=\{0,1,2,3\}\)).
+
+\begin{table}[ht]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Configuration of experts for the FRED DGS10 experiment.}
+\label{tab:experts_fred_appendix}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Index & Model & Training window \\
+\midrule
+\textbf{0} & AR (linear ridge on \(x_t\)) & 1990-01-02--2000-12-31 \\
+\textbf{1} & AR (linear ridge on \(x_t\)) & 2001-01-01--2007-12-31 \\
+\textbf{2} & AR (linear ridge on \(x_t\)) & 2008-01-01--2015-12-31 \\
+\textbf{3} & AR (linear ridge on \(x_t\)) & 2016-01-01--2023-12-31 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Model Configuration.}
+We use \(M=4\) regimes with shared factor dimension \(d_g=2\) and idiosyncratic dimension \(d_\alpha=10\) (matching the context
+dimension). The staleness horizon is \(\Delta_{\max}=4000\), measurement noise is set to \(R=0.01\), and exploration uses the
+information gain over both \(\mathbf{g}_t\) and \(z_t\) (mode \texttt{g\_z}). We disable EM adaptation in this experiment.
+
+\paragraph{Results and analysis.}
+Table~\ref{tab:exp_avg_var_l2d_fred} reports the averaged cumulative routing cost. Under partial feedback, \textbf{L2D-SLDS}
+achieves the lowest cost among adaptive methods (\(0.004327\pm0.000003\)), improving over LinUCB, NeuralUCB, and random routing.
+Removing the shared factor slightly degrades performance (\(0.004411\pm0.000011\)), consistent with shared latent structure
+providing additional cross-expert signal when only one residual is observed per round.
+
+\begin{table}[ht]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Averaged cumulative cost \eqref{eq:routing_objective} on the FRED (DGS10) experiment (Appendix~\ref{subsection_appendix_fred}).
+We report mean \(\pm\) standard error across five runs; lower is better.}
+\label{tab:exp_avg_var_l2d_fred}
+\begin{tabular}{@{}lc@{}}
+\toprule
+Method & Average Cumulative Cost \\
+\midrule
+\textbf{L2D-SLDS}
+& \(\mathbf{0.004327 \pm 0.000003}\) \\
+L2D-SLDS w/o \(\mathbf{g}_t\)
+& \(0.004411 \pm 0.000011\) \\
+\midrule
+LinUCB
+& \(0.004452 \pm 0.000002\) \\
+NeuralUCB
+& \(0.004424 \pm 0.000023\) \\
+Random
+& \(0.004455 \pm 0.000009\) \\
+\midrule
+Always expert 0
+& \(0.004411\) \\
+Always expert 1
+& \(0.004567\) \\
+Always expert 2
+& \(0.004505\) \\
+Always expert 3
+& \(0.004329\) \\
+Oracle
+& \(0.001754\) \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -102,9 +102,7 @@
 \newlabel{prop:invariance@cref}{{[proposition][3][]3}{[1][6][]6}}
 \newlabel{eq:birth_prior}{{20}{6}{}{equation.4.20}{}}
 \newlabel{eq:birth_prior@cref}{{[equation][20][]20}{[1][6][]6}}
-\newlabel{eq:birth_time_update}{{21}{6}{}{equation.4.21}{}}
-\newlabel{eq:birth_time_update@cref}{{[equation][21][]21}{[1][6][]6}}
-\newlabel{thmt@@transfer@data}{{\def \theequation {\@arabic {\c@equation }}\def \theHequation {(restate \theHthmt@dummyctr )4.\@arabic {\c@equation }}\setcounter {equation}{21}}{6}{}{equation.4.21}{}}
+\newlabel{thmt@@transfer@data}{{\def \theequation {\@arabic {\c@equation }}\def \theHequation {(restate \theHthmt@dummyctr )4.\@arabic {\c@equation }}\setcounter {equation}{20}}{6}{}{equation.4.20}{}}
 \newlabel{thmt@@transfer@data@cref}{{[subsubsection][4][4,2]4.2.4}{[1][6][]6}}
 \newlabel{thmt@@transfer}{{4}{6}{Coupling at birth through the shared factor}{proposition.4}{}}
 \newlabel{thmt@@transfer@cref}{{[proposition][4][]4}{[1][6][]6}}
@@ -114,6 +112,8 @@
 \newlabel{section:experiments@cref}{{[section][5][]5}{[1][6][]6}}
 \newlabel{sec:exp_synthetic_transfer}{{5.1}{6}{}{subsection.5.1}{}}
 \newlabel{sec:exp_synthetic_transfer@cref}{{[subsection][1][5]5.1}{[1][6][]6}}
+\newlabel{eq:exp_tri_cycle_ts}{{21}{6}{}{equation.5.21}{}}
+\newlabel{eq:exp_tri_cycle_ts@cref}{{[equation][21][]21}{[1][6][]6}}
 \citation{li2010contextual}
 \citation{zhou2020neuralcontextualbanditsucbbased}
 \citation{mao2024regressionmultiexpertdeferral,Narasimhan}
@@ -122,10 +122,8 @@
 \providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
 \newlabel{fig:exp_synthetic_transfer_regime_estimation}{{1}{7}{Regime-0 expert dependence in the synthetic transfer experiment. Each heatmap shows the pairwise Pearson correlation (color: \([-1,1]\)) between experts' per-round losses (experts indexed \(0\)--\(3\)). Top row: partial feedback (only queried losses observed); bottom row: full feedback. Columns (left-to-right) show the ground-truth correlation implied by the simulator and the correlations estimated by each method. L2D-SLDS best recovers the block-structured correlations (experts \(\{0,1\}\) vs.\ \(\{2,3\}\)), highlighting the benefit of modeling shared latent factors for cross-expert information transfer under censoring.\relax }{figure.caption.1}{}}
 \newlabel{fig:exp_synthetic_transfer_regime_estimation@cref}{{[figure][1][]1}{[1][6][]7}}
-\newlabel{eq:exp_tri_cycle_ts}{{22}{7}{}{equation.5.22}{}}
-\newlabel{eq:exp_tri_cycle_ts@cref}{{[equation][22][]22}{[1][6][]7}}
-\newlabel{eq:exp_synth_expert_rule}{{23}{7}{}{equation.5.23}{}}
-\newlabel{eq:exp_synth_expert_rule@cref}{{[equation][23][]23}{[1][7][]7}}
+\newlabel{eq:exp_synth_expert_rule}{{22}{7}{}{equation.5.22}{}}
+\newlabel{eq:exp_synth_expert_rule@cref}{{[equation][22][]22}{[1][7][]7}}
 \newlabel{tab:exp_avg_costs}{{1}{7}{Averaged cumulative cost \eqref {eq:routing_objective} on experiment (Section~\ref {sec:exp_synthetic_transfer}). We report mean \(\pm \) standard error across five runs. Lower is better.\relax }{table.caption.2}{}}
 \newlabel{tab:exp_avg_costs@cref}{{[table][1][]1}{[1][7][]7}}
 \bibdata{biblio}
@@ -206,79 +204,87 @@
 \newlabel{app:info_gain@cref}{{[appendix][5][2147483647]E}{[1][17][]17}}
 \newlabel{rmk:zg_information}{{5}{17}{$(z_t,\mathbf {g}_t)$-Information Gain for Non-Stationary Routing}{remark.5}{}}
 \newlabel{rmk:zg_information@cref}{{[remark][5][2147483647]5}{[1][17][]17}}
-\newlabel{eq:ig_chain_rule_rmk}{{24}{17}{$(z_t,\mathbf {g}_t)$-Information Gain for Non-Stationary Routing}{equation.E.24}{}}
-\newlabel{eq:ig_chain_rule_rmk@cref}{{[equation][24][2147483647]24}{[1][17][]17}}
+\newlabel{eq:ig_chain_rule_rmk}{{23}{17}{$(z_t,\mathbf {g}_t)$-Information Gain for Non-Stationary Routing}{equation.E.23}{}}
+\newlabel{eq:ig_chain_rule_rmk@cref}{{[equation][23][2147483647]23}{[1][17][]17}}
 \newlabel{sec:exploration_zg}{{E.1}{17}{}{subsection.E.1}{}}
 \newlabel{sec:exploration_zg@cref}{{[subappendix][1][2147483647,5]E.1}{[1][17][]17}}
-\newlabel{eq:exp_pred_rv}{{25}{17}{}{equation.E.25}{}}
-\newlabel{eq:exp_pred_rv@cref}{{[equation][25][2147483647]25}{[1][17][]17}}
-\newlabel{eq:exp_g_prior}{{26}{18}{}{equation.E.26}{}}
-\newlabel{eq:exp_g_prior@cref}{{[equation][26][2147483647]26}{[1][17][]18}}
-\newlabel{eq:exp_channel}{{27}{18}{}{equation.E.27}{}}
-\newlabel{eq:exp_channel@cref}{{[equation][27][2147483647]27}{[1][18][]18}}
-\newlabel{eq:exp_channel_params}{{28}{18}{}{equation.E.28}{}}
-\newlabel{eq:exp_channel_params@cref}{{[equation][28][2147483647]28}{[1][18][]18}}
-\newlabel{eq:exp_squared_loss}{{29}{18}{}{equation.E.29}{}}
-\newlabel{eq:exp_squared_loss@cref}{{[equation][29][2147483647]29}{[1][18][]18}}
-\newlabel{eq:exp_virtual_cost}{{30}{18}{}{equation.E.30}{}}
-\newlabel{eq:exp_virtual_cost@cref}{{[equation][30][2147483647]30}{[1][18][]18}}
-\newlabel{eq:exp_mean_cost}{{31}{18}{}{equation.E.31}{}}
-\newlabel{eq:exp_mean_cost@cref}{{[equation][31][2147483647]31}{[1][18][]18}}
-\newlabel{eq:exp_gap}{{32}{18}{}{equation.E.32}{}}
-\newlabel{eq:exp_gap@cref}{{[equation][32][2147483647]32}{[1][18][]18}}
-\newlabel{eq:exp_residual_mean}{{33}{18}{}{equation.E.33}{}}
-\newlabel{eq:exp_residual_mean@cref}{{[equation][33][2147483647]33}{[1][18][]18}}
-\newlabel{eq:exp_residual_var}{{34}{18}{}{equation.E.34}{}}
-\newlabel{eq:exp_residual_var@cref}{{[equation][34][2147483647]34}{[1][18][]18}}
-\newlabel{eq:exp_cost_mix}{{35}{18}{}{equation.E.35}{}}
-\newlabel{eq:exp_cost_mix@cref}{{[equation][35][2147483647]35}{[1][18][]18}}
-\newlabel{eq:exp_square_loss_mix}{{36}{18}{}{equation.E.36}{}}
-\newlabel{eq:exp_square_loss_mix@cref}{{[equation][36][2147483647]36}{[1][18][]18}}
-\newlabel{eq:exp_ig_zg_def}{{37}{18}{}{equation.E.37}{}}
-\newlabel{eq:exp_ig_zg_def@cref}{{[equation][37][2147483647]37}{[1][18][]18}}
-\newlabel{eq:exp_ig_zg_chain}{{38}{19}{}{equation.E.38}{}}
-\newlabel{eq:exp_ig_zg_chain@cref}{{[equation][38][2147483647]38}{[1][18][]19}}
-\newlabel{eq:exp_ig_g_mode}{{40}{19}{}{equation.E.40}{}}
-\newlabel{eq:exp_ig_g_mode@cref}{{[equation][40][2147483647]40}{[1][19][]19}}
-\newlabel{eq:exp_iz_mc}{{41}{19}{}{equation.E.41}{}}
-\newlabel{eq:exp_iz_mc@cref}{{[equation][41][2147483647]41}{[1][19][]19}}
-\newlabel{eq:exp_iz_estimator}{{43}{19}{}{equation.E.43}{}}
-\newlabel{eq:exp_iz_estimator@cref}{{[equation][43][2147483647]43}{[1][19][]19}}
-\newlabel{eq:exp_logpdf_gauss}{{44}{19}{}{equation.E.44}{}}
-\newlabel{eq:exp_logpdf_gauss@cref}{{[equation][44][2147483647]44}{[1][19][]19}}
-\newlabel{eq:exp_logmix_lse}{{45}{19}{}{equation.E.45}{}}
-\newlabel{eq:exp_logmix_lse@cref}{{[equation][45][2147483647]45}{[1][19][]19}}
-\newlabel{eq:exp_ig_zg_final}{{46}{19}{}{equation.E.46}{}}
-\newlabel{eq:exp_ig_zg_final@cref}{{[equation][46][2147483647]46}{[1][19][]19}}
+\newlabel{eq:exp_pred_rv}{{24}{17}{}{equation.E.24}{}}
+\newlabel{eq:exp_pred_rv@cref}{{[equation][24][2147483647]24}{[1][17][]17}}
+\newlabel{eq:exp_g_prior}{{25}{18}{}{equation.E.25}{}}
+\newlabel{eq:exp_g_prior@cref}{{[equation][25][2147483647]25}{[1][17][]18}}
+\newlabel{eq:exp_channel}{{26}{18}{}{equation.E.26}{}}
+\newlabel{eq:exp_channel@cref}{{[equation][26][2147483647]26}{[1][18][]18}}
+\newlabel{eq:exp_channel_params}{{27}{18}{}{equation.E.27}{}}
+\newlabel{eq:exp_channel_params@cref}{{[equation][27][2147483647]27}{[1][18][]18}}
+\newlabel{eq:exp_squared_loss}{{28}{18}{}{equation.E.28}{}}
+\newlabel{eq:exp_squared_loss@cref}{{[equation][28][2147483647]28}{[1][18][]18}}
+\newlabel{eq:exp_virtual_cost}{{29}{18}{}{equation.E.29}{}}
+\newlabel{eq:exp_virtual_cost@cref}{{[equation][29][2147483647]29}{[1][18][]18}}
+\newlabel{eq:exp_mean_cost}{{30}{18}{}{equation.E.30}{}}
+\newlabel{eq:exp_mean_cost@cref}{{[equation][30][2147483647]30}{[1][18][]18}}
+\newlabel{eq:exp_gap}{{31}{18}{}{equation.E.31}{}}
+\newlabel{eq:exp_gap@cref}{{[equation][31][2147483647]31}{[1][18][]18}}
+\newlabel{eq:exp_residual_mean}{{32}{18}{}{equation.E.32}{}}
+\newlabel{eq:exp_residual_mean@cref}{{[equation][32][2147483647]32}{[1][18][]18}}
+\newlabel{eq:exp_residual_var}{{33}{18}{}{equation.E.33}{}}
+\newlabel{eq:exp_residual_var@cref}{{[equation][33][2147483647]33}{[1][18][]18}}
+\newlabel{eq:exp_cost_mix}{{34}{18}{}{equation.E.34}{}}
+\newlabel{eq:exp_cost_mix@cref}{{[equation][34][2147483647]34}{[1][18][]18}}
+\newlabel{eq:exp_square_loss_mix}{{35}{18}{}{equation.E.35}{}}
+\newlabel{eq:exp_square_loss_mix@cref}{{[equation][35][2147483647]35}{[1][18][]18}}
+\newlabel{eq:exp_ig_zg_def}{{36}{18}{}{equation.E.36}{}}
+\newlabel{eq:exp_ig_zg_def@cref}{{[equation][36][2147483647]36}{[1][18][]18}}
+\newlabel{eq:exp_ig_zg_chain}{{37}{19}{}{equation.E.37}{}}
+\newlabel{eq:exp_ig_zg_chain@cref}{{[equation][37][2147483647]37}{[1][18][]19}}
+\newlabel{eq:exp_ig_g_mode}{{39}{19}{}{equation.E.39}{}}
+\newlabel{eq:exp_ig_g_mode@cref}{{[equation][39][2147483647]39}{[1][19][]19}}
+\newlabel{eq:exp_iz_mc}{{40}{19}{}{equation.E.40}{}}
+\newlabel{eq:exp_iz_mc@cref}{{[equation][40][2147483647]40}{[1][19][]19}}
+\newlabel{eq:exp_iz_estimator}{{42}{19}{}{equation.E.42}{}}
+\newlabel{eq:exp_iz_estimator@cref}{{[equation][42][2147483647]42}{[1][19][]19}}
+\newlabel{eq:exp_logpdf_gauss}{{43}{19}{}{equation.E.43}{}}
+\newlabel{eq:exp_logpdf_gauss@cref}{{[equation][43][2147483647]43}{[1][19][]19}}
+\newlabel{eq:exp_logmix_lse}{{44}{19}{}{equation.E.44}{}}
+\newlabel{eq:exp_logmix_lse@cref}{{[equation][44][2147483647]44}{[1][19][]19}}
+\newlabel{eq:exp_ig_zg_final}{{45}{19}{}{equation.E.45}{}}
+\newlabel{eq:exp_ig_zg_final@cref}{{[equation][45][2147483647]45}{[1][19][]19}}
 \newlabel{app:proof_cross_update}{{F.1}{19}{}{subsection.F.1}{}}
 \newlabel{app:proof_cross_update@cref}{{[subappendix][1][2147483647,6]F.1}{[1][19][]19}}
 \newlabel{app:invariance}{{F.2}{20}{}{subsection.F.2}{}}
 \newlabel{app:invariance@cref}{{[subappendix][2][2147483647,6]F.2}{[1][20][]20}}
-\newlabel{eq:marg_def}{{47}{20}{}{equation.F.47}{}}
-\newlabel{eq:marg_def@cref}{{[equation][47][2147483647]47}{[1][20][]20}}
+\newlabel{eq:marg_def}{{46}{20}{}{equation.F.46}{}}
+\newlabel{eq:marg_def@cref}{{[equation][46][2147483647]46}{[1][20][]20}}
+\citation{li2010contextual}
+\citation{zhou2020neuralcontextualbanditsucbbased}
 \newlabel{app:transfer}{{F.3}{21}{}{subsection.F.3}{}}
 \newlabel{app:transfer@cref}{{[subappendix][3][2147483647,6]F.3}{[1][21][]21}}
 \newlabel{sec:experiments-details}{{G}{21}{}{appendix.G}{}}
 \newlabel{sec:experiments-details@cref}{{[appendix][7][2147483647]G}{[1][21][]21}}
-\citation{mao2024regressionmultiexpertdeferral,montreuil2024twostagelearningtodefermultitasklearning}
-\newlabel{eq:exp_l2d_policy}{{48}{23}{}{equation.G.48}{}}
-\newlabel{eq:exp_l2d_policy@cref}{{[equation][48][2147483647]48}{[1][23][]23}}
-\newlabel{eq:exp_l2d_logsoftmax}{{49}{23}{}{equation.G.49}{}}
-\newlabel{eq:exp_l2d_logsoftmax@cref}{{[equation][49][2147483647]49}{[1][23][]23}}
+\newlabel{subsection:baselines}{{G.1}{22}{}{subsection.G.1}{}}
+\newlabel{subsection:baselines@cref}{{[subappendix][1][2147483647,7]G.1}{[1][22][]22}}
 \newlabel{sec:exp_synthetic_transfer_appendix}{{G.2}{23}{}{subsection.G.2}{}}
-\newlabel{sec:exp_synthetic_transfer_appendix@cref}{{[subappendix][2][2147483647,7]G.2}{[1][23][]23}}
-\newlabel{fig:exp_synthetic_transfer_regime_estimation_attention}{{3}{23}{Regime-0 expert dependence in the synthetic transfer experiment. Each heatmap shows the pairwise Pearson correlation (color: \([-1,1]\)) between experts' per-round losses (experts indexed \(0\)--\(3\)). Top row: partial feedback (only queried losses observed); bottom row: full feedback. Columns (left-to-right) show the ground-truth correlation implied by the simulator and the correlations estimated by each method. L2D-SLDS best recovers the block-structured correlations (experts \(\{0,1\}\) vs.\ \(\{2,3\}\)), highlighting the benefit of modeling shared latent factors for cross-expert information transfer under censoring.\relax }{figure.caption.5}{}}
-\newlabel{fig:exp_synthetic_transfer_regime_estimation_attention@cref}{{[figure][3][2147483647]3}{[1][23][]23}}
-\newlabel{eq:exp_tri_cycle_ts_appendix}{{50}{23}{}{equation.G.50}{}}
-\newlabel{eq:exp_tri_cycle_ts_appendix@cref}{{[equation][50][2147483647]50}{[1][23][]23}}
-\citation{li2010contextual}
-\citation{zhou2020neuralcontextualbanditsucbbased}
-\citation{mao2024regressionmultiexpertdeferral,Narasimhan}
-\citation{Narasimhan,mao2024regressionmultiexpertdeferral}
-\citation{rumelhart1985learning}
-\newlabel{eq:exp_synth_expert_rule_appendix}{{51}{24}{}{equation.G.51}{}}
-\newlabel{eq:exp_synth_expert_rule_appendix@cref}{{[equation][51][2147483647]51}{[1][23][]24}}
-\newlabel{tab:exp_avg_costs_appendix}{{3}{24}{Averaged cumulative cost \eqref {eq:routing_objective} on experiment (Section~\ref {sec:exp_synthetic_transfer}). We report mean \(\pm \) standard error across five runs. Lower is better.\relax }{table.caption.6}{}}
-\newlabel{tab:exp_avg_costs_appendix@cref}{{[table][3][2147483647]3}{[1][24][]24}}
+\newlabel{sec:exp_synthetic_transfer_appendix@cref}{{[subappendix][2][2147483647,7]G.2}{[1][22][]23}}
+\newlabel{eq:exp_tri_cycle_ts_appendix}{{47}{23}{}{equation.G.47}{}}
+\newlabel{eq:exp_tri_cycle_ts_appendix@cref}{{[equation][47][2147483647]47}{[1][23][]23}}
+\newlabel{eq:exp_synth_expert_rule_appendix}{{48}{23}{}{equation.G.48}{}}
+\newlabel{eq:exp_synth_expert_rule_appendix@cref}{{[equation][48][2147483647]48}{[1][23][]23}}
+\newlabel{tab:exp_avg_costs_appendix}{{3}{23}{Averaged cumulative cost \eqref {eq:routing_objective} on experiment (Section~\ref {sec:exp_synthetic_transfer}). We report mean \(\pm \) standard error across five runs. Lower is better.\relax }{table.caption.5}{}}
+\newlabel{tab:exp_avg_costs_appendix@cref}{{[table][3][2147483647]3}{[1][23][]23}}
+\citation{haoyietal-informer-2021}
+\citation{FRED_DGS10}
+\newlabel{fig:expert_structure_all}{{3}{24}{We report the selection frequency of each expert over time as a function of the underlying regime. The top figure corresponds to the oracle, while the bottom figure shows our approach evaluated against the baselines. By construction, experts~0 and~1 perform better in regime~1, whereas experts~2 and~3 perform better in regime~2. Accordingly, a well-adapted router should select experts~0 and~1 more frequently in regime~1 and experts~2 and~3 more frequently in regime~2. L2D-SLDS (with and without $g_t$) is the only method that captures this structure, closely matching the oracle’s selection behavior. In contrast, LinUCB and NeuralUCB fail to adapt their selection frequencies to the regimes.\relax }{figure.caption.6}{}}
+\newlabel{fig:expert_structure_all@cref}{{[figure][3][2147483647]3}{[1][24][]24}}
+\newlabel{sec:exp_etth1_appendix}{{G.3}{24}{}{subsection.G.3}{}}
+\newlabel{sec:exp_etth1_appendix@cref}{{[subappendix][3][2147483647,7]G.3}{[1][24][]24}}
+\newlabel{tab:experts_etth_appendix}{{4}{24}{Configuration of experts for ETTh1.\relax }{table.caption.7}{}}
+\newlabel{tab:experts_etth_appendix@cref}{{[table][4][2147483647]4}{[1][24][]24}}
+\newlabel{tab:exp_avg_costs_etth_appendix}{{5}{25}{Averaged cumulative cost \eqref {eq:routing_objective} on ETTh1 (Section~\ref {sec:exp_etth1}). We report the mean $\pm $ standard error over five runs; lower is better. The averaged cumulative cost is computed both over the full time horizon and, for each expert, only over the periods during which that expert is available. This explains why Expert~4 attains a low cost despite being available for only a short duration. Consequently, it is expected that baseline methods exhibit higher averaged costs than Expert~4.\relax }{table.caption.8}{}}
+\newlabel{tab:exp_avg_costs_etth_appendix@cref}{{[table][5][2147483647]5}{[1][24][]25}}
+\newlabel{subsection_appendix_fred}{{G.4}{25}{}{subsection.G.4}{}}
+\newlabel{subsection_appendix_fred@cref}{{[subappendix][4][2147483647,7]G.4}{[1][24][]25}}
+\newlabel{tab:experts_fred_appendix}{{6}{25}{Configuration of experts for the FRED DGS10 experiment.\relax }{table.caption.9}{}}
+\newlabel{tab:experts_fred_appendix@cref}{{[table][6][2147483647]6}{[1][25][]25}}
 \ttl@finishall
-\gdef \@abspage@last{25}
+\newlabel{tab:exp_avg_var_l2d_fred}{{7}{26}{Averaged cumulative cost \eqref {eq:routing_objective} on the FRED (DGS10) experiment (Appendix~\ref {subsection_appendix_fred}). We report mean \(\pm \) standard error across five runs; lower is better.\relax }{table.caption.10}{}}
+\newlabel{tab:exp_avg_var_l2d_fred@cref}{{[table][7][2147483647]7}{[1][25][]26}}
+\gdef \@abspage@last{26}

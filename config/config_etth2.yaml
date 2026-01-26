@@ -3,7 +3,7 @@ plot_target: "y"
 plot_synth_preview: true
 
 transition_log:
-  enabled: true
+  enabled: false
   print: false
   precision: 4
   stride: 1
@@ -20,7 +20,7 @@ environment:
   # Main experiment environment for ETTh2 (oil temperature as target).
   # We reuse the same router code as for the synthetic environment, but
   # the data now comes from a real-world dataset.
-  T: 17535 # total 17536 time steps
+  T: 1000 # total 17536 time steps
   data_source: etth2
   csv_path: data/ETTh2.csv
   target_column: OT
@@ -107,7 +107,7 @@ routers:
     exploration_diag_samples: 50
     exploration_diag_print: true
 
-    em_enabled: true
+    em_enabled: false
     em_offline_full_feedback: true
     em_tk: 5000
     em_n: 10
@@ -198,7 +198,7 @@ analysis:
     enabled: true
     expert_idx: 1
     rolling_window: 100
-    out_dir: "out/pruning"
+    out_dir: "out/pruning/ETTh2"
     show_plots: false
     save_plots: true
     save_png: true

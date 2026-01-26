@@ -72,6 +72,8 @@ routers:
 
   factorized_slds:
     enabled: true
+    # Choose which feedback modes to run for L2D-SLDS: "partial", "full", or "both".
+    feedback_mode: "partial"
     num_regimes: 2
     shared_dim: 2
     idiosyncratic_dim: 1
@@ -95,14 +97,14 @@ routers:
 
     em_enabled: false
     em_offline_full_feedback: true
-    em_tk: 400
+    em_tk: 1000
     em_n: 10
     em_samples: 10
     em_burn_in: 100
     em_use_validation: true
     em_val_strategy: "rolling"
-    em_val_fraction: 0.4
-    em_val_roll_len: 100
+    em_val_fraction: 0.2
+    em_val_roll_len: 200
     em_val_roll_splits: 2
     em_val_roll_stride: null
     em_val_len: null
@@ -126,21 +128,21 @@ routers:
     transition_mode: "attention"
 
 baselines:
-  l2d:
-    arch: "mlp"
-    learning_rate: 0.001
-    hidden_dim: 4
-    window_size: 1
-    alpha: 1.0
-    beta: null
-
-  l2d_sw:
-    arch: "rnn"
-    learning_rate: 0.001
-    hidden_dim: 4
-    window_size: 200
-    alpha: 1.0
-    beta: null
+#  l2d:
+#    arch: "mlp"
+#    learning_rate: 0.001
+#    hidden_dim: 4
+#    window_size: 1
+#    alpha: 1.0
+#    beta: null
+#
+#  l2d_sw:
+#    arch: "rnn"
+#    learning_rate: 0.001
+#    hidden_dim: 4
+#    window_size: 200
+#    alpha: 1.0
+#    beta: null
 
   linucb:
     alpha_ucb: 5
@@ -158,7 +160,7 @@ analysis:
   baselines_train_from_start: true
   tri_cycle_corr:
     enabled: true
-    router: "factorized_full"
+    router: "factorized_partial"
     out_dir: "out/tri_cycle_corr"
     show_plots: false
     save_plots: true
@@ -179,27 +181,11 @@ analysis:
     enabled: true
     expert_idx: 1
     rolling_window: 100
-    out_dir: "out/pruning"
+    event_window_pre: 100
+    event_window_post: 200
+    adoption_threshold: 0.5
+    out_dir: "out/tri_cycle_corr/pruning"
     show_plots: false
     save_plots: true
     save_png: true
     save_pdf: true
-
-
-horizon_planning:
-  # Start horizon planning after EM warm-start.
-  t0: 1650
-
-  H: 50
-  method: "100_monte_carlo"
-
-  # Coverage tolerance for active-set scheduling.
-  delta: 0.05
-
-  scenario_generator:
-    type: "oracle_ar1"
-    ar_coef: 0.8
-    use_true_regime: true
-    sigma0: 1
-    q_scale: 1
-    noise_scale: 1

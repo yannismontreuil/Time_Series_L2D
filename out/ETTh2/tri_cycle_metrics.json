@@ -1,0 +1,30 @@
+{
+  "label": "L2D SLDS w/ $g_t$ attention (g_z)",
+  "t_start": 1,
+  "t_end": 999,
+  "regime_accuracy": 0.3633633633633634,
+  "switch_delay_mean": NaN,
+  "switch_delay_median": NaN,
+  "corr_mae_by_regime": [
+    0.3681922324450179
+  ],
+  "corr_mae_cond_by_regime": [
+    0.36023942612139753
+  ],
+  "pred_loss_corr_mae_by_regime": [
+    0.05649921960398654
+  ],
+  "g_recovery": {},
+  "avg_cost": 1.9906816528757503,
+  "avg_cost_no_g": 1.966606087175177,
+  "avg_cost_gain": -0.024075565700573343,
+  "pred_loss_corr_mae_no_g_by_regime": [
+    0.04640692387616277
+  ],
+  "pred_loss_corr_mae_linucb_partial_by_regime": [
+    0.0885429540683411
+  ],
+  "pred_loss_corr_mae_neuralucb_partial_by_regime": [
+    0.27740657275763203
+  ]
+}

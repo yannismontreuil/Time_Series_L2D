@@ -1,12 +1,12 @@
 # FRED DGS10 (10-Year US Treasury Yield) experiment.
-# Goal: specialist experts (ARIMA vs RNN) over different market regimes.
+# Goal: specialist AR experts over different market regimes.
 
 plot_shift: 1
 plot_target: "y"
 plot_synth_preview: true
 
 transition_log:
-  enabled: true
+  enabled: false
   print: false
   precision: 4
   stride: 1
@@ -26,38 +26,39 @@ environment:
 
   # Use full dataset unless overridden.
   T: null
-  seed: 11
+  seed: 13
+  # Fixed seed for data/expert generation (decoupled from `seed`).
+  data_seed: 42
 
   # Experts/regimes
   num_experts: 4
   num_regimes: 4
 
   # Context = yield lags + time features.
-  # lags: 5; time features (dayofweek, month): 4 -> total 9.
-  state_dim: 9
+  # lags: 6; time features (dayofweek, month): 4 -> total 10.
+  state_dim: 10
 
-  context_lags: [1, 5, 20, 60, 120]
+  context_lags: [1, 5, 20, 60, 120, 250]
   include_time_features: true
   time_features: [dayofweek, month]
 
   normalize_context: true
-  normalization_window: 2000
+  normalization_window: 2520
   normalization_eps: 1.0e-6
   normalization_mode: "zscore"
 
-  # Expert architectures: 2 ARIMA + 2 RNN
-  expert_archs: [arima, arima, rnn, rnn]
+  # Expert architectures: 4 AR (trained on regime date ranges).
+  expert_archs: [ar, ar, ar, ar]
+  # Add mild per-expert prediction noise to avoid a single dominant expert.
+  expert_pred_noise_std: [0.03, 0.03, 0.03, 0.03]
 
-  # ARIMA-like experts (AR on differenced series).
-  arima_lags: [1, 5, 20, 60]
-  arima_diff_order: 1
 
   # Specialization windows (date ranges).
   expert_train_date_ranges:
-    - ["1990-01-01", "2005-12-31"]  # expert 0: pre-crisis regime
-    - ["2009-01-01", "2024-01-01"]  # expert 1: post-crisis regime
-    - ["1990-01-01", "2000-12-31"]  # expert 2: early high-rate regime
-    - ["2007-01-01", "2010-12-31"]  # expert 3: crisis regime
+    - ["1990-01-02", "2000-12-31"]  # expert 0: high/declining 90s
+    - ["2001-01-01", "2007-12-31"]  # expert 1: pre-crisis moderation
+    - ["2008-01-01", "2015-12-31"]  # expert 2: crisis + ZLB
+    - ["2016-01-01", "2023-12-31"]  # expert 3: normalization + hikes
 
   # RNN (ESN) hyperparameters
   rnn_hidden_dim: 4
@@ -72,15 +73,15 @@ environment:
   rnn_washouts: [5, 5, 10, 3]
   rnn_input_scales: [0.6, 0.6, 0.4, 0.8]
 
-  analysis_window: 2000
+  analysis_window: 2520
 
-#  unavailable_expert_idx: 2
+#  unavailable_expert_idx: 0
 #  unavailable_intervals:
 #    - [ 1000, 3000 ]
 #  arrival_expert_idx: 3
 #  arrival_intervals:
 #    # Expert 4 becomes available only later in the series.
-#    - [ 4000, 8000 ]
+#    - [ 4000, 6000 ]
 
 routers:
   beta: 0.0
@@ -91,12 +92,12 @@ routers:
     enabled: true
     num_regimes: 4
     shared_dim: 2
-    idiosyncratic_dim: 9
+    idiosyncratic_dim: 10
     delta_max: 4000
     R_scalar: 0.01
 
     # Expert-specific shared loadings (B_k) to make IG differ across experts.
-    # Feature order: [lag1, lag5, lag20, lag60, lag120, dow_sin, dow_cos, month_sin, month_cos]
+    # Feature order: [lag1, lag5, lag20, lag60, lag120, lag250, dow_sin, dow_cos, month_sin, month_cos]
     B_dict:
       0:
         - [0.6, 0.0]
@@ -104,6 +105,7 @@ routers:
         - [0.15, 0.0]
         - [0.0, 0.0]
         - [0.0, 0.0]
+        - [0.1, 0.0]
         - [0.0, 0.35]
         - [0.0, 0.35]
         - [0.0, 0.15]
@@ -111,9 +113,10 @@ routers:
       1:
         - [0.0, 0.0]
         - [0.0, 0.0]
-        - [0.25, 0.0]
+        - [0.2, 0.0]
         - [0.45, 0.0]
         - [0.45, 0.0]
+        - [0.3, 0.0]
         - [0.0, 0.0]
         - [0.0, 0.0]
         - [0.0, 0.45]
@@ -124,6 +127,7 @@ routers:
         - [0.5, 0.0]
         - [0.3, 0.0]
         - [0.0, 0.0]
+        - [0.2, 0.0]
         - [0.0, -0.35]
         - [0.0, 0.35]
         - [0.0, 0.15]
@@ -134,6 +138,7 @@ routers:
         - [0.0, 0.0]
         - [0.0, 0.0]
         - [-0.2, 0.0]
+        - [-0.1, 0.0]
         - [0.0, 0.0]
         - [0.0, 0.0]
         - [0.0, 0.5]
@@ -158,16 +163,16 @@ routers:
     exploration_diag_samples: 100
     exploration_diag_print: true
 
-    em_enabled: true
+    em_enabled: false
     em_offline_full_feedback: true
-    em_tk: 4000
+    em_tk: 2000
     em_n: 15
-    em_samples: 10
+    em_samples: 50
     em_burn_in: 5
     em_use_validation: true
     em_val_strategy: "rolling"
-    em_val_fraction: 0.3
-    em_val_roll_len: 500
+    em_val_fraction: 0.7
+    em_val_roll_len: 800
     em_val_roll_splits: 3
     em_val_roll_stride: null
     em_val_len: null
@@ -229,7 +234,7 @@ analysis:
     use_fisher: true
 
   tri_cycle_corr:
-    enabled: false
+    enabled: true
     out_dir: "out/FRED_DGS10"
 
   pruning:

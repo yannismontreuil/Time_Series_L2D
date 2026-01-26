@@ -4,6 +4,12 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
+# Fixed seed for data/expert generation to ensure reproducibility of time
+# series and expert behavior across experiments. The configurable seed in the
+# config should only affect learning processes, not the underlying data or
+# expert parameters. A separate data_seed can be supplied explicitly if needed.
+DATA_GENERATION_SEED = 42
+
 try:  # optional dependency for PyTorch-based experts
     import torch  # type: ignore
     import torch.nn as nn  # type: ignore
@@ -51,6 +57,7 @@ class ETTh1TimeSeriesEnv:
         num_regimes: int = 2,
         T: Optional[int] = None,
         seed: int = 0,
+        data_seed: int | None = None,
         unavailable_expert_idx: Optional[int] = None,
         unavailable_intervals: Optional[List[Tuple[int, int]]] = None,
         arrival_expert_idx: Optional[int] = None,
@@ -86,6 +93,13 @@ class ETTh1TimeSeriesEnv:
     ):
         if not os.path.exists(csv_path):
             raise FileNotFoundError(f"ETTh1 CSV not found at path: {csv_path}")
+
+        # Use fixed seed for data/expert generation so that time series and
+        # expert behavior are reproducible regardless of the configurable seed.
+        # The `seed` argument is reserved for learning processes and does not
+        # affect data generation here.
+        data_seed = DATA_GENERATION_SEED if data_seed is None else int(data_seed)
+        self.data_seed = int(data_seed)
 
         # Load numeric columns from CSV (simple parser; no external deps).
         y_all: List[float] = []
@@ -173,7 +187,7 @@ class ETTh1TimeSeriesEnv:
             std_arr = np.clip(std_arr, 0.0, None)
             self._expert_pred_noise_std = std_arr
             if np.any(std_arr > 0.0):
-                rng_noise = np.random.default_rng(int(seed) + 12345)
+                rng_noise = np.random.default_rng(int(self.data_seed) + 12345)
                 noise = rng_noise.normal(
                     loc=0.0, scale=1.0, size=(self.T, self.num_experts)
                 )
@@ -402,7 +416,7 @@ class ETTh1TimeSeriesEnv:
         base_weights = np.vstack([w0, w1]).astype(float)
         base_biases = np.array([b_lin, b_lin], dtype=float)
 
-        rng = np.random.default_rng(seed)
+        rng = np.random.default_rng(self.data_seed)
 
         # Default: initialize linear weights/biases for all experts;
         # NN-based experts will override these via learned parameters.
@@ -627,6 +641,40 @@ class ETTh1TimeSeriesEnv:
             mask[:] = True
             return mask
 
+        def _fit_linear_for_expert(train_mask: Optional[np.ndarray]) -> Optional[tuple[np.ndarray, float]]:
+            if n_all <= 0:
+                return None
+            if train_mask is None or not np.any(train_mask):
+                mask = np.ones(n_all, dtype=bool)
+            else:
+                mask = train_mask
+            if np.sum(mask) < 2:
+                return None
+            X = np.column_stack([np.ones(int(np.sum(mask)), dtype=float), x_all[mask]])
+            y_vec = y_all[mask]
+            lam = 1e-3
+            XtX = X.T @ X
+            diag_idx = np.arange(XtX.shape[0])
+            XtX[diag_idx, diag_idx] += lam
+            XtY = X.T @ y_vec
+            coeffs = np.linalg.solve(XtX, XtY)
+            b = float(coeffs[0])
+            w = coeffs[1:].astype(float)
+            return w, b
+
+        for j in range(self.num_experts):
+            if _arch_for_expert(j) not in ("ar", "linear"):
+                continue
+            if explicit_train_masks is None and j < 2:
+                continue
+            params = _fit_linear_for_expert(_training_mask_for_expert(j))
+            if params is None:
+                continue
+            w, b = params
+            if w.shape == self.expert_weights[j].shape:
+                self.expert_weights[j] = w
+                self.expert_biases[j] = b
+
         if use_arima:
             def _fit_arima_for_expert(train_mask: np.ndarray) -> Optional[dict]:
                 if n_all <= 0 or not arima_lags_local:
@@ -634,7 +682,11 @@ class ETTh1TimeSeriesEnv:
                 max_lag = max(arima_lags_local) + arima_diff_order_local
                 rows = []
                 targets = []
-                y_mean = float(np.mean(self.y)) if self.y.size > 0 else 0.0
+                y_mean = 0.0
+                if train_mask is not None and train_mask.any():
+                    y_mean = float(np.mean(self.y[idx_all[train_mask]]))
+                elif self.y.size > 0:
+                    y_mean = float(np.mean(self.y))
                 for idx_pos, t in enumerate(idx_all):
                     if not train_mask[idx_pos]:
                         continue
@@ -674,12 +726,11 @@ class ETTh1TimeSeriesEnv:
                     self._arima_params[j] = params
                     self._arima_expert_ids.append(j)
 
-        if self.num_experts > 2 and (use_mlp or use_rnn):
-            # Global validation set used for checkpoint selection:
-            # we take the last 20% of the full history (at least one
-            # sample) so that each NN expert is evaluated on the same
-            # validation sequence, not only on a small subset of its
-            # dedicated training history.
+        x_val_global = np.zeros((0, x_all.shape[1]), dtype=float)
+        y_val_global = np.zeros((0,), dtype=float)
+        use_global_val = self.num_experts > 2 and (use_mlp or use_rnn)
+        if use_global_val and explicit_train_masks is None:
+            # Global validation set used for checkpoint selection.
             if n_all >= 5:
                 n_val_global = max(1, int(0.2 * n_all))
             else:
@@ -965,11 +1016,26 @@ class ETTh1TimeSeriesEnv:
                 arch = _arch_for_expert(j)
                 if arch == "mlp":
                     mask = _training_mask_for_expert(j)
+                    x_val_local = x_val_global
+                    y_val_local = y_val_global
+                    if explicit_train_masks is not None and mask is not None:
+                        idx_masked = np.where(mask)[0]
+                        if idx_masked.size >= 5:
+                            n_val = max(1, int(0.2 * idx_masked.size))
+                        else:
+                            n_val = 0 if idx_masked.size <= 1 else 1
+                        if n_val > 0:
+                            idx_val = idx_masked[-n_val:]
+                            x_val_local = x_all[idx_val]
+                            y_val_local = y_all[idx_val]
+                        else:
+                            x_val_local = np.zeros((0, x_all.shape[1]), dtype=float)
+                            y_val_local = np.zeros((0,), dtype=float)
                     W1_j, b1_j, W2_j, b2_j = _train_nn_expert(
                         x_all[mask],
                         y_all[mask],
-                        x_val_global,
-                        y_val_global,
+                        x_val_local,
+                        y_val_local,
                         hidden_dim=8,
                         rng_local=rng,
                     )

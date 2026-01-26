@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.24 (TeX Live 2022/Debian) (preloaded format=pdflatex 2024.3.9)  23 JAN 2026 21:43
+This is pdfTeX, Version 3.141592653-2.6-1.40.24 (TeX Live 2022/Debian) (preloaded format=pdflatex 2024.3.9)  26 JAN 2026 17:34
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -1110,15 +1110,8 @@ sy/m/n/10 E[]\OML/cmm/m/it/10 ; \OT1/cmr/bx/n/10 y[]\OT1/cmr/m/n/10 )[][] \OMS/
 cmsy/m/n/10 ^^X D[] [] \OML/cmm/m/it/10 :
  []
 
-[3] [4] [5]
-Overfull \hbox (29.30963pt too wide) detected at line 439
-[][][]\OT1/cmr/bx/n/10 u[] \OMS/cmsy/m/n/10 j \OT1/cmr/m/n/10 (\OML/cmm/m/it/10
- z[] \OT1/cmr/m/n/10 = \OML/cmm/m/it/10 m\OT1/cmr/m/n/10 ) \OMS/cmsy/m/n/10 ^^X
- N  [] \OML/cmm/m/it/10 :
- []
-
-) (./Section/Experiments.tex
-<figures/corr_new_v2.pdf, id=313, 1538.32983pt x 339.46936pt>
+[3] [4] [5]) (./Section/Experiments.tex
+<figures/corr_new_v2.pdf, id=312, 1538.32983pt x 339.46936pt>
 File: figures/corr_new_v2.pdf Graphic file (type pdf)
 <use figures/corr_new_v2.pdf>
 Package pdftex.def Info: figures/corr_new_v2.pdf  used on input line 19.
@@ -1138,11 +1131,15 @@ ML/cmm/m/it/10 ; [] \OMS/cmsy/m/n/10 ^^X N\OT1/cmr/m/n/10 (0\OML/cmm/m/it/10 ;
 /m/it/10 ^^[[]; ^^[[]\OT1/cmr/m/n/10 ) =
  []
 
-[7 <./figures/corr_new_v2.pdf>]) (./Section/Conclusion and Impact.tex)
-(./main.bbl
+
+Underfull \vbox (badness 1082) has occurred while \output is active []
+
+ [7 <./figures/corr_new_v2.pdf>]) (./Section/Conclusion and Impact.tex) (./main
+.bbl
 LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 5
 9.
- (/usr/share/texlive/texmf-dist/tex/latex/psnfss/ts1ptm.fd
+
+(/usr/share/texlive/texmf-dist/tex/latex/psnfss/ts1ptm.fd
 File: ts1ptm.fd 2001/06/04 font definitions for TS1/ptm.
 )
 LaTeX Font Info:    Trying to load font information for OT1+pcr on input line 6
@@ -1257,64 +1254,136 @@ Underfull \hbox (badness 10000) in paragraph at lines 112--1
 
  []
 
+
+LaTeX Warning: Reference `subsection:baselines' on page 21 undefined on input l
+ine 11.
+
 [21] [22]
-File: figures/corr_new_v2.pdf Graphic file (type pdf)
-<use figures/corr_new_v2.pdf>
-Package pdftex.def Info: figures/corr_new_v2.pdf  used on input line 163.
-(pdftex.def)             Requested size: 487.8225pt x 107.64824pt.
- [23]
-Underfull \hbox (badness 2781) in paragraph at lines 208--216
+Underfull \hbox (badness 2781) in paragraph at lines 162--170
 \OT1/ptm/m/n/10 (+20) with in-de-pen-dent com-po-nents $\OML/cmm/m/it/10 s[]; s
 []; \OT1/cmr/m/n/10 ([])[]$ \OT1/ptm/m/n/10 (+20) and regime-dependent vari-anc
 es $\OML/cmm/m/it/10 s[] \OMS/cmsy/m/n/10 ^^X N\OT1/cmr/m/n/10 (0\OML/cmm/m/it/
 10 ; ^^[[]\OT1/cmr/m/n/10 )\OML/cmm/m/it/10 ; s[] \OMS/cmsy/m/n/10 ^^X
  []
 
-[24])) [25] (./main.aux)
+[23]
+
+./Section/AppendixParts/Experiments.tex:232: LaTeX Error: File `figures/expert_
+structure_all' not found.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.232 ...\textwidth]{figures/expert_structure_all}
+                                                  
+I could not locate the file with any of these extensions:
+.pdf,.png,.jpg,.mps,.jpeg,.jbig2,.jb2,.PDF,.PNG,.JPG,.JPEG,.JBIG2,.JB2,.eps
+Try typing  <return>  to proceed.
+If that doesn't work, type  X <return>  to quit.
+
+
+Package natbib Warning: Citation `haoyietal-informer-2021' on page 24 undefined
+ on input line 246.
+
+
+LaTeX Warning: Reference `tab:experts_etth' on page 24 undefined on input line 
+254.
+
+
+LaTeX Warning: Reference `sec:exp_etth1' on page 24 undefined on input line 294
+.
+
+
+LaTeX Warning: Reference `sec:exp_etth1' on page 24 undefined on input line 294
+.
+
+
+LaTeX Warning: Reference `tab:exp_avg_costs_etth_appendix' on page 24 undefined
+ on input line 318.
+
+
+Package natbib Warning: Citation `FRED_DGS10' on page 24 undefined on input lin
+e 333.
+
+
+Underfull \vbox (badness 4779) has occurred while \output is active []
+
+ [24]
+
+LaTeX Warning: Reference `tab:exp_avg_var_l2d_fred' on page 25 undefined on inp
+ut line 371.
+
+
+LaTeX Warning: Reference `subsection_appendix_fred' on page 25 undefined on inp
+ut line 381.
+
+
+LaTeX Warning: Reference `subsection_appendix_fred' on page 25 undefined on inp
+ut line 381.
+
+))
+
+Package natbib Warning: There were undefined citations.
+
+[25] [26] (./main.aux)
+
+LaTeX Warning: There were undefined references.
+
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
 Package rerunfilecheck Info: File `main.out' has not changed.
 (rerunfilecheck)             Checksum: D41D8CD98F00B204E9800998ECF8427E;0.
  ) 
 Here is how much of TeX's memory you used:
- 33222 strings out of 476091
- 651354 string characters out of 5794082
+ 33323 strings out of 476091
+ 653433 string characters out of 5794082
  1891330 words of memory out of 5000000
- 52370 multiletter control sequences out of 15000+600000
- 562351 words of font info for 362 fonts, out of 8000000 for 9000
+ 52418 multiletter control sequences out of 15000+600000
+ 563815 words of font info for 384 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  84i,17n,80p,1001b,970s stack positions out of 10000i,1000n,20000p,200000b,200000s
-{/usr/share/texlive/texmf-dist/fonts/enc/dvips/base/8r.enc}</usr/share/texliv
-e/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/share/texlive/texm
-f-dist/fonts/type1/public/amsfonts/cm/cmbx6.pfb></usr/share/texlive/texmf-dist/
-fonts/type1/public/amsfonts/cm/cmbx7.pfb></usr/share/texlive/texmf-dist/fonts/t
-ype1/public/amsfonts/cm/cmbx9.pfb></usr/share/texlive/texmf-dist/fonts/type1/pu
-blic/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/a
-msfonts/cmextra/cmex7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/ams
-fonts/cm/cmmi10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/
-cm/cmmi12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmm
-i5.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb>
-</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/s
-hare/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi9.pfb></usr/share/te
-xlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmib10.pfb></usr/share/texlive
-/texmf-dist/fonts/type1/public/amsfonts/cmextra/cmmib7.pfb></usr/share/texlive/
-texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texlive/texmf-d
-ist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/share/texlive/texmf-dist/fon
-ts/type1/public/amsfonts/cm/cmr5.pfb></usr/share/texlive/texmf-dist/fonts/type1
-/public/amsfonts/cm/cmr6.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/
-amsfonts/cm/cmr7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts
-/cm/cmr9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy
-10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy5.pfb>
-</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy6.pfb></usr/s
-hare/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/share/te
-xlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy9.pfb></usr/share/texlive/t
-exmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr/share/texlive/te
-xmf-dist/fonts/type1/urw/courier/ucrr8a.pfb></usr/share/texlive/texmf-dist/font
-s/type1/urw/times/utmb8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/tim
-es/utmr8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
 
-Output written on main.pdf (25 pages, 663328 bytes).
+pdfTeX warning (dest): name{equation.F.47} has been referenced but does not exi
+st, replaced by a fixed one
+
+
+pdfTeX warning (dest): name{equation.4.21} has been referenced but does not exi
+st, replaced by a fixed one
+
+{/usr/share/texlive/texmf-dist/fonts/enc/dvips/base/8r.enc}</usr/share/texlive/
+texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/share/texlive/texmf-
+dist/fonts/type1/public/amsfonts/cm/cmbx6.pfb></usr/share/texlive/texmf-dist/fo
+nts/type1/public/amsfonts/cm/cmbx7.pfb></usr/share/texlive/texmf-dist/fonts/typ
+e1/public/amsfonts/cm/cmbx9.pfb></usr/share/texlive/texmf-dist/fonts/type1/publ
+ic/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/ams
+fonts/cmextra/cmex7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfo
+nts/cm/cmmi10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm
+/cmmi12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi5
+.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi6.pfb></
+usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/sha
+re/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi9.pfb></usr/share/texl
+ive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmib10.pfb></usr/share/texlive/t
+exmf-dist/fonts/type1/public/amsfonts/cmextra/cmmib7.pfb></usr/share/texlive/te
+xmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texlive/texmf-dis
+t/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/share/texlive/texmf-dist/fonts
+/type1/public/amsfonts/cm/cmr5.pfb></usr/share/texlive/texmf-dist/fonts/type1/p
+ublic/amsfonts/cm/cmr6.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/am
+sfonts/cm/cmr7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/c
+m/cmr9.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10
+.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy5.pfb></
+usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy6.pfb></usr/sha
+re/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/share/texl
+ive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy9.pfb></usr/share/texlive/tex
+mf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr/share/texlive/texm
+f-dist/fonts/type1/urw/courier/ucrr8a.pfb></usr/share/texlive/texmf-dist/fonts/
+type1/urw/times/utmb8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times
+/utmr8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
+Output written on main.pdf (26 pages, 668563 bytes).
 PDF statistics:
- 826 PDF objects out of 1000 (max. 8388607)
- 715 compressed objects within 8 object streams
- 186 named destinations out of 1000 (max. 500000)
+ 825 PDF objects out of 1000 (max. 8388607)
+ 711 compressed objects within 8 object streams
+ 192 named destinations out of 1000 (max. 500000)
  65042 words of extra memory for PDF output out of 74296 (max. 10000000)
 
