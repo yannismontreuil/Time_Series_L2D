@@ -1,14 +1,14 @@
 #!/bin/bash
-#SBATCH --job-name=l2d_etth2
+#SBATCH --job-name=l2d_etth1
 #SBATCH --partition=long
-#SBATCH --output=logs/etth2_%A_%a.out
-#SBATCH --error=logs/etth2_%A_%a.err
+#SBATCH --output=logs/etth1_%A_%a.out
+#SBATCH --error=logs/etth1_%A_%a.err
 #SBATCH --nodes=1
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
 #SBATCH --array=0-2
-#SBATCH --mail-user=yannis.montreuil@u.nus.edu
+#SBATCH --mail-user=yuletian@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
 
 # Create logs directory if it doesn't exist
@@ -25,18 +25,18 @@ cd "${SLURM_SUBMIT_DIR}"
 
 # Optionally activate your conda/virtualenv here
 # Load conda
-source ~/miniconda3/etc/profile.d/conda.sh
+source ~/miniconda3/bin/activate
 
 # Activate your environment
-conda activate Routing_LLM
+conda activate Time_Series_L2D
 
 # Ensure local package imports (ablation, utils, model, etc.) work
 export PYTHONPATH="${SLURM_SUBMIT_DIR}:${PYTHONPATH:-}"
 
-echo "Running ETTh2 hyperparameter sweep under Slurm (array)..."
+echo "Running ETTh1 hyperparameter sweep under Slurm (array)..."
 
-BASE_CONFIG="${SLURM_SUBMIT_DIR}/config/config_etth2.yaml"
-RUN_DIR="${SLURM_SUBMIT_DIR}/out/etth2_sweep_${SLURM_JOB_ID}"
+BASE_CONFIG="${SLURM_SUBMIT_DIR}/config/config_etth1.yaml"
+RUN_DIR="${SLURM_SUBMIT_DIR}/out/etth1_sweep_${SLURM_JOB_ID}"
 mkdir -p "${RUN_DIR}"
 
 RUNS=(
@@ -57,7 +57,7 @@ if [[ -z "${run_cfg}" ]]; then
   exit 1
 fi
 
-cfg_out="${RUN_DIR}/config_etth2_online_${run_id}.yaml"
+cfg_out="${RUN_DIR}/config_etth1_online_${run_id}.yaml"
 echo "-------------------------------------------------"
 echo "Array task: ${SLURM_ARRAY_TASK_ID}"
 echo "Run ${run_id}: ${run_cfg}"
