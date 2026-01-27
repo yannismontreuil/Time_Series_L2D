@@ -412,7 +412,7 @@ class ETTh1TimeSeriesEnv:
         # experts 0 and 1 progressively worse in terms of average MSE
         # while keeping them highly correlated.
         w0 = w_lin * 0.92
-        w1 = w_lin * 1.05
+        w1 = w_lin * 1.08
         base_weights = np.vstack([w0, w1]).astype(float)
         base_biases = np.array([b_lin, b_lin], dtype=float)
 
@@ -623,10 +623,21 @@ class ETTh1TimeSeriesEnv:
             third = n_all // 3
         else:
             third = max(1, n_all // 2)
+
+        if n_all >= 2:
+            half = n_all // 2
+        else:
+            half = max(1, n_all // 2)
+
         two_third = min(2 * third, n_all)
 
-        seg_early = slice(0, two_third)
-        seg_late = slice(third, n_all)
+        if n_all >= 4:
+            quarter = n_all // 4
+        else:
+            quarter = max(1, n_all // 4)
+
+        seg_early = slice(0, half)
+        seg_late = slice(0, n_all)
 
         def _training_mask_for_expert(j: int) -> np.ndarray:
             if explicit_train_masks is not None and explicit_train_masks[j] is not None:
