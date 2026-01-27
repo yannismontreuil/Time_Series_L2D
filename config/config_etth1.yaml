@@ -44,6 +44,7 @@ environment:
     - ar2_segment2
 
   num_experts: 6
+  num_regimes: 4
 
   # State dimension d = dim φ(x). The current feature map returns 1D features.
   state_dim: 1
@@ -79,7 +80,7 @@ routers:
     num_regimes: 5
     shared_dim: 4
     idiosyncratic_dim: 1
-    delta_max: 250
+    delta_max: 10000
     R_scalar: 0.0009
     A_g:
       - [[0.95, 0.0, 0.0, 0.0], [0.0, 0.95, 0.0, 0.0], [0.0, 0.0, 0.95, 0.0], [0.0, 0.0, 0.0, 0.95]]
@@ -88,11 +89,11 @@ routers:
       - [[0.95, 0.0, 0.0, 0.0], [0.0, 0.95, 0.0, 0.0], [0.0, 0.0, 0.95, 0.0], [0.0, 0.0, 0.0, 0.95]]
       - [[0.95, 0.0, 0.0, 0.0], [0.0, 0.95, 0.0, 0.0], [0.0, 0.0, 0.95, 0.0], [0.0, 0.0, 0.0, 0.95]]
     A_u:
-      - [[0.95]]
-      - [[0.95]]
-      - [[0.95]]
-      - [[0.95]]
-      - [[0.95]]
+      - [[0.995]]
+      - [[0.99]]
+      - [[0.985]]
+      - [[0.98]]
+      - [[0.99]]
     Q_g:
       - [[0.2, 0.0, 0.05, 0.02], [0.0, 0.01, 0.1, 0.04], [0.05, 0.1, 0.15, 0.03], [0.02, 0.04, 0.03, 0.1]]
       - [[0.1, 0.0, 0.05, 0.1], [0.0, 0.15, 0.02, 0.05], [0.05, 0.02, 0.2, 0.04], [0.1, 0.05, 0.04, 0.05]]
@@ -100,12 +101,12 @@ routers:
       - [[0.15, 0.0, 0.02, 0.05], [0.0, 0.1, 0.1, 0.05], [0.02, 0.1, 0.15, 0.1], [0.05, 0.05, 0.1, 0.2]]
       - [[0.1, 0.0, 0.05, 0.1], [0.0, 0.05, 0.02, 0.05], [0.05, 0.02, 0.15, 0.1], [0.1, 0.05, 0.1, 0.15]]
     Q_u:
-      - [[0.015]]
-      - [[0.015]]
-      - [[0.02]]
+      - [[0.002]]
+      - [[0.005]]
+      - [[0.01]]
       - [[0.02]]
       - [[0.01]]
-    Q_u_scales: [0.015, 0.015, 0.02, 0.02, 0.01]
+    Q_u_scales: [0.015, 0.015, 0.002, 0.02, 0.01]
     exploration: ["g_z"]
     exploration_diag_enabled: true
     exploration_diag_stride: 200
@@ -114,18 +115,18 @@ routers:
 
     em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 1700
-    em_n: 3
-    em_samples: 10
-    em_burn_in: 100
+    em_tk: 4000
+    em_n: 10
+    em_samples: 40
+    em_burn_in: 10
     em_use_validation: true
     em_val_strategy: "rolling"
-    em_val_fraction: 0.4
-    em_val_roll_len: 100
-    em_val_roll_splits: 2
+    em_val_fraction: 0.5
+    em_val_roll_len: 500
+    em_val_roll_splits: 4
     em_val_roll_stride: null
     em_val_len: null
-    em_theta_lr: 0.01
+    em_theta_lr: 0.001
     em_theta_steps: 10
     em_print_val_loss: true
     em_eps_n: 1.0e-3
@@ -134,10 +135,10 @@ routers:
     em_online_window: 200
     em_online_period: 500
     em_online_n: 1
-    em_online_samples: 10
+    em_online_samples: 40
     em_online_burn_in: 3
     em_online_theta_lr: 0.001
-    em_online_theta_steps: 1
+    em_online_theta_steps: 5
     em_online_eps_n: 1.0e-3
     em_online_print_val_loss: true
     em_online_start_t: null
@@ -183,7 +184,7 @@ analysis:
     save_plots: true
     save_png: true
     save_pdf: true
-    pairs: [[0, 1], [2, 3]]
+    pairs: [[0,1],[2,3],[4,5]]
     corr_smooth_window: 25
     transfer_probe:
       enabled: true
@@ -202,22 +203,3 @@ analysis:
     save_plots: true
     save_png: true
     save_pdf: true
-
-
-horizon_planning:
-  # Start horizon planning after EM warm-start.
-  t0: 1650
-
-  H: 50
-  method: "100_monte_carlo"
-
-  # Coverage tolerance for active-set scheduling.
-  delta: 0.05
-
-  scenario_generator:
-    type: "oracle_ar1"
-    ar_coef: 0.8
-    use_true_regime: true
-    sigma0: 1
-    q_scale: 1
-    noise_scale: 1

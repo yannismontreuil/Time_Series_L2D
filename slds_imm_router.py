@@ -343,6 +343,13 @@ if __name__ == "__main__":
     # Model dimensions and core hyperparameters
     setting = env_cfg.get("setting", "easy_setting")
     data_source = env_cfg.get("data_source", "synthetic")
+    raw_M = env_cfg.get("num_regimes", None)
+    raw_M_source = "environment.num_regimes"
+    if raw_M is None and data_source in ("etth1", "etth2") and factorized_slds_enabled:
+        fact_M = factorized_slds_cfg.get("num_regimes", None)
+        if fact_M is not None:
+            raw_M = fact_M
+            raw_M_source = "routers.factorized_slds.num_regimes"
     # Default: universe of 5 experts indexed j=0,...,4.
     N = int(env_cfg.get("num_experts"))   # experts
     # State dimension (= dim φ(x)); feature map in router_model.py currently
@@ -354,14 +361,30 @@ if __name__ == "__main__":
     # Markovian pattern, unless the config explicitly requests more.
     if setting == "noisy_forgetting":
         default_M = 5
-        raw_M = env_cfg.get("num_regimes", None)
         if raw_M is None:
             M = default_M
+            raw_M_source = f"{setting} default"
         else:
             M = max(int(raw_M), default_M)
     else:
-        M = int(env_cfg.get("num_regimes", 2))
-    print(f"Using num_regimes = {M}.")
+        if raw_M is None:
+            M = 2
+            raw_M_source = "default"
+        else:
+            M = int(raw_M)
+    if raw_M_source == "environment.num_regimes":
+        print(f"Using num_regimes = {M}.")
+    else:
+        print(f"Using num_regimes = {M} (from {raw_M_source}).")
+    if factorized_slds_enabled:
+        fact_M_cfg = factorized_slds_cfg.get("num_regimes", None)
+        if fact_M_cfg is not None:
+            fact_M_int = int(fact_M_cfg)
+            if fact_M_int != M:
+                print(
+                    "Note: routers.factorized_slds.num_regimes "
+                    f"= {fact_M_int} (environment uses {M})."
+                )
 
     # Risk sensitivity λ; can be scalar or length-M vector. If a
     # 2-element vector is provided while num_regimes > 2, we interpret
