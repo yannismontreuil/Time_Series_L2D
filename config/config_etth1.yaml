@@ -180,7 +180,7 @@ analysis:
     save_plots: true
     save_png: true
     save_pdf: true
-    pairs: [[0, 1], [2, 3]]
+    pairs: [[0,1],[2,3],[4,5]]
     corr_smooth_window: 25
     transfer_probe:
       enabled: true
