@@ -49,7 +49,7 @@ environment:
   state_dim: 1
 
   seed: 42
-
+  data_seed: 11
   # Expert availability controls. In this ETTh1 experiment we introduce
   # multiple experts whose availability switches over time:
   #   - Expert at index 0 is unavailable on several disjoint intervals.
@@ -130,10 +130,10 @@ routers:
     em_eps_n: 1.0e-3
 
     em_online_enabled: true
-    em_online_window: 600
-    em_online_period: 300
+    em_online_window: 200
+    em_online_period: 500
     em_online_n: 1
-    em_online_samples: 20
+    em_online_samples: 10
     em_online_burn_in: 3
     em_online_theta_lr: 0.001
     em_online_theta_steps: 1
@@ -177,7 +177,7 @@ analysis:
   tri_cycle_corr:
     enabled: false
     router: "factorized_full"
-    out_dir: "out/tri_cycle_corr"
+    out_dir: "out/etth1"
     show_plots: false
     save_plots: true
     save_png: true
@@ -196,7 +196,7 @@ analysis:
     enabled: true
     expert_idx: 1
     rolling_window: 100
-    out_dir: "out/pruning"
+    out_dir: "out/etth1/pruning"
     show_plots: false
     save_plots: true
     save_png: true
