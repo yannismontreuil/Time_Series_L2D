@@ -59,12 +59,13 @@ environment:
   # At most 2 unavailable experts and at most 2 arriving experts can be specified.
   unavailable_expert_idx: 2
   unavailable_intervals:
-    - [5000, 6000]
+    - [5000, 10000]
 
-  arrival_expert_idx: 4
+  arrival_expert_idx: [4, 5]
   arrival_intervals:
     # Expert 5 becomes available only later in the series.
     - [5000, 6000]
+    - [9000, 10000]
 
   analysis_window: 500
   analysis_adoption_threshold: 0.5

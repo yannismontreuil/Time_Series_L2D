@@ -60,7 +60,7 @@ class ETTh1TimeSeriesEnv:
         data_seed: int | None = None,
         unavailable_expert_idx: Optional[int] = None,
         unavailable_intervals: Optional[List[Tuple[int, int]]] = None,
-        arrival_expert_idx: Optional[int] = None,
+        arrival_expert_idx: Optional[List[int]] = None,
         arrival_intervals: Optional[List[Tuple[int, int]]] = None,
         context_columns: Optional[Sequence[str]] = None,
         context_lags: Optional[Sequence[int]] = None,
@@ -1079,19 +1079,50 @@ class ETTh1TimeSeriesEnv:
                         self.availability[t_start:t_end, unavailable_expert_idx] = 0
 
         # Optional dynamic expert arrival intervals for a single expert
-        if (
-            arrival_expert_idx is not None
-            and 0 <= arrival_expert_idx < self.num_experts
-        ):
-            self.availability[:, arrival_expert_idx] = 0
-            if arrival_intervals is not None:
-                for start, end in arrival_intervals:
+        # if (
+        #     arrival_expert_idx is not None
+        # ):
+        #     for i in range(len(arrival_expert_idx)):
+        #         self.availability[:, arrival_expert_idx[i]] = 0
+        #         if arrival_intervals[i] is not None:
+        #             for start, end in arrival_intervals[i]:
+        #                 t_start = max(int(start), 0)
+        #                 t_end = min(int(end) + 1, self.T)
+        #                 if t_start >= self.T or t_end <= 0:
+        #                     continue
+        #                 if t_start < t_end:
+        #                     self.availability[t_start:t_end, arrival_expert_idx[i]] = 1
+
+        if arrival_expert_idx is not None:
+            if arrival_intervals is None:
+                arrival_intervals_local = [None] * len(arrival_expert_idx)
+            else:
+                arrival_intervals_local = list(arrival_intervals)
+                if len(arrival_intervals_local) != len(arrival_expert_idx):
+                    raise ValueError(
+                        "arrival_intervals must match arrival_expert_idx in length."
+                    )
+
+            for i, expert_idx in enumerate(arrival_expert_idx):
+                self.availability[:, expert_idx] = 0
+                raw_intervals = arrival_intervals_local[i]
+                if raw_intervals is None:
+                    continue
+                if isinstance(raw_intervals, (tuple, list)) and len(raw_intervals) == 2 and not isinstance(
+                        raw_intervals[0], (tuple, list)
+                ):
+                    intervals_iter = [raw_intervals]
+                else:
+                    intervals_iter = raw_intervals
+
+                for start, end in intervals_iter:
                     t_start = max(int(start), 0)
                     t_end = min(int(end) + 1, self.T)
-                    if t_start >= self.T or t_end <= 0:
-                        continue
                     if t_start < t_end:
-                        self.availability[t_start:t_end, arrival_expert_idx] = 1
+                        self.availability[t_start:t_end, expert_idx] = 1
+
+        # print(self.availability[5000])
+        # print(self.availability[5001])
 
         # There is no known discrete regime sequence for ETTh1; we set all
         # entries to 0 so that plotting utilities can still show a regime
