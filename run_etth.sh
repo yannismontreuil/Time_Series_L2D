@@ -7,8 +7,8 @@
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
-#SBATCH --array=0-2
-#SBATCH --mail-user=yuletian@u.nus.edu
+#SBATCH --array=0-3
+#SBATCH --mail-user=yannis.montreuil@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
 
 # Create logs directory if it doesn't exist
@@ -25,10 +25,8 @@ cd "${SLURM_SUBMIT_DIR}"
 
 # Optionally activate your conda/virtualenv here
 # Load conda
-source ~/miniconda3/bin/activate
-
-# Activate your environment
-conda activate Time_Series_L2D
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate Routing_LLM
 
 # Ensure local package imports (ablation, utils, model, etc.) work
 export PYTHONPATH="${SLURM_SUBMIT_DIR}:${PYTHONPATH:-}"
@@ -40,9 +38,13 @@ RUN_DIR="${SLURM_SUBMIT_DIR}/out/etth1_sweep_${SLURM_JOB_ID}"
 mkdir -p "${RUN_DIR}"
 
 RUNS=(
+  "em_online_enabled=false em_online_window=1000 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1
+  em_online_n=1 em_online_samples=20 em_online_burn_in=5"
   "em_online_enabled=true em_online_window=200 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1 em_online_n=1 em_online_samples=10 em_online_burn_in=3"
-  "em_online_enabled=true em_online_window=400 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1 em_online_n=1 em_online_samples=20 em_online_burn_in=3"
-  "em_online_enabled=true em_online_window=800 em_online_period=500 em_online_theta_lr=0.002 em_online_theta_steps=1 em_online_n=1 em_online_samples=20 em_online_burn_in=5"
+  "em_online_enabled=true em_online_window=600 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1
+  em_online_n=1 em_online_samples=20 em_online_burn_in=3"
+  "em_online_enabled=true em_online_window=1000 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1
+  em_online_n=1 em_online_samples=20 em_online_burn_in=5"
 )
 
 if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then

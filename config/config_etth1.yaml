@@ -44,6 +44,7 @@ environment:
     - ar2_segment2
 
   num_experts: 6
+  num_regimes: 5
 
   # State dimension d = dim φ(x). The current feature map returns 1D features.
   state_dim: 1
@@ -114,18 +115,18 @@ routers:
 
     em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 1700
-    em_n: 3
-    em_samples: 10
-    em_burn_in: 100
+    em_tk: 4000
+    em_n: 10
+    em_samples: 40
+    em_burn_in: 10
     em_use_validation: true
     em_val_strategy: "rolling"
-    em_val_fraction: 0.4
-    em_val_roll_len: 100
-    em_val_roll_splits: 2
+    em_val_fraction: 0.5
+    em_val_roll_len: 500
+    em_val_roll_splits: 4
     em_val_roll_stride: null
     em_val_len: null
-    em_theta_lr: 0.01
+    em_theta_lr: 0.001
     em_theta_steps: 10
     em_print_val_loss: true
     em_eps_n: 1.0e-3
@@ -134,10 +135,10 @@ routers:
     em_online_window: 200
     em_online_period: 500
     em_online_n: 1
-    em_online_samples: 10
+    em_online_samples: 40
     em_online_burn_in: 3
     em_online_theta_lr: 0.001
-    em_online_theta_steps: 1
+    em_online_theta_steps: 5
     em_online_eps_n: 1.0e-3
     em_online_print_val_loss: true
     em_online_start_t: null
@@ -202,22 +203,3 @@ analysis:
     save_plots: true
     save_png: true
     save_pdf: true
-
-
-horizon_planning:
-  # Start horizon planning after EM warm-start.
-  t0: 1650
-
-  H: 50
-  method: "100_monte_carlo"
-
-  # Coverage tolerance for active-set scheduling.
-  delta: 0.05
-
-  scenario_generator:
-    type: "oracle_ar1"
-    ar_coef: 0.8
-    use_true_regime: true
-    sigma0: 1
-    q_scale: 1
-    noise_scale: 1
