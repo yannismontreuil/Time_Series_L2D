@@ -531,6 +531,10 @@ def plot_time_series_experts_only(
             plt.show()
         plt.close(fig)
 
+    for i in range(env.num_experts):
+        rmse = np.sqrt(np.mean(abs_err[err_mask, i] ** 2))
+        print(f"Expert {i}'s RMSE: {rmse:.4f}")
+
 
 def evaluate_routers_and_baselines(
     env: SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv,

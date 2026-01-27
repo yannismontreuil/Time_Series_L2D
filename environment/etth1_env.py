@@ -411,7 +411,7 @@ class ETTh1TimeSeriesEnv:
         # is the least-squares optimum, these perturbations make
         # experts 0 and 1 progressively worse in terms of average MSE
         # while keeping them highly correlated.
-        w0 = w_lin * 0.98
+        w0 = w_lin * 0.92
         w1 = w_lin * 1.05
         base_weights = np.vstack([w0, w1]).astype(float)
         base_biases = np.array([b_lin, b_lin], dtype=float)
