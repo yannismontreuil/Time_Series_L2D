@@ -113,7 +113,7 @@ routers:
     exploration_diag_samples: 50
     exploration_diag_print: true
 
-    em_enabled: true
+    em_enabled: false
     em_offline_full_feedback: true
     em_tk: 4000
     em_n: 10
@@ -131,7 +131,7 @@ routers:
     em_print_val_loss: true
     em_eps_n: 1.0e-3
 
-    em_online_enabled: true
+    em_online_enabled: false
     em_online_window: 200
     em_online_period: 500
     em_online_n: 1
