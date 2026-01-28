@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
 #SBATCH --array=0-3
-#SBATCH --mail-user=yannis.montreuil@u.nus.edu
+#SBATCH --mail-user=yuletian@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
 
 # Create logs directory if it doesn't exist
@@ -25,8 +25,10 @@ cd "${SLURM_SUBMIT_DIR}"
 
 # Optionally activate your conda/virtualenv here
 # Load conda
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate Routing_LLM
+source ~/miniconda3/bin/activate
+
+# Activate your environment
+conda activate Time_Series_L2D
 
 # Ensure local package imports (ablation, utils, model, etc.) work
 export PYTHONPATH="${SLURM_SUBMIT_DIR}:${PYTHONPATH:-}"
