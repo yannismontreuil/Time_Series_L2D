@@ -1,6 +1,7 @@
 plot_shift: 1
 plot_target: y
 plot_synth_preview: true
+
 transition_log:
   enabled: true
   print: false
@@ -28,12 +29,12 @@ environment:
   num_experts: 6
   num_regimes: 4
   state_dim: 1
-  seed: 43
+  seed: 42
   data_seed: 11
-  unavailable_expert_idx: 2
+  unavailable_expert_idx: [ 2, 3 ]
   unavailable_intervals:
-  - - 5000
-    - 10000
+      - [ 5000, 10000 ]
+      - [ 7000, 12000 ]
   arrival_expert_idx:
   - 4
   - 5
@@ -44,9 +45,11 @@ environment:
     - 10000
   analysis_window: 500
   analysis_adoption_threshold: 0.5
+
 routers:
   beta: 0.0
   staleness_threshold: null
+
   factorized_slds:
     enabled: true
     num_regimes: 5
@@ -242,9 +245,9 @@ routers:
     exploration_diag_print: true
     em_enabled: true
     em_offline_full_feedback: true
-    em_tk: 4000
-    em_n: 10
-    em_samples: 40
+    em_tk: 5000
+    em_n: 15
+    em_samples: 50
     em_burn_in: 10
     em_use_validation: true
     em_val_strategy: rolling
@@ -260,11 +263,11 @@ routers:
     em_online_enabled: true
     em_online_window: 1000
     em_online_period: 500
-    em_online_n: 1
-    em_online_samples: 20
+    em_online_n: 10
+    em_online_samples: 50
     em_online_burn_in: 5
     em_online_theta_lr: 0.001
-    em_online_theta_steps: 1
+    em_online_theta_steps: 10
     em_online_eps_n: 0.001
     em_online_print_val_loss: true
     em_online_start_t: null
