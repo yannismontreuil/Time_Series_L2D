@@ -24,9 +24,15 @@ echo "================================================="
 cd "${SLURM_SUBMIT_DIR}"
 
 # Optionally activate your conda/virtualenv here
-# Load conda
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate Routing_LLM
+# Prefer the env's python directly to avoid brittle shell init on clusters.
+CONDA_BASE="${HOME}/miniconda3"
+ENV_NAME="Routing_LLM"
+PYTHON="${CONDA_BASE}/envs/${ENV_NAME}/bin/python"
+if [[ ! -x "${PYTHON}" ]]; then
+  source "${CONDA_BASE}/etc/profile.d/conda.sh"
+  conda activate "${ENV_NAME}"
+  PYTHON="$(command -v python)"
+fi
 
 # Ensure local package imports (ablation, utils, model, etc.) work
 export PYTHONPATH="${SLURM_SUBMIT_DIR}:${PYTHONPATH:-}"
@@ -34,7 +40,7 @@ export PYTHONPATH="${SLURM_SUBMIT_DIR}:${PYTHONPATH:-}"
 set -euo pipefail
 
 echo "Checking PyTorch availability..."
-python - <<'PY'
+"${PYTHON}" - <<'PY'
 import sys
 print("Python:", sys.executable)
 import torch
@@ -103,7 +109,7 @@ echo "Array task: ${SLURM_ARRAY_TASK_ID}"
 echo "Run ${run_id}: ${run_cfg}"
 echo "Config: ${cfg_out}"
 
-  python - <<'PY' "${BASE_CONFIG}" "${cfg_out}" "${run_cfg}"
+  "${PYTHON}" - "${BASE_CONFIG}" "${cfg_out}" "${run_cfg}" <<'PY'
 import sys
 try:
     import yaml  # type: ignore
@@ -144,7 +150,7 @@ with open(out_path, "w", encoding="utf-8") as f:
 PY
 
 echo "Starting Python script..."
-python -u slds_imm_router.py --config "${cfg_out}"
+"${PYTHON}" -u slds_imm_router.py --config "${cfg_out}"
 
 echo "================================================="
 echo "End time: $(date)"
