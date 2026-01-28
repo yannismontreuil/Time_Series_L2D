@@ -7,7 +7,7 @@
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
-#SBATCH --array=0-3
+#SBATCH --array=0-7
 #SBATCH --mail-user=yannis.montreuil@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
 
@@ -31,6 +31,17 @@ conda activate Routing_LLM
 # Ensure local package imports (ablation, utils, model, etc.) work
 export PYTHONPATH="${SLURM_SUBMIT_DIR}:${PYTHONPATH:-}"
 
+set -euo pipefail
+
+echo "Checking PyTorch availability..."
+python - <<'PY'
+import sys
+print("Python:", sys.executable)
+import torch
+print("torch:", torch.__version__)
+print("cuda_available:", torch.cuda.is_available())
+PY
+
 echo "Running ETTh1 hyperparameter sweep under Slurm (array)..."
 
 BASE_CONFIG="${SLURM_SUBMIT_DIR}/config/config_etth1.yaml"
@@ -38,13 +49,22 @@ RUN_DIR="${SLURM_SUBMIT_DIR}/out/etth1_sweep_${SLURM_JOB_ID}"
 mkdir -p "${RUN_DIR}"
 
 RUNS=(
-  "em_online_enabled=false em_online_window=1000 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1
+  "em_enabled=false em_online_enabled=false em_online_window=1000 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1
   em_online_n=1 em_online_samples=20 em_online_burn_in=5"
-  "em_online_enabled=true em_online_window=200 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1 em_online_n=1 em_online_samples=10 em_online_burn_in=3"
-  "em_online_enabled=true em_online_window=600 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1
-  em_online_n=1 em_online_samples=20 em_online_burn_in=3"
-  "em_online_enabled=true em_online_window=1000 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=1
-  em_online_n=1 em_online_samples=20 em_online_burn_in=5"
+  "em_enabled=false em_online_enabled=true em_online_window=200 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=10 em_online_burn_in=3"
+  "em_enabled=false em_online_enabled=true em_online_window=600 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=3"
+  "em_enabled=false em_online_enabled=true em_online_window=1000 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=5"
+  "em_enabled=false em_online_enabled=true em_online_window=3000 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=5"
+  "em_enabled=false em_online_enabled=true em_online_window=5000 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=5"
+   "em_enabled=false em_online_enabled=true em_online_window=600 em_online_period=200 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=3"
+"em_enabled=false em_online_enabled=true em_online_window=600 em_online_period=1000 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=3"
 )
 
 if [[ -z "${SLURM_ARRAY_TASK_ID:-}" ]]; then
