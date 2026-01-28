@@ -28,20 +28,27 @@ cd "${SLURM_SUBMIT_DIR}"
 PYTHON="${PYTHON:-}"
 CONDA_BASE="${HOME}/miniconda3"
 ENV_NAME="Routing_LLM"
+if command -v uname >/dev/null 2>&1; then
+  echo "Arch: $(uname -m)"
+fi
 if [[ -z "${PYTHON}" ]]; then
   candidate="${CONDA_BASE}/envs/${ENV_NAME}/bin/python"
-  if [[ -x "${candidate}" ]]; then
-    # Ensure the binary is runnable on this node (Exec format errors are common on mixed-arch clusters).
-    if "${candidate}" -V >/dev/null 2>&1; then
-      PYTHON="${candidate}"
-    fi
+  if [[ -x "${candidate}" ]] && "${candidate}" -V >/dev/null 2>&1; then
+    PYTHON="${candidate}"
   fi
 fi
 if [[ -z "${PYTHON}" ]]; then
   if [[ -f "${CONDA_BASE}/etc/profile.d/conda.sh" ]]; then
-    source "${CONDA_BASE}/etc/profile.d/conda.sh"
-    conda activate "${ENV_NAME}"
-    PYTHON="$(command -v python)"
+    base_py="${CONDA_BASE}/bin/python"
+    if [[ -x "${base_py}" ]] && "${base_py}" -V >/dev/null 2>&1; then
+      source "${CONDA_BASE}/etc/profile.d/conda.sh"
+      conda activate "${ENV_NAME}"
+      PYTHON="$(command -v python)"
+    else
+      echo "ERROR: ${base_py} is not runnable on this node (likely arch mismatch)."
+      echo "Set PYTHON=/path/to/python or rebuild conda on this node type."
+      exit 1
+    fi
   fi
 fi
 if [[ -z "${PYTHON}" ]]; then
@@ -87,7 +94,6 @@ RUNS=(
   em_online_n=3 em_online_samples=20 em_online_burn_in=3"
 "em_enabled=false em_online_enabled=true em_online_window=600 em_online_period=1000 em_online_theta_lr=0.001 em_online_theta_steps=10
   em_online_n=3 em_online_samples=20 em_online_burn_in=3"
-
   "em_enabled=true em_online_enabled=false em_online_window=1000 em_online_period=500 em_online_theta_lr=0.001
     em_online_theta_steps=1
   em_online_n=1 em_online_samples=20 em_online_burn_in=5"
