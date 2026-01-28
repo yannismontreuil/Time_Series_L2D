@@ -27,7 +27,7 @@ environment:
   - ar2_segment1
   - ar2_segment2
   num_experts: 6
-  num_regimes: 4
+#  num_regimes: 4
   state_dim: 1
   seed: 42
   data_seed: 11
@@ -41,8 +41,8 @@ environment:
   arrival_intervals:
   - - 5000
     - 6000
-  - - 9000
-    - 10000
+  - - 11000
+    - 16000
   analysis_window: 500
   analysis_adoption_threshold: 0.5
 
