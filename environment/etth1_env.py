@@ -58,7 +58,7 @@ class ETTh1TimeSeriesEnv:
         T: Optional[int] = None,
         seed: int = 0,
         data_seed: int | None = None,
-        unavailable_expert_idx: Optional[int] = None,
+        unavailable_expert_idx: Optional[List[int]] = None,
         unavailable_intervals: Optional[List[Tuple[int, int]]] = None,
         arrival_expert_idx: Optional[List[int]] = None,
         arrival_intervals: Optional[List[Tuple[int, int]]] = None,
@@ -1075,20 +1075,34 @@ class ETTh1TimeSeriesEnv:
         # Expert availability over time: all experts available by default.
         self.availability = np.ones((self.T, self.num_experts), dtype=int)
 
-        # Optional unavailability intervals for a single expert
-        if (
-            unavailable_expert_idx is not None
-            and 0 <= unavailable_expert_idx < self.num_experts
-        ):
-            if unavailable_intervals is not None:
-                for start, end in unavailable_intervals:
+
+        if unavailable_expert_idx is not None:
+            if unavailable_intervals is None:
+                unavailable_intervals_local = [None] * len(unavailable_expert_idx)
+            else:
+                unavailable_intervals_local = list(unavailable_intervals)
+                if len(unavailable_intervals_local) != len(unavailable_expert_idx):
+                    raise ValueError(
+                        "uav_intervals must match uav_expert_idx in length."
+                    )
+
+            for i, expert_idx in enumerate(unavailable_expert_idx):
+                self.availability[:, expert_idx] = 0
+                raw_intervals = unavailable_intervals_local[i]
+                if raw_intervals is None:
+                    continue
+                if isinstance(raw_intervals, (tuple, list)) and len(raw_intervals) == 2 and not isinstance(
+                        raw_intervals[0], (tuple, list)
+                ):
+                    intervals_iter = [raw_intervals]
+                else:
+                    intervals_iter = raw_intervals
+
+                for start, end in intervals_iter:
                     t_start = max(int(start), 0)
                     t_end = min(int(end) + 1, self.T)
-                    if t_start >= self.T or t_end <= 0:
-                        continue
                     if t_start < t_end:
-                        self.availability[t_start:t_end, unavailable_expert_idx] = 0
-
+                        self.availability[t_start:t_end, expert_idx] = 1
         # Optional dynamic expert arrival intervals for a single expert
         # if (
         #     arrival_expert_idx is not None
