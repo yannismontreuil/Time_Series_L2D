@@ -7,7 +7,7 @@
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
-#SBATCH --array=0-7
+#SBATCH --array=0-15
 #SBATCH --mail-user=yannis.montreuil@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
 
@@ -64,6 +64,24 @@ RUNS=(
    "em_enabled=false em_online_enabled=true em_online_window=600 em_online_period=200 em_online_theta_lr=0.001 em_online_theta_steps=10
   em_online_n=3 em_online_samples=20 em_online_burn_in=3"
 "em_enabled=false em_online_enabled=true em_online_window=600 em_online_period=1000 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=3"
+
+  "em_enabled=true em_online_enabled=false em_online_window=1000 em_online_period=500 em_online_theta_lr=0.001
+    em_online_theta_steps=1
+  em_online_n=1 em_online_samples=20 em_online_burn_in=5"
+  "em_enabled=true em_online_enabled=true em_online_window=200 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=10 em_online_burn_in=3"
+  "em_enabled=true em_online_enabled=true em_online_window=600 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=3"
+  "em_enabled=true em_online_enabled=true em_online_window=1000 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=5"
+  "em_enabled=true em_online_enabled=true em_online_window=3000 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=5"
+  "em_enabled=true em_online_enabled=true em_online_window=5000 em_online_period=500 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=5"
+   "em_enabled=true em_online_enabled=true em_online_window=600 em_online_period=200 em_online_theta_lr=0.001 em_online_theta_steps=10
+  em_online_n=3 em_online_samples=20 em_online_burn_in=3"
+"em_enabled=true em_online_enabled=true em_online_window=600 em_online_period=1000 em_online_theta_lr=0.001 em_online_theta_steps=10
   em_online_n=3 em_online_samples=20 em_online_burn_in=3"
 )
 
