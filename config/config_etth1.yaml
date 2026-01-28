@@ -58,7 +58,7 @@ environment:
   #     specified arrival intervals.
 
   # At most 2 unavailable experts and at most 2 arriving experts can be specified.
-  unavailable_expert_idx: 2
+  unavailable_expert_idx: [2]
   unavailable_intervals:
     - [5000, 10000]
 
