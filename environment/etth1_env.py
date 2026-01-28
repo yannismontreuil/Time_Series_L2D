@@ -637,7 +637,7 @@ class ETTh1TimeSeriesEnv:
             quarter = max(1, n_all // 4)
 
         seg_early = slice(0, half)
-        seg_late = slice(0, n_all)
+        seg_late = slice(third, n_all)
 
         def _training_mask_for_expert(j: int) -> np.ndarray:
             if explicit_train_masks is not None and explicit_train_masks[j] is not None:
