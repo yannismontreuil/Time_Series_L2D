@@ -7,7 +7,7 @@
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
-#SBATCH --array=0-15
+#SBATCH --array=0-15%7
 #SBATCH --mail-user=yannis.montreuil@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
 
@@ -24,14 +24,30 @@ echo "================================================="
 cd "${SLURM_SUBMIT_DIR}"
 
 # Optionally activate your conda/virtualenv here
-# Prefer the env's python directly to avoid brittle shell init on clusters.
+# Allow override via env var; otherwise try conda env, then conda activation.
+PYTHON="${PYTHON:-}"
 CONDA_BASE="${HOME}/miniconda3"
 ENV_NAME="Routing_LLM"
-PYTHON="${CONDA_BASE}/envs/${ENV_NAME}/bin/python"
-if [[ ! -x "${PYTHON}" ]]; then
-  source "${CONDA_BASE}/etc/profile.d/conda.sh"
-  conda activate "${ENV_NAME}"
-  PYTHON="$(command -v python)"
+if [[ -z "${PYTHON}" ]]; then
+  candidate="${CONDA_BASE}/envs/${ENV_NAME}/bin/python"
+  if [[ -x "${candidate}" ]]; then
+    # Ensure the binary is runnable on this node (Exec format errors are common on mixed-arch clusters).
+    if "${candidate}" -V >/dev/null 2>&1; then
+      PYTHON="${candidate}"
+    fi
+  fi
+fi
+if [[ -z "${PYTHON}" ]]; then
+  if [[ -f "${CONDA_BASE}/etc/profile.d/conda.sh" ]]; then
+    source "${CONDA_BASE}/etc/profile.d/conda.sh"
+    conda activate "${ENV_NAME}"
+    PYTHON="$(command -v python)"
+  fi
+fi
+if [[ -z "${PYTHON}" ]]; then
+  echo "ERROR: Could not resolve a usable Python interpreter."
+  echo "Set PYTHON=/path/to/python or ensure conda env ${ENV_NAME} exists on this node."
+  exit 1
 fi
 
 # Ensure local package imports (ablation, utils, model, etc.) work
