@@ -4,6 +4,7 @@
 #SBATCH --output=logs/etth1_%A_%a.out
 #SBATCH --error=logs/etth1_%A_%a.err
 #SBATCH --nodes=1
+#SBATCH --nodelist=xcnz2,xcnz4,xcnz5
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
 #SBATCH --time=24:00:00
@@ -24,14 +25,52 @@ echo "================================================="
 cd "${SLURM_SUBMIT_DIR}"
 
 # Optionally activate your conda/virtualenv here
-# Load conda
-source ~/miniconda3/bin/activate
+# Allow override via env var; otherwise try conda env, then conda activation.
+PYTHON="${PYTHON:-}"
+CONDA_BASE="${HOME}/miniconda3"
+ENV_NAME="Time_Series_L2D"
+if command -v uname >/dev/null 2>&1; then
+  echo "Arch: $(uname -m)"
+fi
+if [[ -z "${PYTHON}" ]]; then
+  candidate="${CONDA_BASE}/envs/${ENV_NAME}/bin/python"
+  if [[ -x "${candidate}" ]] && "${candidate}" -V >/dev/null 2>&1; then
+    PYTHON="${candidate}"
+  fi
+fi
+if [[ -z "${PYTHON}" ]]; then
+  if [[ -f "${CONDA_BASE}/etc/profile.d/conda.sh" ]]; then
+    base_py="${CONDA_BASE}/bin/python"
+    if [[ -x "${base_py}" ]] && "${base_py}" -V >/dev/null 2>&1; then
+      source "${CONDA_BASE}/etc/profile.d/conda.sh"
+      conda activate "${ENV_NAME}"
+      PYTHON="$(command -v python)"
+    else
+      echo "ERROR: ${base_py} is not runnable on this node (likely arch mismatch)."
+      echo "Set PYTHON=/path/to/python or rebuild conda on this node type."
+      exit 1
+    fi
+  fi
+fi
+if [[ -z "${PYTHON}" ]]; then
+  echo "ERROR: Could not resolve a usable Python interpreter."
+  echo "Set PYTHON=/path/to/python or ensure conda env ${ENV_NAME} exists on this node."
+  exit 1
+fi
 
-# Activate your environment
-conda activate Time_Series_L2D
-conda install pytorch torchvision torchaudio cpuonly -c pytorch
 # Ensure local package imports (ablation, utils, model, etc.) work
 export PYTHONPATH="${SLURM_SUBMIT_DIR}:${PYTHONPATH:-}"
+
+set -euo pipefail
+
+echo "Checking PyTorch availability..."
+"${PYTHON}" - <<'PY'
+import sys
+print("Python:", sys.executable)
+import torch
+print("torch:", torch.__version__)
+print("cuda_available:", torch.cuda.is_available())
+PY
 
 echo "Running ETTh1 hyperparameter sweep under Slurm (array)..."
 
@@ -65,7 +104,7 @@ echo "Array task: ${SLURM_ARRAY_TASK_ID}"
 echo "Run ${run_id}: ${run_cfg}"
 echo "Config: ${cfg_out}"
 
-  python - <<'PY' "${BASE_CONFIG}" "${cfg_out}" "${run_cfg}"
+  "${PYTHON}" - "${BASE_CONFIG}" "${cfg_out}" "${run_cfg}" <<'PY'
 import sys
 try:
     import yaml  # type: ignore
@@ -106,7 +145,7 @@ with open(out_path, "w", encoding="utf-8") as f:
 PY
 
 echo "Starting Python script..."
-python -u slds_imm_router.py --config "${cfg_out}"
+"${PYTHON}" -u slds_imm_router.py --config "${cfg_out}"
 
 echo "================================================="
 echo "End time: $(date)"
