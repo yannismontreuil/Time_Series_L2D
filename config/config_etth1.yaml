@@ -113,8 +113,8 @@ routers:
     em_enabled: false
     em_offline_full_feedback: true
     em_tk: 5000
-    em_n: 5
-    em_samples: 10
+    em_n: 15
+    em_samples: 50
     em_burn_in: 10
     em_use_validation: true
     em_val_strategy: rolling
@@ -132,11 +132,11 @@ routers:
     em_online_enabled: false
     em_online_window: 1000
     em_online_period: 500
-    em_online_n: 1
-    em_online_samples: 20
+    em_online_n: 10
+    em_online_samples: 50
     em_online_burn_in: 5
     em_online_theta_lr: 0.001
-    em_online_theta_steps: 1
+    em_online_theta_steps: 10
     em_online_eps_n: 0.001
     em_online_print_val_loss: true
     em_online_start_t: null
