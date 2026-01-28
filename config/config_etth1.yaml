@@ -30,11 +30,10 @@ environment:
   state_dim: 1
   seed: 42
   data_seed: 11
-  unavailable_expert_idx:
-  - 2
+  unavailable_expert_idx: [ 2, 3 ]
   unavailable_intervals:
-  - - 5000
-    - 10000
+      - [ 5000, 10000 ]
+      - [ 7000, 12000 ]
   arrival_expert_idx:
   - 4
   - 5
@@ -110,7 +109,8 @@ routers:
     exploration_diag_stride: 200
     exploration_diag_samples: 50
     exploration_diag_print: true
-    em_enabled: true
+
+    em_enabled: false
     em_offline_full_feedback: true
     em_tk: 5000
     em_n: 5
@@ -127,7 +127,9 @@ routers:
     em_theta_steps: 10
     em_print_val_loss: true
     em_eps_n: 0.001
-    em_online_enabled: true
+
+
+    em_online_enabled: false
     em_online_window: 1000
     em_online_period: 500
     em_online_n: 1
