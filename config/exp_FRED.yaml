@@ -163,7 +163,7 @@ routers:
     exploration_diag_samples: 100
     exploration_diag_print: true
 
-    em_enabled: false
+    em_enabled: true
     em_offline_full_feedback: true
     em_tk: 2000
     em_n: 15
@@ -171,8 +171,8 @@ routers:
     em_burn_in: 5
     em_use_validation: true
     em_val_strategy: "rolling"
-    em_val_fraction: 0.7
-    em_val_roll_len: 800
+    em_val_fraction: 0.5
+    em_val_roll_len: 500
     em_val_roll_splits: 3
     em_val_roll_stride: null
     em_val_len: null

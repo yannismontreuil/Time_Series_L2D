@@ -1132,12 +1132,23 @@ def evaluate_routers_and_baselines(
         t_start = min(int(em_tk_anchor) + 1, T)
     if t_start >= T:
         avg_cost_experts = np.full(env.num_experts, np.nan, dtype=float)
+        avg_cost_experts_avail = np.full(env.num_experts, np.nan, dtype=float)
     else:
         cum_costs = np.zeros(env.num_experts, dtype=float)
+        cum_costs_avail = np.zeros(env.num_experts, dtype=float)
+        avail_counts = np.zeros(env.num_experts, dtype=float)
         for t in range(t_start, T):
             loss_all = env.losses(t)
-            cum_costs += loss_all + beta
+            cost_all = loss_all + beta
+            cum_costs += cost_all
+            available = env.get_available_experts(t)
+            if available.size > 0:
+                cum_costs_avail[available] += cost_all[available]
+                avail_counts[available] += 1.0
         avg_cost_experts = cum_costs / float(T - t_start)
+        avg_cost_experts_avail = np.full(env.num_experts, np.nan, dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            avg_cost_experts_avail = cum_costs_avail / avail_counts
 
     def _safe_nanmean(costs: Optional[np.ndarray]) -> Optional[float]:
         if costs is None:
@@ -1324,6 +1335,9 @@ def evaluate_routers_and_baselines(
     print(f"Oracle baseline:               {_fmt(avg_cost_oracle)}")
     for j in range(env.num_experts):
         print(f"Always using expert {j}:       {_fmt(avg_cost_experts[j])}")
+    print("=== Average costs (experts, available only) ===")
+    for j in range(env.num_experts):
+        print(f"Expert {j} (available only):   {_fmt(avg_cost_experts_avail[j])}")
 
     print(
         f"\n=== Mean costs (last 20% of horizon, t >= {last_t_start}) ==="
