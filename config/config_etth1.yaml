@@ -159,7 +159,7 @@ routers:
     em_online_start_t: null
     transition_mode: attention
     transition_init: uniform
-    seed: 41
+    seed: 42
 baselines:
   l2d:
     arch: mlp
