@@ -47,9 +47,9 @@ environment:
   normalization_eps: 1.0e-6
   normalization_mode: "zscore"
 
-  # Expert architectures: 2 correlated AR baselines + ARIMA + RNN + ARIMA.
+  # Expert architectures: 2 correlated AR baselines
   expert_archs: [ar, ar, arima, arima, arima]
-  expert_pred_noise_std: [0.05, 0.05, 0.06, 0.1, 0.06]
+  expert_pred_noise_std: [0.1, 0.1, 0.06, 0.1, 0.06]
 
   arima_lags: [1, 7, 30, 365]
   arima_diff_order: 0
@@ -120,7 +120,7 @@ routers:
     init_state_g_scale: 0.3
     init_state_print: true
 
-    em_enabled: true
+    em_enabled: false
     em_offline_full_feedback: true
     em_tk: 1200
     em_n: 20
@@ -138,7 +138,7 @@ routers:
     em_print_val_loss: true
     em_eps_n: 1.0e-3
 
-    em_online_enabled: true
+    em_online_enabled: false
     em_online_window: 365
     em_online_period: 188
     em_online_n: 1
@@ -166,8 +166,8 @@ baselines:
 
 analysis:
   baselines_train_from_start: true
-  print_available_only: false
-  print_last_window: false
+  print_available_only: true
+  print_last_window: true
   tri_cycle_corr:
     enabled: true
     router: factorized_full
