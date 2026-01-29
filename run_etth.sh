@@ -4,10 +4,10 @@
 #SBATCH --output=logs/etth1_%A_%a.out
 #SBATCH --error=logs/etth1_%A_%a.err
 #SBATCH --nodes=1
-#SBATCH --nodelist=xcnz2,xcnz4,xcnz5
+#SBATCH --nodelist=xcnz2,xcnz4,xcnz5, xcnz6
 #SBATCH --mem=64G
 #SBATCH --cpus-per-task=8
-#SBATCH --time=24:00:00
+#SBATCH --time=12:00:00
 #SBATCH --array=0-15%12
 #SBATCH --mail-user=yannis.montreuil@u.nus.edu
 #SBATCH --mail-type=START,END,FAIL
