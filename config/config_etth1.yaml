@@ -50,8 +50,18 @@ environment:
 routers:
   beta: 0.0
   staleness_threshold: null
+  slds_imm_corr:
+    enabled: false
+  slds_imm_corr_em:
+    enabled: false
+  slds_imm:
+    enabled: false
   factorized_slds:
     enabled: true
+    feedback_mode: partial
+    include_no_g: true
+    label_with_g: "L2D-SLDS w/ $g_t$"
+    label_no_g: "L2D-SLDS w/t $g_t$"
     num_regimes: 4
     shared_dim: 2
     idiosyncratic_dim: 1
@@ -108,10 +118,10 @@ routers:
     - 0.02
     exploration:
     - g_z
-    exploration_diag_enabled: true
+    exploration_diag_enabled: false
     exploration_diag_stride: 200
     exploration_diag_samples: 50
-    exploration_diag_print: true
+    exploration_diag_print: false
     init_R_mode: empirical_expert
     init_R_window: 5000
     init_R_use_available: true
@@ -123,7 +133,7 @@ routers:
     init_state_g_scale: 0.3
     init_state_print: true
 
-    em_enabled: true
+    em_enabled: false
     em_offline_full_feedback: true
     em_tk: 4000
     em_n: 10
@@ -161,20 +171,6 @@ routers:
     transition_init: uniform
     seed: 42
 baselines:
-  l2d:
-    arch: mlp
-    learning_rate: 0.001
-    hidden_dim: 4
-    window_size: 1
-    alpha: 1.0
-    beta: null
-  l2d_sw:
-    arch: rnn
-    learning_rate: 0.001
-    hidden_dim: 4
-    window_size: 200
-    alpha: 1.0
-    beta: null
   linucb:
     alpha_ucb: 5
     l2_reg: 1.0
@@ -187,6 +183,8 @@ baselines:
     feedback_mode: partial
 analysis:
   baselines_train_from_start: true
+  print_available_only: false
+  print_last_window: false
   tri_cycle_corr:
     enabled: false
     router: factorized_full

@@ -118,6 +118,8 @@ def get_model_color(name: str) -> str:
         "neuralucb": "tab:brown",
         "factorized_partial": "tab:purple",
         "factorized_full": "tab:red",
+        "no_g_partial": "tab:green",
+        "no_g_full": "tab:green",
         "factorized_linear_partial": "tab:gray",
         "factorized_linear_full": "tab:olive",
         "random": "tab:green",
@@ -939,8 +941,38 @@ def evaluate_routers_and_baselines(
     # Common consultation costs (assumed shared across methods)
     beta_source = router_partial if router_partial is not None else router_full
     if beta_source is None:
-        raise ValueError("At least one base router must be provided for beta.")
-    beta = beta_source.beta[: env.num_experts]
+        candidates = (
+            router_factorial_partial,
+            router_factorial_full,
+            router_factorial_partial_linear,
+            router_factorial_full_linear,
+            router_no_g_partial,
+            router_no_g_full,
+            router_partial_corr,
+            router_full_corr,
+            router_partial_corr_em,
+            router_full_corr_em,
+            router_partial_neural,
+            router_full_neural,
+            l2d_baseline,
+            l2d_sw_baseline,
+            linucb_partial,
+            linucb_full,
+            neuralucb_partial,
+            neuralucb_full,
+        )
+        for candidate in candidates:
+            if candidate is not None and hasattr(candidate, "beta"):
+                beta_source = candidate
+                break
+    if beta_source is None:
+        beta_cfg = None if analysis_cfg is None else analysis_cfg.get("beta", None)
+        if beta_cfg is not None:
+            beta = np.asarray(beta_cfg, dtype=float).reshape(env.num_experts)
+        else:
+            beta = np.zeros(env.num_experts, dtype=float)
+    else:
+        beta = np.asarray(beta_source.beta, dtype=float)[: env.num_experts]
 
     # Random and oracle baselines
     costs_random, choices_random = run_random_on_env(env, beta, seed=int(seed))
@@ -965,6 +997,16 @@ def evaluate_routers_and_baselines(
     preds_factorized_full = (
         compute_predictions_from_choices(env, choices_factorial_full)
         if choices_factorial_full is not None
+        else None
+    )
+    preds_no_g_partial = (
+        compute_predictions_from_choices(env, choices_no_g_partial)
+        if choices_no_g_partial is not None
+        else None
+    )
+    preds_no_g_full = (
+        compute_predictions_from_choices(env, choices_no_g_full)
+        if choices_no_g_full is not None
         else None
     )
     preds_factorized_linear_partial = (
@@ -1144,6 +1186,16 @@ def evaluate_routers_and_baselines(
         if router_factorial_full is not None
         else None,
     )
+    choices_no_g_partial_plot = _mask_em_choices(
+        choices_no_g_partial,
+        getattr(router_no_g_partial, "em_tk", None)
+        if router_no_g_partial is not None
+        else None,
+    )
+    choices_no_g_full_plot = _mask_em_choices(
+        choices_no_g_full,
+        getattr(router_no_g_full, "em_tk", None) if router_no_g_full is not None else None
+    )
     choices_factorial_linear_partial_plot = _mask_em_choices(
         choices_factorial_linear_partial,
         getattr(router_factorial_partial_linear, "em_tk", None)
@@ -1191,6 +1243,8 @@ def evaluate_routers_and_baselines(
         )
         choices_random_plot = _mask_em_choices(choices_random, em_tk_anchor)
         choices_oracle_plot = _mask_em_choices(choices_oracle, em_tk_anchor)
+        choices_no_g_partial_plot = _mask_em_choices(choices_no_g_partial, em_tk_anchor)
+        choices_no_g_full_plot = _mask_em_choices(choices_no_g_full, em_tk_anchor)
 
     T = env.T
     t_grid = np.arange(1, T)
@@ -1375,8 +1429,10 @@ def evaluate_routers_and_baselines(
             return "nan"
 
     print("=== Average costs ===")
-    print(f"L2D SLDS w/t $g_t$ (partial fb): {_fmt(avg_cost_partial)}")
-    print(f"L2D SLDS w/t $g_t$ (full fb):    {_fmt(avg_cost_full)}")
+    if avg_cost_partial is not None:
+        print(f"L2D SLDS w/t $g_t$ (partial fb): {_fmt(avg_cost_partial)}")
+    if avg_cost_full is not None:
+        print(f"L2D SLDS w/t $g_t$ (full fb):    {_fmt(avg_cost_full)}")
     if avg_cost_partial_corr is not None:
         print(
             f"Router Corr (partial feedback): {_fmt(avg_cost_partial_corr)}"
@@ -1431,75 +1487,86 @@ def evaluate_routers_and_baselines(
     print(f"Oracle baseline:               {_fmt(avg_cost_oracle)}")
     for j in range(env.num_experts):
         print(f"Always using expert {j}:       {_fmt(avg_cost_experts[j])}")
-    print("=== Average costs (experts, available only) ===")
-    for j in range(env.num_experts):
-        print(f"Expert {j} (available only):   {_fmt(avg_cost_experts_avail[j])}")
+    print_available_only = True
+    print_last_window = True
+    if analysis_cfg is not None:
+        if "print_available_only" in analysis_cfg:
+            print_available_only = bool(analysis_cfg.get("print_available_only", True))
+        if "print_last_window" in analysis_cfg:
+            print_last_window = bool(analysis_cfg.get("print_last_window", True))
 
-    print(
-        f"\n=== Mean costs (last 20% of horizon, t >= {last_t_start}) ==="
-    )
-    if last_cost_partial is not None:
-        print(f"L2D SLDS w/t $g_t$ (partial fb): {_fmt(last_cost_partial)}")
-    if last_cost_full is not None:
-        print(f"L2D SLDS w/t $g_t$ (full fb):    {_fmt(last_cost_full)}")
-    if last_cost_partial_corr is not None:
+    if print_available_only:
+        print("=== Average costs (experts, available only) ===")
+        for j in range(env.num_experts):
+            print(f"Expert {j} (available only):   {_fmt(avg_cost_experts_avail[j])}")
+
+    if print_last_window:
         print(
-            f"Router Corr (partial feedback): {_fmt(last_cost_partial_corr)}"
+            f"\n=== Mean costs (last 20% of horizon, t >= {last_t_start}) ==="
         )
-    if last_cost_full_corr is not None:
-        print(f"Router Corr (full feedback):    {_fmt(last_cost_full_corr)}")
-    if last_cost_factorized_partial is not None:
-        print(f"{factorized_label} (partial fb):   {_fmt(last_cost_factorized_partial)}")
-    if last_cost_factorized_full is not None:
-        print(f"{factorized_label} (full fb):      {_fmt(last_cost_factorized_full)}")
-    if last_cost_no_g_partial is not None:
-        print(f"{no_g_label} (partial fb):      {_fmt(last_cost_no_g_partial)}")
-    if last_cost_no_g_full is not None:
-        print(f"{no_g_label} (full fb):         {_fmt(last_cost_no_g_full)}")
-    if last_cost_factorized_linear_partial is not None:
-        print(
-            f"{factorized_linear_label} (partial fb): {_fmt(last_cost_factorized_linear_partial)}"
-        )
-    if last_cost_factorized_linear_full is not None:
-        print(
-            f"{factorized_linear_label} (full fb):    {_fmt(last_cost_factorized_linear_full)}"
-        )
-    if last_cost_partial_corr_em is not None:
-        print(
-            f"Router Corr EM (partial fb):   {_fmt(last_cost_partial_corr_em)}"
-        )
-    if last_cost_full_corr_em is not None:
-        print(
-            f"Router Corr EM (full fb):      {_fmt(last_cost_full_corr_em)}"
-        )
-    if last_cost_neural_partial is not None:
-        print(
-            f"Neural router (partial fb):     {_fmt(last_cost_neural_partial)}"
-        )
-    if last_cost_neural_full is not None:
-        print(
-            f"Neural router (full fb):        {_fmt(last_cost_neural_full)}"
-        )
-    if last_cost_l2d is not None:
-        print(f"L2D (full feedback):           {_fmt(last_cost_l2d)}")
-    if last_cost_l2d_sw is not None:
-        print(f"L2D_SW (full feedback):        {_fmt(last_cost_l2d_sw)}")
-    if last_cost_linucb_partial is not None:
-        print(f"LinUCB (partial feedback):     {_fmt(last_cost_linucb_partial)}")
-    if last_cost_linucb_full is not None:
-        print(f"LinUCB (full feedback):        {_fmt(last_cost_linucb_full)}")
-    if last_cost_neuralucb_partial is not None:
-        print(f"NeuralUCB (partial feedback):  {_fmt(last_cost_neuralucb_partial)}")
-    if last_cost_neuralucb_full is not None:
-        print(f"NeuralUCB (full feedback):     {_fmt(last_cost_neuralucb_full)}")
-    if last_cost_random is not None:
-        print(f"Random baseline:               {_fmt(last_cost_random)}")
-    if last_cost_oracle is not None:
-        print(f"Oracle baseline:               {_fmt(last_cost_oracle)}")
-    for j in range(env.num_experts):
-        print(
-            f"Always using expert {j}:       {_fmt(avg_cost_experts_last[j])}"
-        )
+    if print_last_window:
+        if last_cost_partial is not None:
+            print(f"L2D SLDS w/t $g_t$ (partial fb): {_fmt(last_cost_partial)}")
+        if last_cost_full is not None:
+            print(f"L2D SLDS w/t $g_t$ (full fb):    {_fmt(last_cost_full)}")
+        if last_cost_partial_corr is not None:
+            print(
+                f"Router Corr (partial feedback): {_fmt(last_cost_partial_corr)}"
+            )
+        if last_cost_full_corr is not None:
+            print(f"Router Corr (full feedback):    {_fmt(last_cost_full_corr)}")
+        if last_cost_factorized_partial is not None:
+            print(f"{factorized_label} (partial fb):   {_fmt(last_cost_factorized_partial)}")
+        if last_cost_factorized_full is not None:
+            print(f"{factorized_label} (full fb):      {_fmt(last_cost_factorized_full)}")
+        if last_cost_no_g_partial is not None:
+            print(f"{no_g_label} (partial fb):      {_fmt(last_cost_no_g_partial)}")
+        if last_cost_no_g_full is not None:
+            print(f"{no_g_label} (full fb):         {_fmt(last_cost_no_g_full)}")
+        if last_cost_factorized_linear_partial is not None:
+            print(
+                f"{factorized_linear_label} (partial fb): {_fmt(last_cost_factorized_linear_partial)}"
+            )
+        if last_cost_factorized_linear_full is not None:
+            print(
+                f"{factorized_linear_label} (full fb):    {_fmt(last_cost_factorized_linear_full)}"
+            )
+        if last_cost_partial_corr_em is not None:
+            print(
+                f"Router Corr EM (partial fb):   {_fmt(last_cost_partial_corr_em)}"
+            )
+        if last_cost_full_corr_em is not None:
+            print(
+                f"Router Corr EM (full fb):      {_fmt(last_cost_full_corr_em)}"
+            )
+        if last_cost_neural_partial is not None:
+            print(
+                f"Neural router (partial fb):     {_fmt(last_cost_neural_partial)}"
+            )
+        if last_cost_neural_full is not None:
+            print(
+                f"Neural router (full fb):        {_fmt(last_cost_neural_full)}"
+            )
+        if last_cost_l2d is not None:
+            print(f"L2D (full feedback):           {_fmt(last_cost_l2d)}")
+        if last_cost_l2d_sw is not None:
+            print(f"L2D_SW (full feedback):        {_fmt(last_cost_l2d_sw)}")
+        if last_cost_linucb_partial is not None:
+            print(f"LinUCB (partial feedback):     {_fmt(last_cost_linucb_partial)}")
+        if last_cost_linucb_full is not None:
+            print(f"LinUCB (full feedback):        {_fmt(last_cost_linucb_full)}")
+        if last_cost_neuralucb_partial is not None:
+            print(f"NeuralUCB (partial feedback):  {_fmt(last_cost_neuralucb_partial)}")
+        if last_cost_neuralucb_full is not None:
+            print(f"NeuralUCB (full feedback):     {_fmt(last_cost_neuralucb_full)}")
+        if last_cost_random is not None:
+            print(f"Random baseline:               {_fmt(last_cost_random)}")
+        if last_cost_oracle is not None:
+            print(f"Oracle baseline:               {_fmt(last_cost_oracle)}")
+        for j in range(env.num_experts):
+            print(
+                f"Always using expert {j}:       {_fmt(avg_cost_experts_last[j])}"
+            )
 
     corr_cfg = analysis_cfg.get("pred_target_corr", {}) if analysis_cfg else {}
     corr_enabled = bool(corr_cfg.get("enabled", False))
@@ -1748,6 +1815,10 @@ def evaluate_routers_and_baselines(
         entries.append(("factorized_partial", choices_factorial_partial_plot))
     if choices_factorial_full_plot is not None:
         entries.append(("factorized_full", choices_factorial_full_plot))
+    if choices_no_g_partial_plot is not None:
+        entries.append(("no_g_partial", choices_no_g_partial_plot))
+    if choices_no_g_full_plot is not None:
+        entries.append(("no_g_full", choices_no_g_full_plot))
     if choices_factorial_linear_partial_plot is not None:
         entries.append(
             ("factorized_linear_partial", choices_factorial_linear_partial_plot)
@@ -1833,6 +1904,8 @@ def evaluate_routers_and_baselines(
     preds_l2d_sw_plot = _shift_preds_for_plot(preds_l2d_sw)
     preds_factorized_partial_plot = _shift_preds_for_plot(preds_factorized_partial)
     preds_factorized_full_plot = _shift_preds_for_plot(preds_factorized_full)
+    preds_no_g_partial_plot = _shift_preds_for_plot(preds_no_g_partial)
+    preds_no_g_full_plot = _shift_preds_for_plot(preds_no_g_full)
     preds_factorized_linear_partial_plot = _shift_preds_for_plot(
         preds_factorized_linear_partial
     )
@@ -1954,6 +2027,15 @@ def evaluate_routers_and_baselines(
             linestyle="-",
             alpha=0.8,
         )
+    if preds_no_g_partial_plot is not None:
+        ax_pred.plot(
+            t_grid_plot,
+            preds_no_g_partial_plot,
+            label=f"{no_g_label} (partial)",
+            color=get_model_color("no_g_partial"),
+            linestyle="--",
+            alpha=0.8,
+        )
     if preds_factorized_full_plot is not None:
         ax_pred.plot(
             t_grid_plot,
@@ -1961,6 +2043,15 @@ def evaluate_routers_and_baselines(
             label=f"{factorized_label} (full)",
             color=get_model_color("factorized_full"),
             linestyle="-",
+            alpha=0.8,
+        )
+    if preds_no_g_full_plot is not None:
+        ax_pred.plot(
+            t_grid_plot,
+            preds_no_g_full_plot,
+            label=f"{no_g_label} (full)",
+            color=get_model_color("no_g_full"),
+            linestyle="--",
             alpha=0.8,
         )
     if preds_factorized_linear_partial_plot is not None:
@@ -2103,6 +2194,16 @@ def evaluate_routers_and_baselines(
     )
     avg_factorized_full_t = (
         _running_avg(costs_factorial_full) if costs_factorial_full is not None else None
+    )
+    avg_no_g_partial_t = (
+        _running_avg(costs_no_g_partial)
+        if costs_no_g_partial is not None
+        else None
+    )
+    avg_no_g_full_t = (
+        _running_avg(costs_no_g_full)
+        if costs_no_g_full is not None
+        else None
     )
     avg_factorized_linear_partial_t = (
         _running_avg(costs_factorial_linear_partial)
@@ -2267,6 +2368,14 @@ def evaluate_routers_and_baselines(
             color=get_model_color("factorized_partial"),
             linestyle="-",
         )
+    if avg_no_g_partial_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_no_g_partial_t,
+            label=f"{no_g_label} (partial, avg cost)",
+            color=get_model_color("no_g_partial"),
+            linestyle="--",
+        )
     if avg_factorized_full_t is not None:
         ax_cost.plot(
             t_grid,
@@ -2274,6 +2383,14 @@ def evaluate_routers_and_baselines(
             label=f"{factorized_label} (full, avg cost)",
             color=get_model_color("factorized_full"),
             linestyle="-",
+        )
+    if avg_no_g_full_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_no_g_full_t,
+            label=f"{no_g_label} (full, avg cost)",
+            color=get_model_color("no_g_full"),
+            linestyle="--",
         )
     if avg_factorized_linear_partial_t is not None:
         ax_cost.plot(
@@ -2466,14 +2583,16 @@ def evaluate_routers_and_baselines(
             has_avail = avail is not None
 
             # Labels consistent with Paper/Section/AppendixParts/Experiments.tex.
-            label_main = "L2D-SLDS"
-            label_ablation = r"L2D-SLDS w/o $\mathbf{g}_t$"
+            label_main = factorized_label
+            label_ablation = no_g_label
 
             series = []
             if choices_factorial_partial_plot is not None:
                 series.append(
                     (label_main, choices_factorial_partial_plot, "factorized_partial")
                 )
+            if choices_no_g_partial_plot is not None:
+                series.append((label_ablation, choices_no_g_partial_plot, "no_g_partial"))
             if choices_partial_plot is not None:
                 base_label = label_ablation if choices_factorial_partial_plot is not None else label_main
                 series.append((base_label, choices_partial_plot, "partial"))
@@ -2553,7 +2672,7 @@ def evaluate_routers_and_baselines(
         def _label_for_factorized(
             router_obj: Optional[object],
             with_g_label: str = "L2D-SLDS",
-            no_g_label: str = "L2D-SLDS w/o $g_t$",
+            no_g_label: str = "L2D-SLDS w/t $g_t$",
             fallback: str = "SLDS-IMM",
         ) -> str:
             if isinstance(router_obj, FactorizedSLDS):
@@ -2563,13 +2682,23 @@ def evaluate_routers_and_baselines(
                 return with_g_label
             return fallback
 
-        base_partial_label = _label_for_factorized(router_partial)
-        base_full_label = _label_for_factorized(router_full)
+        base_partial_label = _label_for_factorized(
+            router_partial, with_g_label=factorized_label, no_g_label=no_g_label
+        )
+        base_full_label = _label_for_factorized(
+            router_full, with_g_label=factorized_label, no_g_label=no_g_label
+        )
         factorized_partial_label = _label_for_factorized(
-            router_factorial_partial, with_g_label="L2D-SLDS", fallback="L2D-SLDS"
+            router_factorial_partial,
+            with_g_label=factorized_label,
+            no_g_label=no_g_label,
+            fallback=factorized_label,
         )
         factorized_full_label = _label_for_factorized(
-            router_factorial_full, with_g_label="L2D-SLDS", fallback="L2D-SLDS"
+            router_factorial_full,
+            with_g_label=factorized_label,
+            no_g_label=no_g_label,
+            fallback=factorized_label,
         )
         choices_map = {
             f"{base_partial_label}": (choices_partial, costs_partial),
@@ -2580,6 +2709,8 @@ def evaluate_routers_and_baselines(
             "Corr SLDS-IMM EM (full)": (choices_full_corr_em, costs_full_corr_em),
             f"{factorized_partial_label}": (choices_factorial_partial, costs_factorial_partial),
             f"{factorized_full_label} (full)": (choices_factorial_full, costs_factorial_full),
+            f"{no_g_label}": (choices_no_g_partial, costs_no_g_partial),
+            f"{no_g_label} (full)": (choices_no_g_full, costs_no_g_full),
             "L2D": (choices_l2d, costs_l2d),
             "L2D_SW": (choices_l2d_sw, costs_l2d_sw),
             "LinUCB": (choices_linucb_partial, costs_linucb_partial),
@@ -2592,6 +2723,7 @@ def evaluate_routers_and_baselines(
             [("Oracle", (choices_oracle, costs_oracle))],
             [
                 (f"{factorized_partial_label}", (choices_factorial_partial, costs_factorial_partial)),
+                (f"{no_g_label}", (choices_no_g_partial, costs_no_g_partial)),
                 (f"{base_partial_label}", (choices_partial, costs_partial)),
                 ("Corr SLDS-IMM", (choices_partial_corr, costs_partial_corr)),
                 ("Corr SLDS-IMM EM", (choices_partial_corr_em, costs_partial_corr_em)),
@@ -2600,6 +2732,7 @@ def evaluate_routers_and_baselines(
             ],
             [
                 (f"{factorized_full_label} (full)", (choices_factorial_full, costs_factorial_full)),
+                (f"{no_g_label} (full)", (choices_no_g_full, costs_no_g_full)),
                 (f"{base_full_label} (full)", (choices_full, costs_full)),
                 ("Corr SLDS-IMM (full)", (choices_full_corr, costs_full_corr)),
                 ("Corr SLDS-IMM EM (full)", (choices_full_corr_em, costs_full_corr_em)),

@@ -303,6 +303,7 @@ if __name__ == "__main__":
     routers_cfg = cfg.get("routers", {})
     analysis_cfg = cfg.get("analysis", {}) or {}
     slds_cfg = routers_cfg.get("slds_imm", {}) or {}
+    slds_enabled = bool(slds_cfg.get("enabled", True))
     slds_em_cfg = routers_cfg.get("slds_imm_em", {}) or {}
     slds_em_enabled = bool(slds_em_cfg.get("enabled", False))
     slds_em_apply_partial = bool(slds_em_cfg.get("apply_to_partial", False))
@@ -546,41 +547,51 @@ if __name__ == "__main__":
     )
     RouterClass_full = SLDSIMMRouter_EM if slds_em_enabled else SLDSIMMRouter
 
-    router_partial = RouterClass_partial(
-        num_experts=N,
-        num_regimes=M,
-        state_dim=d,
-        feature_fn=feature_phi,
-        A=A,
-        Q=Q,
-        R=R,
-        Pi=Pi,
-        beta=beta,
-        lambda_risk=lambda_risk,
-        feedback_mode="partial",
-        pop_mean=pop_mean,
-        pop_cov=pop_cov,
-        eps=eps_slds,
-        **em_kwargs_partial,
-    )
+    slds_feedback_mode = str(slds_cfg.get("feedback_mode", "both")).lower()
+    if slds_feedback_mode in ("all", "both", "pf", "fp"):
+        slds_feedback_mode = "both"
+    allow_slds_partial = slds_feedback_mode in ("partial", "both") and slds_enabled
+    allow_slds_full = slds_feedback_mode in ("full", "both") and slds_enabled
 
-    router_full = RouterClass_full(
-        num_experts=N,
-        num_regimes=M,
-        state_dim=d,
-        feature_fn=feature_phi,
-        A=A,
-        Q=Q,
-        R=R,
-        Pi=Pi,
-        beta=beta,
-        lambda_risk=lambda_risk,
-        feedback_mode="full",
-        pop_mean=pop_mean,
-        pop_cov=pop_cov,
-        eps=eps_slds,
-        **em_kwargs_full,
-    )
+    router_partial = None
+    router_full = None
+    if allow_slds_partial:
+        router_partial = RouterClass_partial(
+            num_experts=N,
+            num_regimes=M,
+            state_dim=d,
+            feature_fn=feature_phi,
+            A=A,
+            Q=Q,
+            R=R,
+            Pi=Pi,
+            beta=beta,
+            lambda_risk=lambda_risk,
+            feedback_mode="partial",
+            pop_mean=pop_mean,
+            pop_cov=pop_cov,
+            eps=eps_slds,
+            **em_kwargs_partial,
+        )
+
+    if allow_slds_full:
+        router_full = RouterClass_full(
+            num_experts=N,
+            num_regimes=M,
+            state_dim=d,
+            feature_fn=feature_phi,
+            A=A,
+            Q=Q,
+            R=R,
+            Pi=Pi,
+            beta=beta,
+            lambda_risk=lambda_risk,
+            feedback_mode="full",
+            pop_mean=pop_mean,
+            pop_cov=pop_cov,
+            eps=eps_slds,
+            **em_kwargs_full,
+        )
 
     # --------------------------------------------------------
     # Correlated-expert SLDS-IMM routers (shared factor model)
@@ -1545,6 +1556,7 @@ if __name__ == "__main__":
 
         factorized_runs = []
         primary_run = None
+        include_no_g = bool(factorized_slds_cfg.get("include_no_g", True))
 
         for exploration_mode in exploration_modes:
             fact_router_partial = None
@@ -1563,9 +1575,13 @@ if __name__ == "__main__":
                 fact_router_full = _build_factorized_router(
                     "full", base_transition_mode, exploration_mode
                 )
-            factorized_label_local = (
-                f"L2D SLDS w/ $g_t$ {base_transition_mode} ({exploration_mode})"
-            )
+            label_with_g_cfg = factorized_slds_cfg.get("label_with_g", None)
+            if label_with_g_cfg is None:
+                factorized_label_local = (
+                    f"L2D SLDS w/ $g_t$ {base_transition_mode} ({exploration_mode})"
+                )
+            else:
+                factorized_label_local = str(label_with_g_cfg)
 
             fact_router_partial_linear = None
             fact_router_full_linear = None
@@ -1591,14 +1607,21 @@ if __name__ == "__main__":
 
             router_partial_no_g = None
             router_full_no_g = None
-            if allow_partial:
-                router_partial_no_g = _build_factorized_router_no_g(
-                    "partial", base_transition_mode, exploration_mode
-                )
-            if allow_full:
-                router_full_no_g = _build_factorized_router_no_g(
-                    "full", base_transition_mode, exploration_mode
-                )
+            if include_no_g:
+                if allow_partial:
+                    router_partial_no_g = _build_factorized_router_no_g(
+                        "partial", base_transition_mode, exploration_mode
+                    )
+                if allow_full:
+                    router_full_no_g = _build_factorized_router_no_g(
+                        "full", base_transition_mode, exploration_mode
+                    )
+
+            no_g_label_cfg = factorized_slds_cfg.get("label_no_g", None)
+            if no_g_label_cfg is None:
+                no_g_label_local = f"{factorized_label_local} no-g"
+            else:
+                no_g_label_local = str(no_g_label_cfg)
 
             run_bundle = {
                 "exploration_mode": exploration_mode,
@@ -1609,6 +1632,7 @@ if __name__ == "__main__":
                 "fact_router_partial_linear": fact_router_partial_linear,
                 "fact_router_full_linear": fact_router_full_linear,
                 "factorized_label": factorized_label_local,
+                "no_g_label": no_g_label_local,
                 "factorized_linear_label": factorized_linear_label_local,
             }
             factorized_runs.append(run_bundle)
@@ -1708,7 +1732,13 @@ if __name__ == "__main__":
             np.random.seed(seed)
             random.seed(seed)
     if hasattr(env, "x"):
-        ctx_dim = int(np.asarray(env.x, dtype=float).shape[1])
+        x_arr = np.asarray(env.x, dtype=float)
+        if x_arr.ndim == 0:
+            raise ValueError("environment.x must be at least 1D.")
+        if x_arr.ndim == 1:
+            ctx_dim = 1
+        else:
+            ctx_dim = int(x_arr.shape[1])
         if ctx_dim != d:
             raise ValueError(
                 f"state_dim={d} does not match environment context_dim={ctx_dim}. "
@@ -2385,7 +2415,7 @@ if __name__ == "__main__":
                         "factorized_label": run["factorized_label"],
                         "router_no_g_partial": run["router_partial_no_g"],
                         "router_no_g_full": run["router_full_no_g"],
-                        "no_g_label": f"{run['factorized_label']} no-g",
+                        "no_g_label": run.get("no_g_label", f"{run['factorized_label']} no-g"),
                         "router_factorial_partial_linear": run["fact_router_partial_linear"],
                         "router_factorial_full_linear": run["fact_router_full_linear"],
                         "factorized_linear_label": run["factorized_linear_label"],
@@ -2443,7 +2473,7 @@ if __name__ == "__main__":
                     factorized_label=run["factorized_label"],
                     router_no_g_partial=run["router_partial_no_g"],
                     router_no_g_full=run["router_full_no_g"],
-                    no_g_label=f"{run['factorized_label']} no-g",
+                    no_g_label=run.get("no_g_label", f"{run['factorized_label']} no-g"),
                     router_factorial_partial_linear=run["fact_router_partial_linear"],
                     router_factorial_full_linear=run["fact_router_full_linear"],
                     factorized_linear_label=run["factorized_linear_label"],
@@ -2554,7 +2584,7 @@ if __name__ == "__main__":
                         save_png=bool(prune_cfg.get("save_png", True)),
                         save_pdf=bool(prune_cfg.get("save_pdf", True)),
                         label_full=str(prune_cfg.get("label_full", run.get("factorized_label", "L2D-SLDS"))),
-                        label_no_g=str(prune_cfg.get("label_no_g", "L2D-SLDS w/o $g_t$")),
+                        label_no_g=str(prune_cfg.get("label_no_g", run.get("no_g_label", "L2D-SLDS w/t $g_t$"))),
                     )
     else:
         evaluate_routers_and_baselines(

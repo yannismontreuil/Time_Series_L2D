@@ -9,3 +9,5 @@ data/
 # Large data files
 /data/A_china_HF_clean.csv
 /data/A_china_HF.csv
+
+/out
