@@ -1,0 +1,202 @@
+# Melbourne daily minimum temperature (statsmodels.daily_temp) experiment.
+# Uses statsmodels to materialize a CSV if not present.
+
+plot_shift: 1
+plot_target: "y"
+plot_synth_preview: false
+plot_time_series_pdf: true
+plot_time_series_png: true
+
+transition_log:
+  enabled: false
+  print: false
+  precision: 4
+  stride: 1
+  print_wlin_blin: false
+  plot: true
+  plot_show: false
+  plot_save: true
+  plot_na: true
+  online_only: true
+  plot_only_ours: true
+  plot_entropy: true
+
+environment:
+  data_source: merlbourne
+  csv_path: data/daily-minimum-temperatures-in-me.csv
+  target_column: "Daily minimum temperatures in Melbourne, Australia, 1981-1990"
+
+  # Use full dataset unless overridden.
+  T: null
+  seed: 11
+  data_seed: 42
+
+  # Experts/regimes
+  num_experts: 5
+  num_regimes: 4
+
+  # Context = temperature lags + time features.
+  # lags: 4; time features (dayofweek, month): 4 -> total 8.
+  state_dim: 8
+  context_lags: [1, 7, 30, 365]
+  include_time_features: true
+  time_features: [dayofweek, month]
+
+  normalize_context: true
+  normalization_window: 730
+  normalization_eps: 1.0e-6
+  normalization_mode: "zscore"
+
+  # Expert architectures: 2 correlated AR baselines + ARIMA + RNN + ARIMA.
+  expert_archs: [ar, ar, arima, arima, arima]
+  expert_pred_noise_std: [0.05, 0.05, 0.06, 0.1, 0.06]
+
+  arima_lags: [1, 7, 30, 365]
+  arima_diff_order: 0
+
+  unavailable_expert_idx: [ 2, 3 ]
+  unavailable_intervals:
+    - [ 800, 1200 ]
+    - [ 500, 1500 ]
+
+  # RNN (ESN) hyperparameters
+  rnn_hidden_dim: 6
+  rnn_spectral_radius: 0.9
+  rnn_ridge: 1.0e-3
+  rnn_washout: 7
+  rnn_input_scale: 0.6
+  rnn_share_reservoir: false
+
+  analysis_window: 365
+
+routers:
+  beta: 0.0
+  staleness_threshold: null
+  lambda_risk: -0.1
+  slds_imm:
+    enabled: false
+  slds_imm_em:
+    enabled: false
+  slds_imm_corr:
+    enabled: false
+  slds_imm_corr_em:
+    enabled: false
+
+  factorized_slds:
+    enabled: true
+    feedback_mode: partial
+    include_no_g: true
+    label_with_g: "L2D-SLDS w/ $g_t$"
+    label_no_g: "L2D-SLDS w/t $g_t$"
+    num_regimes: 4
+    shared_dim: 2
+    idiosyncratic_dim: 8
+    delta_max: 2000
+    R_scalar: 0.05
+
+    A_g:
+      - [[0.98, 0.0], [0.0, 0.98]]
+      - [[0.97, 0.0], [0.0, 0.97]]
+      - [[0.96, 0.0], [0.0, 0.96]]
+      - [[0.95, 0.0], [0.0, 0.95]]
+    Q_g_scales: [0.08, 0.1, 0.12, 0.14]
+    A_u_scale: [0.98, 0.97, 0.96, 0.95]
+    Q_u_scales: [0.05, 0.06, 0.07, 0.08]
+
+    exploration: ["g_z"]
+    exploration_diag_enabled: true
+    exploration_diag_stride: 365
+    exploration_diag_samples: 80
+    exploration_diag_print: true
+
+    init_R_mode: empirical_expert
+    init_R_window: 730
+    init_R_use_available: true
+    init_R_floor: 1.0e-4
+    init_R_print: true
+    init_state_from_residuals: u
+    init_state_window: 730
+    init_state_u_scale: 1.0
+    init_state_g_scale: 0.3
+    init_state_print: true
+
+    em_enabled: true
+    em_offline_full_feedback: true
+    em_tk: 1200
+    em_n: 20
+    em_samples: 30
+    em_burn_in: 5
+    em_use_validation: true
+    em_val_strategy: rolling
+    em_val_fraction: 0.5
+    em_val_roll_len: 365
+    em_val_roll_splits: 3
+    em_val_roll_stride: null
+    em_val_len: null
+    em_theta_lr: 0.001
+    em_theta_steps: 10
+    em_print_val_loss: true
+    em_eps_n: 1.0e-3
+
+    em_online_enabled: true
+    em_online_window: 365
+    em_online_period: 188
+    em_online_n: 1
+    em_online_samples: 20
+    em_online_burn_in: 3
+    em_online_theta_lr: 0.001
+    em_online_theta_steps: 1
+    em_online_eps_n: 1.0e-3
+    em_online_print_val_loss: true
+    em_online_start_t: null
+
+    transition_mode: "attention"
+
+baselines:
+  linucb:
+    alpha_ucb: 5
+    l2_reg: 1.0
+    feedback_mode: partial
+  neural_ucb:
+    alpha_ucb: 5
+    lambda_reg: 1.0
+    hidden_dim: 16
+    nn_learning_rate: 0.001
+    feedback_mode: partial
+
+analysis:
+  baselines_train_from_start: true
+  print_available_only: false
+  print_last_window: false
+  tri_cycle_corr:
+    enabled: true
+    router: factorized_full
+    out_dir: out/melbourne
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true
+    pairs:
+    - - 0
+      - 1
+    - - 2
+      - 3
+    - - 4
+      - 5
+    corr_smooth_window: 25
+    transfer_probe:
+      enabled: true
+      target_expert: 1
+      source_expert: 0
+      compare_no_g: true
+      show_truth: true
+    expert_structure_baselines: true
+  pruning:
+    enabled: true
+    expert_idx: 1
+    rolling_window: 100
+    out_dir: out/melbourne/pruning
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true

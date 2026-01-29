@@ -14,7 +14,7 @@ from models.router_model_corr import (
 )
 from recurrent_router_old.router_model_recurrent import RecurrentSLDSRouter
 from environment.synthetic_env import SyntheticTimeSeriesEnv
-from environment.etth1_env import ETTh1TimeSeriesEnv
+from environment.etth1_env import ETTh1TimeSeriesEnv, ensure_daily_temp_csv
 from router_eval import run_router_on_env
 
 try:
@@ -169,8 +169,9 @@ def _build_base_slds_params(
 def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
     """
     Environment configuration mirroring the main experiment in
-    slds_imm_router.py. Supports both the synthetic environment and the
-    ETTh1 dataset, depending on `environment.data_source`.
+    slds_imm_router.py. Supports both the synthetic environment and
+    CSV-backed datasets (ETTh1/ETTh2/Melbourne), depending on
+    `environment.data_source`.
     """
     env_cfg = cfg.get("environment", {})
     data_source = env_cfg.get("data_source", "synthetic")
@@ -180,11 +181,18 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
     # that affect its dynamics and expert structure. This allows reuse
     # across different hyperparameter configurations within a single
     # worker process.
-    if data_source == "etth1":
+    if data_source in ("etth1", "etth2", "merlbourne", "melbourne"):
         T_raw = env_cfg.get("T", None)
         T_env = None if T_raw is None else int(T_raw)
-        csv_path = env_cfg.get("csv_path", "data/ETTh1.csv")
-        target_column = env_cfg.get("target_column", "OT")
+        if data_source in ("merlbourne", "melbourne"):
+            csv_path = env_cfg.get("csv_path", "data/daily_temp_melbourne.csv")
+            if not os.path.exists(csv_path):
+                csv_path = ensure_daily_temp_csv(csv_path)
+            target_column = env_cfg.get("target_column", "temp")
+        else:
+            csv_default = "data/ETTh2.csv" if data_source == "etth2" else "data/ETTh1.csv"
+            csv_path = env_cfg.get("csv_path", csv_default)
+            target_column = env_cfg.get("target_column", "OT")
         data_seed = env_cfg.get("data_seed", None)
         unavailable_expert_idx = env_cfg.get("unavailable_expert_idx", None)
         unavailable_intervals = env_cfg.get("unavailable_intervals", None)
@@ -208,7 +216,7 @@ def build_environment(seed: int, cfg: Dict, num_regimes: int | None = None):
             return tuple(tuple(int(v) for v in pair) for pair in intv)
 
         key: Tuple[Any, ...] = (
-            "etth1",
+            str(data_source),
             int(seed),
             None if data_seed is None else int(data_seed),
             int(N),

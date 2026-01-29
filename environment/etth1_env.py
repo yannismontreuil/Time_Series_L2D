@@ -1,3 +1,4 @@
+import csv
 import os
 from datetime import datetime
 from typing import List, Optional, Sequence, Tuple
@@ -16,6 +17,177 @@ try:  # optional dependency for PyTorch-based experts
     import torch.optim as optim  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
     torch = None
+
+
+def ensure_daily_temp_csv(csv_path: str = "data/daily_temp_melbourne.csv") -> str:
+    """
+    Ensure the Melbourne daily temperature dataset is available as a CSV
+    with columns: date,temp. Returns the CSV path. Requires statsmodels+pandas.
+    """
+    if os.path.exists(csv_path):
+        return csv_path
+
+    try:
+        import statsmodels.api as sm  # type: ignore
+    except Exception as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "statsmodels is required to build the daily_temp dataset. "
+            "Install it with `pip install statsmodels`."
+        ) from exc
+    try:
+        import pandas as pd  # type: ignore
+    except Exception as exc:  # pragma: no cover - optional dependency
+        raise ImportError(
+            "pandas is required to build the daily_temp dataset. "
+            "Install it with `pip install pandas`."
+        ) from exc
+
+    daily_temp_mod = None
+    try:
+        daily_temp_mod = sm.datasets.daily_temp  # type: ignore[attr-defined]
+    except Exception:
+        daily_temp_mod = None
+
+    if daily_temp_mod is None:
+        try:
+            import importlib
+
+            daily_temp_mod = importlib.import_module("statsmodels.datasets.daily_temp")
+        except Exception:
+            daily_temp_mod = None
+
+    raw = None
+    if daily_temp_mod is not None:
+        raw = daily_temp_mod.load_pandas().data
+    else:
+        get_rdataset = None
+        if hasattr(sm.datasets, "get_rdataset"):
+            get_rdataset = sm.datasets.get_rdataset  # type: ignore[attr-defined]
+        else:
+            try:
+                from statsmodels.datasets import utils as sm_utils  # type: ignore
+
+                get_rdataset = sm_utils.get_rdataset
+            except Exception:
+                get_rdataset = None
+
+        if get_rdataset is not None:
+            # Known Melbourne temperature datasets from R packages.
+            rd_candidates = [
+                ("daily_temp", "datasets"),
+                ("mel_temp", "gausscov"),
+                ("MelTemp", "quantreg"),
+                ("melbmaxtemp", "VGAM"),
+            ]
+            for name, package in rd_candidates:
+                try:
+                    rd = get_rdataset(name, package=package)
+                    raw = rd.data
+                    if raw is not None:
+                        break
+                except Exception:
+                    continue
+
+    if raw is None:
+        available = None
+        try:
+            import pkgutil
+
+            available = sorted(m.name for m in pkgutil.iter_modules(sm.datasets.__path__))
+        except Exception:
+            available = None
+        suffix = ""
+        if available:
+            suffix = f" Available datasets: {', '.join(available)}."
+        raise ValueError(
+            "statsmodels does not provide a Melbourne daily temperature dataset in this "
+            f"installation (statsmodels {getattr(sm, '__version__', 'unknown')}). "
+            "Please upgrade statsmodels or provide a CSV via environment.csv_path."
+            + suffix
+        )
+    if raw is None:
+        raise ValueError("statsmodels daily_temp dataset returned no data.")
+
+    if hasattr(raw, "to_frame") and not hasattr(raw, "columns"):
+        df = raw.to_frame()
+    elif hasattr(raw, "copy"):
+        df = raw.copy()
+    else:
+        df = pd.DataFrame(raw)
+
+    if not hasattr(df, "columns"):
+        df = pd.DataFrame(df)
+
+    columns = list(df.columns)
+    date_series = None
+    date_col_name = None
+    for col in columns:
+        if str(col).lower() in ("date", "day", "time", "timestamp"):
+            date_series = df[col]
+            date_col_name = col
+            break
+
+    if date_series is None:
+        idx = df.index
+        if idx is not None and not isinstance(idx, pd.RangeIndex):
+            date_series = idx
+
+    if date_series is None:
+        cols_lower = {str(c).lower(): c for c in columns}
+        if {"year", "month", "day"}.issubset(cols_lower.keys()):
+            date_series = pd.to_datetime(
+                dict(
+                    year=df[cols_lower["year"]],
+                    month=df[cols_lower["month"]],
+                    day=df[cols_lower["day"]],
+                ),
+                errors="coerce",
+            )
+
+    if date_series is None:
+        date_index = pd.date_range(start="1981-01-01", periods=len(df), freq="D")
+    else:
+        date_index = pd.to_datetime(date_series, errors="coerce")
+        if hasattr(date_index, "isna") and date_index.isna().any():
+            date_index = pd.date_range(start="1981-01-01", periods=len(df), freq="D")
+
+    target_candidates = [
+        c
+        for c in columns
+        if str(c).lower() in ("temp", "temperature", "temp_c", "t", "value", "y")
+    ]
+    if date_col_name is not None and date_col_name in target_candidates:
+        target_candidates.remove(date_col_name)
+
+    numeric_cols: List = []
+    for col in columns:
+        if col == date_col_name:
+            continue
+        try:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                numeric_cols.append(col)
+        except Exception:
+            continue
+
+    if target_candidates:
+        target_col = target_candidates[0]
+    elif numeric_cols:
+        target_col = numeric_cols[0]
+    else:
+        target_col = columns[0]
+
+    temp_vals = pd.to_numeric(df[target_col], errors="coerce")
+    if hasattr(temp_vals, "isna") and temp_vals.isna().any():
+        temp_vals = temp_vals.fillna(method="ffill").fillna(method="bfill")
+
+    date_index = pd.to_datetime(date_index)
+    date_strs = pd.Series(date_index).dt.strftime("%Y-%m-%d")
+    out_df = pd.DataFrame({"date": date_strs, "temp": temp_vals.values})
+    out_df = out_df.dropna()
+
+    os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
+    out_df.to_csv(csv_path, index=False)
+    return csv_path
 
 
 def _select_torch_device(device_pref: Optional[str] = None):
@@ -112,7 +284,7 @@ class ETTh1TimeSeriesEnv:
         nn_expert_deterministic: Optional[bool] = None,
     ):
         if not os.path.exists(csv_path):
-            raise FileNotFoundError(f"ETTh1 CSV not found at path: {csv_path}")
+            raise FileNotFoundError(f"CSV not found at path: {csv_path}")
 
         # Use fixed seed for data/expert generation so that time series and
         # expert behavior are reproducible regardless of the configurable seed.
@@ -144,31 +316,49 @@ class ETTh1TimeSeriesEnv:
         col_data: dict[str, List[float]] = {}
         date_vals: List[str] = []
         with open(csv_path, "r", encoding="utf-8") as f:
-            header_line = f.readline()
-            if not header_line:
-                raise ValueError("Empty ETTh1 CSV file.")
-            header = [h.strip() for h in header_line.strip().split(",")]
+            reader = csv.reader(f)
+            try:
+                header = next(reader)
+            except StopIteration:
+                raise ValueError("Empty CSV file.")
+            header = [h.strip() for h in header]
+
             if target_column not in header:
-                raise ValueError(
-                    f"Target column '{target_column}' not found in header "
-                    f"{header} of {csv_path}"
-                )
+                lower_map = {h.lower(): h for h in header}
+                tc_lower = str(target_column).lower()
+                if tc_lower in lower_map:
+                    target_column = lower_map[tc_lower]
+                else:
+                    raise ValueError(
+                        f"Target column '{target_column}' not found in header "
+                        f"{header} of {csv_path}"
+                    )
+
             col_idx = {name: i for i, name in enumerate(header)}
-            date_idx = col_idx.get("date", None)
-            numeric_columns = [name for name in header if name != "date"]
+
+            date_idx = None
+            for i, name in enumerate(header):
+                if str(name).strip().lower() in ("date", "timestamp", "time", "day"):
+                    date_idx = i
+                    break
+
+            if date_idx is not None:
+                numeric_columns = [name for name in header if col_idx[name] != date_idx]
+            else:
+                numeric_columns = list(header)
+
             if target_column not in numeric_columns:
                 raise ValueError(
                     f"Target column '{target_column}' must be numeric in {csv_path}."
                 )
+
             target_num_idx = numeric_columns.index(target_column)
             for name in numeric_columns:
                 col_data[name] = []
 
-            for line in f:
-                line = line.strip()
-                if not line:
+            for parts in reader:
+                if not parts:
                     continue
-                parts = line.split(",")
                 if len(parts) < len(header):
                     continue
                 vals: List[float] = []
@@ -190,7 +380,7 @@ class ETTh1TimeSeriesEnv:
 
         if len(y_all) < 2:
             raise ValueError(
-                "ETTh1 dataset must contain at least 2 observations for "
+                "Dataset must contain at least 2 observations for "
                 "lagged context construction."
             )
 
@@ -1118,7 +1308,12 @@ class ETTh1TimeSeriesEnv:
             if unavailable_intervals is None:
                 unavailable_intervals_local = [None] * len(unavailable_expert_idx)
             else:
-                unavailable_intervals_local = list(unavailable_intervals)
+                if isinstance(unavailable_intervals, (tuple, list)) and len(unavailable_intervals) == 2 and not isinstance(
+                    unavailable_intervals[0], (tuple, list)
+                ):
+                    unavailable_intervals_local = [unavailable_intervals]
+                else:
+                    unavailable_intervals_local = list(unavailable_intervals)
                 if len(unavailable_intervals_local) != len(unavailable_expert_idx):
                     raise ValueError(
                         "uav_intervals must match uav_expert_idx in length."

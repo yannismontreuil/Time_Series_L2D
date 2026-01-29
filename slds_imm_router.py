@@ -12,7 +12,7 @@ import sys
 from typing import Optional
 import numpy as np
 
-from environment.etth1_env import ETTh1TimeSeriesEnv
+from environment.etth1_env import ETTh1TimeSeriesEnv, ensure_daily_temp_csv
 
 from models.router_model import SLDSIMMRouter, feature_phi
 from models.router_model_em import SLDSIMMRouter_EM
@@ -367,7 +367,7 @@ if __name__ == "__main__":
     data_source = env_cfg.get("data_source", "synthetic")
     raw_M = env_cfg.get("num_regimes", None)
     raw_M_source = "environment.num_regimes"
-    if raw_M is None and data_source in ("etth1", "etth2") and factorized_slds_enabled:
+    if raw_M is None and data_source in ("etth1", "etth2", "merlbourne", "melbourne") and factorized_slds_enabled:
         fact_M = factorized_slds_cfg.get("num_regimes", None)
         if fact_M is not None:
             raw_M = fact_M
@@ -1654,13 +1654,20 @@ if __name__ == "__main__":
     # --------------------------------------------------------
     
     # Environment: either synthetic or ETTh1, depending on env_cfg.
-    if data_source in ("etth1", "etth2"):
-        # Real-world ETTh experiment (oil temperature as target).
+    if data_source in ("etth1", "etth2", "merlbourne", "melbourne"):
+        # Real-world CSV-backed experiment (ETTh or Melbourne daily temps).
         T_raw = env_cfg.get("T", None)
         T_env = None if T_raw is None else int(T_raw)
-        default_csv = "data/ETTh2.csv" if data_source == "etth2" else "data/ETTh1.csv"
-        csv_path = env_cfg.get("csv_path", default_csv)
-        target_column = env_cfg.get("target_column", "OT")
+        if data_source in ("merlbourne", "melbourne"):
+            default_csv = "data/daily_temp_melbourne.csv"
+            csv_path = env_cfg.get("csv_path", default_csv)
+            if not os.path.exists(csv_path):
+                csv_path = ensure_daily_temp_csv(csv_path)
+            target_column = env_cfg.get("target_column", "temp")
+        else:
+            default_csv = "data/ETTh2.csv" if data_source == "etth2" else "data/ETTh1.csv"
+            csv_path = env_cfg.get("csv_path", default_csv)
+            target_column = env_cfg.get("target_column", "OT")
 
         env = ETTh1TimeSeriesEnv(
             csv_path=csv_path,
