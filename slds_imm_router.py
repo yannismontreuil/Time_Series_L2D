@@ -15,6 +15,7 @@ import numpy as np
 from environment.etth1_env import ETTh1TimeSeriesEnv
 
 from models.router_model import SLDSIMMRouter, feature_phi
+from models.router_model_em import SLDSIMMRouter_EM
 from models.router_model_corr import SLDSIMMRouter_Corr, RecurrentSLDSIMMRouter_Corr
 from models.router_model_corr_em import SLDSIMMRouter_Corr_EM
 from environment.synthetic_env import SyntheticTimeSeriesEnv
@@ -195,6 +196,9 @@ def _evaluate_factorized_run_worker(payload: dict) -> None:
         payload["router_factorial_partial"],
         payload["router_factorial_full"],
         factorized_label=payload["factorized_label"],
+        router_no_g_partial=payload.get("router_no_g_partial"),
+        router_no_g_full=payload.get("router_no_g_full"),
+        no_g_label=payload.get("no_g_label", "L2D SLDS w/o $g_t$"),
         router_factorial_partial_linear=payload["router_factorial_partial_linear"],
         router_factorial_full_linear=payload["router_factorial_full_linear"],
         factorized_linear_label=payload["factorized_linear_label"],
@@ -271,6 +275,9 @@ if __name__ == "__main__":
     env_cfg = cfg.get("environment", {})
     seed_cfg = env_cfg.get("seed", 0)
     seed = int(seed_cfg) if seed_cfg is not None else 0
+    nn_expert_deterministic = bool(env_cfg.get("nn_expert_deterministic", False))
+    if nn_expert_deterministic:
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     np.random.seed(seed)
     random.seed(seed)
     try:  # pragma: no cover - torch is optional
@@ -279,12 +286,26 @@ if __name__ == "__main__":
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
+        if nn_expert_deterministic:
+            try:
+                torch.use_deterministic_algorithms(True)
+            except Exception:
+                pass
+            try:
+                if hasattr(torch.backends, "cudnn"):
+                    torch.backends.cudnn.deterministic = True
+                    torch.backends.cudnn.benchmark = False
+            except Exception:
+                pass
     except Exception:
         pass
 
     routers_cfg = cfg.get("routers", {})
     analysis_cfg = cfg.get("analysis", {}) or {}
     slds_cfg = routers_cfg.get("slds_imm", {}) or {}
+    slds_em_cfg = routers_cfg.get("slds_imm_em", {}) or {}
+    slds_em_enabled = bool(slds_em_cfg.get("enabled", False))
+    slds_em_apply_partial = bool(slds_em_cfg.get("apply_to_partial", False))
     slds_corr_cfg = routers_cfg.get("slds_imm_corr", {}) or {}
     slds_corr_enabled = bool(slds_corr_cfg.get("enabled", True))
     factorized_slds_cfg_raw = routers_cfg.get("factorized_slds", None)
@@ -502,7 +523,30 @@ if __name__ == "__main__":
         np.asarray(pop_cov_cfg, dtype=float) if pop_cov_cfg is not None else None
     )
 
-    router_partial = SLDSIMMRouter(
+    em_kwargs_full = {}
+    em_kwargs_partial = {}
+    if slds_em_enabled:
+        em_kwargs_full = {
+            "em_tk": slds_em_cfg.get("em_tk", None),
+            "em_min_weight": slds_em_cfg.get("em_min_weight", 1e-6),
+            "em_verbose": slds_em_cfg.get("em_verbose", False),
+            "em_update_pi": slds_em_cfg.get("em_update_pi", True),
+            "em_update_AQ": slds_em_cfg.get("em_update_AQ", True),
+            "em_update_R": slds_em_cfg.get("em_update_R", True),
+            "em_lambda_A": slds_em_cfg.get("em_lambda_A", 1e-6),
+            "em_r_floor": slds_em_cfg.get("em_r_floor", 1e-8),
+        }
+        if slds_em_apply_partial:
+            em_kwargs_partial = dict(em_kwargs_full)
+        else:
+            em_kwargs_partial = {}
+
+    RouterClass_partial = (
+        SLDSIMMRouter_EM if (slds_em_enabled and slds_em_apply_partial) else SLDSIMMRouter
+    )
+    RouterClass_full = SLDSIMMRouter_EM if slds_em_enabled else SLDSIMMRouter
+
+    router_partial = RouterClass_partial(
         num_experts=N,
         num_regimes=M,
         state_dim=d,
@@ -517,9 +561,10 @@ if __name__ == "__main__":
         pop_mean=pop_mean,
         pop_cov=pop_cov,
         eps=eps_slds,
+        **em_kwargs_partial,
     )
 
-    router_full = SLDSIMMRouter(
+    router_full = RouterClass_full(
         num_experts=N,
         num_regimes=M,
         state_dim=d,
@@ -534,6 +579,7 @@ if __name__ == "__main__":
         pop_mean=pop_mean,
         pop_cov=pop_cov,
         eps=eps_slds,
+        **em_kwargs_full,
     )
 
     # --------------------------------------------------------
@@ -1242,6 +1288,9 @@ if __name__ == "__main__":
             factorized_slds_cfg.get("transition_activation", "tanh")
         )
         transition_device = factorized_slds_cfg.get("transition_device", None)
+        transition_init = str(
+            factorized_slds_cfg.get("transition_init", "random")
+        ).lower()
         transition_mode_cfg = str(
             factorized_slds_cfg.get("transition_mode", "attention")
         ).lower()
@@ -1434,6 +1483,7 @@ if __name__ == "__main__":
                 transition_hidden_dims=transition_hidden_dims,
                 transition_activation=transition_activation,
                 transition_device=transition_device,
+                transition_init=transition_init,
                 transition_mode=transition_mode_local,
                 feedback_mode=feedback_mode,
                 seed=seed,
@@ -1481,6 +1531,7 @@ if __name__ == "__main__":
                 transition_hidden_dims=transition_hidden_dims,
                 transition_activation=transition_activation,
                 transition_device=transition_device,
+                transition_init=transition_init,
                 transition_mode=transition_mode_local,
                 feedback_mode=feedback_mode,
                 seed=seed,
@@ -1573,8 +1624,6 @@ if __name__ == "__main__":
             fact_router_full_linear = primary_run["fact_router_full_linear"]
             factorized_label = primary_run["factorized_label"]
             factorized_linear_label = primary_run["factorized_linear_label"]
-            router_partial = router_partial_no_g
-            router_full = router_full_no_g
 
     # --------------------------------------------------------
     # Environment and L2D baselines
@@ -1629,6 +1678,8 @@ if __name__ == "__main__":
             expert_train_date_ranges=env_cfg.get("expert_train_date_ranges", None),
             arima_lags=env_cfg.get("arima_lags", None),
             arima_diff_order=env_cfg.get("arima_diff_order", 1),
+            nn_expert_device=env_cfg.get("nn_expert_device", None),
+            nn_expert_deterministic=env_cfg.get("nn_expert_deterministic", None),
         )
     else:
         # Synthetic environment with dynamic expert availability.
@@ -1656,6 +1707,13 @@ if __name__ == "__main__":
         if data_seed_cfg is not None:
             np.random.seed(seed)
             random.seed(seed)
+    if hasattr(env, "x"):
+        ctx_dim = int(np.asarray(env.x, dtype=float).shape[1])
+        if ctx_dim != d:
+            raise ValueError(
+                f"state_dim={d} does not match environment context_dim={ctx_dim}. "
+                "Update environment.state_dim or context feature config."
+            )
     env.analysis_window = int(env_cfg.get("analysis_window", 500))
     # Visualization-only settings for plots.
     env.plot_shift = int(cfg.get("plot_shift", 1))
@@ -1686,6 +1744,199 @@ if __name__ == "__main__":
     analysis_cfg.setdefault("selection_plot_save_pdf", True)
     analysis_cfg.setdefault("selection_plot_save_png", False)
     analysis_cfg.setdefault("selection_plot_show", False)
+
+    # --------------------------------------------------------
+    # FactorizedSLDS: optional R initialization from empirical residuals
+    # --------------------------------------------------------
+    def _estimate_residual_mse(
+        t_end: int,
+        available_only: bool,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        t_end = max(1, min(int(t_end), env.T - 1))
+        sums = np.zeros(env.num_experts, dtype=float)
+        counts = np.zeros(env.num_experts, dtype=float)
+        for t in range(1, t_end + 1):
+            x_t = env.get_context(t)
+            preds = np.asarray(env.all_expert_predictions(x_t), dtype=float)
+            y_t = float(env.y[t])
+            resid = preds - y_t
+            if available_only:
+                avail = env.get_available_experts(t)
+            else:
+                avail = np.arange(env.num_experts, dtype=int)
+            for k in avail:
+                k = int(k)
+                r = float(resid[k])
+                if np.isfinite(r):
+                    sums[k] += r * r
+                    counts[k] += 1.0
+        return sums, counts
+
+    def _estimate_phi_norm2(t_end: int) -> float:
+        t_end = max(1, min(int(t_end), env.T - 1))
+        total = 0.0
+        count = 0
+        for t in range(1, t_end + 1):
+            x_t = env.get_context(t)
+            phi = np.asarray(feature_phi(x_t), dtype=float).reshape(-1)
+            if phi.size == 0:
+                continue
+            total += float(phi @ phi)
+            count += 1
+        if count <= 0:
+            return 1.0
+        return max(total / count, 1e-8)
+
+    def _init_factorized_R_from_env() -> Optional[np.ndarray]:
+        if not factorized_runs:
+            return None
+        init_mode = str(
+            factorized_slds_cfg.get("init_R_mode", "none")
+        ).lower()
+        if init_mode in ("none", "off", "false"):
+            return None
+        window_cfg = factorized_slds_cfg.get("init_R_window", None)
+        if window_cfg is None:
+            em_tk_cfg = factorized_slds_cfg.get("em_tk", None)
+            window = int(em_tk_cfg) if em_tk_cfg is not None else min(2000, env.T - 1)
+        else:
+            window = int(window_cfg)
+        window = max(1, min(window, env.T - 1))
+        available_only = bool(
+            factorized_slds_cfg.get("init_R_use_available", True)
+        )
+        floor = float(factorized_slds_cfg.get("init_R_floor", 1e-4))
+        sums, counts = _estimate_residual_mse(window, available_only)
+        counts_safe = np.maximum(counts, 1.0)
+        mse = sums / counts_safe
+        if np.any(counts > 0):
+            global_mse = float(np.sum(sums) / np.sum(counts))
+        else:
+            global_mse = 1.0
+        missing = counts <= 0
+        if np.any(missing):
+            mse[missing] = global_mse
+        mse = np.maximum(mse, floor)
+        if init_mode in ("empirical_expert", "expert", "per_expert"):
+            R_vals = mse
+        elif init_mode in ("empirical_scalar", "scalar"):
+            R_vals = float(np.mean(mse))
+        else:
+            raise ValueError(
+                "init_R_mode must be one of 'none', 'empirical_scalar', or 'empirical_expert'."
+            )
+        if bool(factorized_slds_cfg.get("init_R_print", True)):
+            print(
+                f"[FactorizedSLDS] init_R_mode={init_mode} window={window} "
+                f"available_only={available_only} R={R_vals}"
+            )
+        for run in factorized_runs:
+            for key in (
+                "fact_router_partial",
+                "fact_router_full",
+                "fact_router_partial_linear",
+                "fact_router_full_linear",
+                "router_partial_no_g",
+                "router_full_no_g",
+            ):
+                router = run.get(key)
+                if router is None:
+                    continue
+                if np.ndim(R_vals) == 0:
+                    router.R = float(R_vals)
+                    router.R_mode = "scalar"
+                else:
+                    R_arr = np.asarray(R_vals, dtype=float).reshape(1, -1)
+                    R_arr = np.repeat(R_arr, router.M, axis=0)
+                    router.R = R_arr
+                    router.R_mode = "scalar"
+        return np.asarray(R_vals, dtype=float) if np.ndim(R_vals) > 0 else np.array([float(R_vals)])
+
+    def _init_factorized_state_cov_from_residuals(
+        R_vals: Optional[np.ndarray],
+    ) -> None:
+        if not factorized_runs:
+            return
+        mode = str(
+            factorized_slds_cfg.get("init_state_from_residuals", "none")
+        ).lower()
+        if mode in ("none", "off", "false"):
+            return
+        valid_modes = {"u", "g", "g_and_u", "ug", "gu"}
+        if mode not in valid_modes:
+            raise ValueError(
+                "init_state_from_residuals must be one of "
+                "'none', 'u', 'g', 'g_and_u', 'ug', or 'gu'."
+            )
+        window_cfg = factorized_slds_cfg.get("init_state_window", None)
+        if window_cfg is None:
+            window = int(factorized_slds_cfg.get("init_R_window", 0) or min(2000, env.T - 1))
+        else:
+            window = int(window_cfg)
+        window = max(1, min(window, env.T - 1))
+        phi_norm2 = _estimate_phi_norm2(window)
+        if R_vals is None or R_vals.size == 0:
+            R_mean = float(factorized_slds_cfg.get("R_scalar", 1.0))
+        else:
+            R_mean = float(np.mean(R_vals))
+        u_scale = float(factorized_slds_cfg.get("init_state_u_scale", 1.0))
+        g_scale = float(factorized_slds_cfg.get("init_state_g_scale", 0.3))
+        u_var = max(u_scale * R_mean / phi_norm2, 1e-8)
+        g_var = max(g_scale * R_mean / phi_norm2, 1e-8)
+        if bool(factorized_slds_cfg.get("init_state_print", True)):
+            print(
+                f"[FactorizedSLDS] init_state_from_residuals={mode} window={window} "
+                f"phi_norm2={phi_norm2:.6f} u_var={u_var:.6f} g_var={g_var:.6f}"
+            )
+        do_u = mode in ("u", "g_and_u", "ug", "gu")
+        do_g = mode in ("g", "g_and_u", "ug", "gu")
+        for run in factorized_runs:
+            for key in (
+                "fact_router_partial",
+                "fact_router_full",
+                "fact_router_partial_linear",
+                "fact_router_full_linear",
+                "router_partial_no_g",
+                "router_full_no_g",
+            ):
+                router = run.get(key)
+                if router is None:
+                    continue
+                if do_u:
+                    if router.d_phi > 0:
+                        router.u_cov0 = np.stack(
+                            [np.eye(router.d_phi, dtype=float) * u_var for _ in range(router.M)]
+                        )
+                if do_g:
+                    if router.d_g > 0:
+                        router.g_cov0 = np.stack(
+                            [np.eye(router.d_g, dtype=float) * g_var for _ in range(router.M)]
+                        )
+
+    # Ensure factorized idiosyncratic dimension matches context dimension.
+    if factorized_runs:
+        ctx_dim = int(getattr(env, "x", np.zeros((1, 1))).shape[1])
+        for run in factorized_runs:
+            for key in (
+                "fact_router_partial",
+                "fact_router_full",
+                "fact_router_partial_linear",
+                "fact_router_full_linear",
+                "router_partial_no_g",
+                "router_full_no_g",
+            ):
+                router = run.get(key)
+                if router is None:
+                    continue
+                if int(router.d_phi) != int(ctx_dim):
+                    raise ValueError(
+                        f"FactorizedSLDS d_phi={router.d_phi} does not match "
+                        f"environment context_dim={ctx_dim}. "
+                        "Update routers.factorized_slds.idiosyncratic_dim or context features."
+                    )
+
+    R_vals = _init_factorized_R_from_env()
+    _init_factorized_state_cov_from_residuals(R_vals)
 
     em_data_cache = {}
 
@@ -1727,6 +1978,14 @@ if __name__ == "__main__":
         em_seed = int(em_seed_cfg) if em_seed_cfg is not None else 0
         em_priors = factorized_slds_cfg.get("em_priors", None)
         print_val_loss = bool(factorized_slds_cfg.get("em_print_val_loss", True))
+        em_check_finite = bool(factorized_slds_cfg.get("em_check_finite", True))
+        em_warn_nll_increase = bool(
+            factorized_slds_cfg.get("em_warn_nll_increase", True)
+        )
+        em_nll_increase_tol = float(
+            factorized_slds_cfg.get("em_nll_increase_tol", 1e-6)
+        )
+        em_sanitize_cov = bool(factorized_slds_cfg.get("em_sanitize_cov", True))
         use_validation_cfg = factorized_slds_cfg.get("em_use_validation", None)
         if use_validation_cfg is None:
             use_validation = bool(
@@ -1797,6 +2056,10 @@ if __name__ == "__main__":
                 epsilon_N=em_eps_n,
                 use_validation=use_validation,
                 transition_log_stage="post_offline_em",
+                check_finite=em_check_finite,
+                warn_nll_increase=em_warn_nll_increase,
+                nll_increase_tol=em_nll_increase_tol,
+                sanitize_cov=em_sanitize_cov,
             )
         finally:
             router.feedback_mode = prev_feedback_mode
@@ -1892,6 +2155,14 @@ if __name__ == "__main__":
         use_state_priors = bool(
             factorized_slds_cfg.get("em_online_use_state_priors", True)
         )
+        em_check_finite = bool(factorized_slds_cfg.get("em_check_finite", True))
+        em_warn_nll_increase = bool(
+            factorized_slds_cfg.get("em_warn_nll_increase", True)
+        )
+        em_nll_increase_tol = float(
+            factorized_slds_cfg.get("em_nll_increase_tol", 1e-6)
+        )
+        em_sanitize_cov = bool(factorized_slds_cfg.get("em_sanitize_cov", True))
         router.configure_online_em(
             enabled=True,
             window=window,
@@ -1907,6 +2178,10 @@ if __name__ == "__main__":
             seed=seed,
             print_val_loss=print_val_loss,
             use_state_priors=use_state_priors,
+            check_finite=em_check_finite,
+            warn_nll_increase=em_warn_nll_increase,
+            nll_increase_tol=em_nll_increase_tol,
+            sanitize_cov=em_sanitize_cov,
         )
 
     if transition_log_cfg is not None:
@@ -2103,11 +2378,14 @@ if __name__ == "__main__":
                 payloads.append(
                     {
                         "env": env,
-                        "router_partial": run["router_partial_no_g"],
-                        "router_full": run["router_full_no_g"],
+                        "router_partial": router_partial,
+                        "router_full": router_full,
                         "router_factorial_partial": run["fact_router_partial"],
                         "router_factorial_full": run["fact_router_full"],
                         "factorized_label": run["factorized_label"],
+                        "router_no_g_partial": run["router_partial_no_g"],
+                        "router_no_g_full": run["router_full_no_g"],
+                        "no_g_label": f"{run['factorized_label']} no-g",
                         "router_factorial_partial_linear": run["fact_router_partial_linear"],
                         "router_factorial_full_linear": run["fact_router_full_linear"],
                         "factorized_linear_label": run["factorized_linear_label"],
@@ -2158,11 +2436,14 @@ if __name__ == "__main__":
                 snap_t = planning_snapshot_t if run_idx == 0 else None
                 evaluate_routers_and_baselines(
                     env,
-                    run["router_partial_no_g"],
-                    run["router_full_no_g"],
+                    router_partial,
+                    router_full,
                     run["fact_router_partial"],
                     run["fact_router_full"],
                     factorized_label=run["factorized_label"],
+                    router_no_g_partial=run["router_partial_no_g"],
+                    router_no_g_full=run["router_full_no_g"],
+                    no_g_label=f"{run['factorized_label']} no-g",
                     router_factorial_partial_linear=run["fact_router_partial_linear"],
                     router_factorial_full_linear=run["fact_router_full_linear"],
                     factorized_linear_label=run["factorized_linear_label"],

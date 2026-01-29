@@ -543,6 +543,9 @@ def evaluate_routers_and_baselines(
     router_factorial_partial: Optional[FactorizedSLDS],
     router_factorial_full: Optional[FactorizedSLDS],
     factorized_label: str = "L2D SLDS w/ $g_t$",
+    router_no_g_partial: Optional[FactorizedSLDS] = None,
+    router_no_g_full: Optional[FactorizedSLDS] = None,
+    no_g_label: str = "L2D SLDS w/o $g_t$",
     router_factorial_partial_linear: Optional[FactorizedSLDS] = None,
     router_factorial_full_linear: Optional[FactorizedSLDS] = None,
     factorized_linear_label: str = "L2D SLDS",
@@ -568,6 +571,41 @@ def evaluate_routers_and_baselines(
     environment, compare their average cost to constant-expert baselines,
     and plot the induced prediction time series and selections.
     """
+    def _reset_router(obj: object) -> None:
+        if obj is None:
+            return
+        if hasattr(obj, "reset_beliefs"):
+            obj.reset_beliefs()
+            return
+        if hasattr(obj, "reset_state"):
+            obj.reset_state()
+
+    for candidate in (
+        router_partial,
+        router_full,
+        router_factorial_partial,
+        router_factorial_full,
+        router_factorial_partial_linear,
+        router_factorial_full_linear,
+        router_no_g_partial,
+        router_no_g_full,
+        router_partial_corr,
+        router_full_corr,
+        router_partial_corr_em,
+        router_full_corr_em,
+        router_partial_neural,
+        router_full_neural,
+    ):
+        _reset_router(candidate)
+    for baseline in (
+        l2d_baseline,
+        l2d_sw_baseline,
+        linucb_partial,
+        linucb_full,
+        neuralucb_partial,
+        neuralucb_full,
+    ):
+        _reset_router(baseline)
     def _get_em_tk_anchor(*routers) -> Optional[int]:
         candidates = []
         for router in routers:
@@ -591,6 +629,8 @@ def evaluate_routers_and_baselines(
         router_factorial_full,
         router_factorial_partial_linear,
         router_factorial_full_linear,
+        router_no_g_partial,
+        router_no_g_full,
         router_partial_corr_em,
         router_full_corr_em,
     )
@@ -696,6 +736,50 @@ def evaluate_routers_and_baselines(
                 snapshot_at_t=planning_snapshot_t,
                 snapshot_dict=planning_snapshots,
                 snapshot_key="fact_router_full",
+            )
+
+    costs_no_g_partial = None
+    choices_no_g_partial = None
+    if router_no_g_partial is not None:
+        em_tk_no_g = getattr(router_no_g_partial, "em_tk", None)
+        if em_tk_no_g is not None:
+            costs_no_g_partial, choices_no_g_partial = run_router_on_env_em_split(
+                router_no_g_partial,
+                env,
+                int(em_tk_no_g),
+                snapshot_at_t=planning_snapshot_t,
+                snapshot_dict=planning_snapshots,
+                snapshot_key="router_no_g_partial",
+            )
+        else:
+            costs_no_g_partial, choices_no_g_partial = run_factored_router_on_env(
+                router_no_g_partial,
+                env,
+                snapshot_at_t=planning_snapshot_t,
+                snapshot_dict=planning_snapshots,
+                snapshot_key="router_no_g_partial",
+            )
+
+    costs_no_g_full = None
+    choices_no_g_full = None
+    if router_no_g_full is not None:
+        em_tk_no_g = getattr(router_no_g_full, "em_tk", None)
+        if em_tk_no_g is not None:
+            costs_no_g_full, choices_no_g_full = run_router_on_env_em_split(
+                router_no_g_full,
+                env,
+                int(em_tk_no_g),
+                snapshot_at_t=planning_snapshot_t,
+                snapshot_dict=planning_snapshots,
+                snapshot_key="router_no_g_full",
+            )
+        else:
+            costs_no_g_full, choices_no_g_full = run_factored_router_on_env(
+                router_no_g_full,
+                env,
+                snapshot_at_t=planning_snapshot_t,
+                snapshot_dict=planning_snapshots,
+                snapshot_key="router_no_g_full",
             )
 
     costs_factorial_linear_partial = None
@@ -1174,6 +1258,12 @@ def evaluate_routers_and_baselines(
     avg_cost_factorized_full = (
         float(np.nanmean(costs_factorial_full)) if costs_factorial_full is not None else None
     )
+    avg_cost_no_g_partial = (
+        float(np.nanmean(costs_no_g_partial)) if costs_no_g_partial is not None else None
+    )
+    avg_cost_no_g_full = (
+        float(np.nanmean(costs_no_g_full)) if costs_no_g_full is not None else None
+    )
     avg_cost_factorized_linear_partial = (
         float(np.nanmean(costs_factorial_linear_partial))
         if costs_factorial_linear_partial is not None
@@ -1242,6 +1332,8 @@ def evaluate_routers_and_baselines(
     last_cost_full_corr = _mean_last(costs_full_corr)
     last_cost_factorized_partial = _mean_last(costs_factorial_partial)
     last_cost_factorized_full = _mean_last(costs_factorial_full)
+    last_cost_no_g_partial = _mean_last(costs_no_g_partial)
+    last_cost_no_g_full = _mean_last(costs_no_g_full)
     last_cost_factorized_linear_partial = _mean_last(costs_factorial_linear_partial)
     last_cost_factorized_linear_full = _mean_last(costs_factorial_linear_full)
     last_cost_partial_corr_em = _mean_last(costs_partial_corr_em)
@@ -1295,6 +1387,10 @@ def evaluate_routers_and_baselines(
         print(f"{factorized_label} (partial fb):   {_fmt(avg_cost_factorized_partial)}")
     if avg_cost_factorized_full is not None:
         print(f"{factorized_label} (full fb):      {_fmt(avg_cost_factorized_full)}")
+    if avg_cost_no_g_partial is not None:
+        print(f"{no_g_label} (partial fb):      {_fmt(avg_cost_no_g_partial)}")
+    if avg_cost_no_g_full is not None:
+        print(f"{no_g_label} (full fb):         {_fmt(avg_cost_no_g_full)}")
     if avg_cost_factorized_linear_partial is not None:
         print(
             f"{factorized_linear_label} (partial fb): {_fmt(avg_cost_factorized_linear_partial)}"
@@ -1356,6 +1452,10 @@ def evaluate_routers_and_baselines(
         print(f"{factorized_label} (partial fb):   {_fmt(last_cost_factorized_partial)}")
     if last_cost_factorized_full is not None:
         print(f"{factorized_label} (full fb):      {_fmt(last_cost_factorized_full)}")
+    if last_cost_no_g_partial is not None:
+        print(f"{no_g_label} (partial fb):      {_fmt(last_cost_no_g_partial)}")
+    if last_cost_no_g_full is not None:
+        print(f"{no_g_label} (full fb):         {_fmt(last_cost_no_g_full)}")
     if last_cost_factorized_linear_partial is not None:
         print(
             f"{factorized_linear_label} (partial fb): {_fmt(last_cost_factorized_linear_partial)}"

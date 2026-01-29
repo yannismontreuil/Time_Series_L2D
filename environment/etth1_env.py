@@ -18,10 +18,28 @@ except Exception:  # pragma: no cover - optional dependency
     torch = None
 
 
-def _select_torch_device():
-    """Pick a torch device, preferring CUDA, then MPS, else CPU."""
+def _select_torch_device(device_pref: Optional[str] = None):
+    """Pick a torch device, optionally honoring an explicit preference."""
     if torch is None:
         return None
+    if device_pref is not None:
+        pref = str(device_pref).strip().lower()
+        if pref in ("", "auto", "default"):
+            pref = ""
+        if pref == "cpu":
+            return torch.device("cpu")
+        if pref == "cuda":
+            if torch.cuda.is_available():
+                return torch.device("cuda")
+            raise ValueError("nn_expert_device='cuda' but CUDA is not available.")
+        if pref == "mps":
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return torch.device("mps")
+            raise ValueError("nn_expert_device='mps' but MPS is not available.")
+        if pref:
+            raise ValueError(
+                f"nn_expert_device must be one of 'auto', 'cpu', 'cuda', 'mps'; got '{pref}'."
+            )
     if torch.cuda.is_available():
         return torch.device("cuda")
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -90,6 +108,8 @@ class ETTh1TimeSeriesEnv:
         expert_train_date_ranges: Optional[Sequence[Optional[Sequence[str]]]] = None,
         arima_lags: Optional[Sequence[int]] = None,
         arima_diff_order: int = 1,
+        nn_expert_device: Optional[str] = None,
+        nn_expert_deterministic: Optional[bool] = None,
     ):
         if not os.path.exists(csv_path):
             raise FileNotFoundError(f"ETTh1 CSV not found at path: {csv_path}")
@@ -100,6 +120,24 @@ class ETTh1TimeSeriesEnv:
         # affect data generation here.
         data_seed = DATA_GENERATION_SEED if data_seed is None else int(data_seed)
         self.data_seed = int(data_seed)
+
+        self._nn_expert_device = (
+            None if nn_expert_device is None else str(nn_expert_device).strip().lower()
+        )
+        self._nn_expert_deterministic = bool(nn_expert_deterministic) if nn_expert_deterministic is not None else False
+        if self._nn_expert_deterministic and torch is not None:
+            # Set deterministic flags before any CUDA ops are invoked.
+            os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+            try:
+                torch.use_deterministic_algorithms(True)
+            except Exception:
+                pass
+            try:
+                if hasattr(torch.backends, "cudnn"):
+                    torch.backends.cudnn.deterministic = True
+                    torch.backends.cudnn.benchmark = False
+            except Exception:
+                pass
 
         # Load numeric columns from CSV (simple parser; no external deps).
         y_all: List[float] = []
@@ -800,7 +838,7 @@ class ETTh1TimeSeriesEnv:
                 # Prefer PyTorch training when available.
                 if torch is not None:
                     # Construct a simple 1-hidden-layer MLP with tanh.
-                    device = _select_torch_device() or torch.device("cpu")
+                    device = _select_torch_device(self._nn_expert_device) or torch.device("cpu")
 
                     class _MLP(nn.Module):  # type: ignore[misc]
                         def __init__(self, in_dim: int, hid_dim: int):
@@ -1087,7 +1125,6 @@ class ETTh1TimeSeriesEnv:
                     )
 
             for i, expert_idx in enumerate(unavailable_expert_idx):
-                self.availability[:, expert_idx] = 0
                 raw_intervals = unavailable_intervals_local[i]
                 if raw_intervals is None:
                     continue
@@ -1102,7 +1139,7 @@ class ETTh1TimeSeriesEnv:
                     t_start = max(int(start), 0)
                     t_end = min(int(end) + 1, self.T)
                     if t_start < t_end:
-                        self.availability[t_start:t_end, expert_idx] = 1
+                        self.availability[t_start:t_end, expert_idx] = 0
         # Optional dynamic expert arrival intervals for a single expert
         # if (
         #     arrival_expert_idx is not None

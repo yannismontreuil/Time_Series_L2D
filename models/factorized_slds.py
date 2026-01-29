@@ -112,6 +112,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         transition_activation: str = "tanh",
         transition_device: Optional[str] = None,
         transition_mode: str = "attention",
+        transition_init: str = "random",
     ) -> None:
         self.M = int(M)
         self.d_g = int(d_g)
@@ -196,6 +197,11 @@ class FactorizedSLDS(SLDSIMMRouter):
         self.transition_mode = str(transition_mode)
         if self.transition_mode not in ("attention", "linear"):
             raise ValueError("transition_mode must be 'attention' or 'linear'.")
+        self.transition_init = str(transition_init).lower()
+        if self.transition_init not in ("random", "uniform", "zero", "zeros"):
+            raise ValueError(
+                "transition_init must be 'random' or 'uniform' (alias: 'zero'/'zeros')."
+            )
         self.W_lin: Optional[np.ndarray] = None
         self.b_lin: Optional[np.ndarray] = None
         if self.transition_model is not None:
@@ -663,21 +669,29 @@ class FactorizedSLDS(SLDSIMMRouter):
     def _init_transition_params(self, context_dim: int) -> None:
         self.context_dim = int(context_dim)
         if self.transition_mode == "linear":
-            self.W_lin = self._rng.normal(
-                scale=0.1, size=(self.M, self.M, self.context_dim)
-            )
-            self.b_lin = np.zeros((self.M, self.M), dtype=float)
+            if self.transition_init in ("uniform", "zero", "zeros"):
+                self.W_lin = np.zeros((self.M, self.M, self.context_dim), dtype=float)
+                self.b_lin = np.zeros((self.M, self.M), dtype=float)
+            else:
+                self.W_lin = self._rng.normal(
+                    scale=0.1, size=(self.M, self.M, self.context_dim)
+                )
+                self.b_lin = np.zeros((self.M, self.M), dtype=float)
             self.W_q = None
             self.W_k = None
             self.b_attn = None
             self._maybe_log_transition_params("init")
         else:
-            self.W_q = self._rng.normal(
-                scale=0.1, size=(self.M, self.attn_dim, self.context_dim)
-            )
-            self.W_k = self._rng.normal(
-                scale=0.1, size=(self.M, self.attn_dim, self.context_dim)
-            )
+            if self.transition_init in ("uniform", "zero", "zeros"):
+                self.W_q = np.zeros((self.M, self.attn_dim, self.context_dim), dtype=float)
+                self.W_k = np.zeros((self.M, self.attn_dim, self.context_dim), dtype=float)
+            else:
+                self.W_q = self._rng.normal(
+                    scale=0.1, size=(self.M, self.attn_dim, self.context_dim)
+                )
+                self.W_k = self._rng.normal(
+                    scale=0.1, size=(self.M, self.attn_dim, self.context_dim)
+                )
             self.b_attn = np.zeros((self.M, self.M), dtype=float)
             self.W_lin = None
             self.b_lin = None
@@ -775,6 +789,10 @@ class FactorizedSLDS(SLDSIMMRouter):
         seed: Optional[int] = None,
         print_val_loss: bool = False,
         use_state_priors: bool = True,
+        check_finite: bool = True,
+        warn_nll_increase: bool = True,
+        nll_increase_tol: float = 1e-6,
+        sanitize_cov: bool = True,
     ) -> None:
         self._online_em_cfg = {
             "enabled": bool(enabled),
@@ -791,6 +809,10 @@ class FactorizedSLDS(SLDSIMMRouter):
             "seed": None if seed is None else int(seed),
             "print_val_loss": bool(print_val_loss),
             "use_state_priors": bool(use_state_priors),
+            "check_finite": bool(check_finite),
+            "warn_nll_increase": bool(warn_nll_increase),
+            "nll_increase_tol": float(nll_increase_tol),
+            "sanitize_cov": bool(sanitize_cov),
         }
 
     def set_online_em_enabled(self, enabled: bool) -> None:
@@ -1140,6 +1162,10 @@ class FactorizedSLDS(SLDSIMMRouter):
             use_validation=False,
             set_em_tk=False,
             transition_log_stage=f"post_online_em t={t_now}",
+            check_finite=bool(cfg.get("check_finite", True)),
+            warn_nll_increase=bool(cfg.get("warn_nll_increase", True)),
+            nll_increase_tol=float(cfg.get("nll_increase_tol", 1e-6)),
+            sanitize_cov=bool(cfg.get("sanitize_cov", True)),
         )
         t_start = max(int(window_records[0]["t"]) - 1, 0)
         self._refresh_filter_state_from_window(
@@ -1974,6 +2000,8 @@ class FactorizedSLDS(SLDSIMMRouter):
         log_like = np.zeros(self.M, dtype=float)
         Bk = self._ensure_B(k)
         obs_vec = self._as_residual_vector(observed_value)
+        if not np.all(np.isfinite(obs_vec)):
+            raise ValueError("Observed residual contains NaN/inf.")
         phi_T = phi.T
         d_y = int(obs_vec.shape[0])
 
@@ -2090,6 +2118,8 @@ class FactorizedSLDS(SLDSIMMRouter):
                 raise ValueError("losses_full must include all expert residuals.")
         y = np.array([obs_arr[k] for k in available], dtype=float)
         y_vec = y.reshape(-1)
+        if not np.all(np.isfinite(y_vec)):
+            raise ValueError("Observed residuals contain NaN/inf for available experts.")
         n_avail = len(available)
         dim = int(self.d_g + n_avail * self.d_phi)
 
@@ -2146,11 +2176,15 @@ class FactorizedSLDS(SLDSIMMRouter):
 
             PHt = joint_Sigma @ H.T
             try:
-                L = np.linalg.cholesky(S + self.eps * np.eye(n_avail, dtype=float))
+                L = np.linalg.cholesky(
+                    S + self.eps * np.eye(n_avail * d_y, dtype=float)
+                )
                 tmp = np.linalg.solve(L, PHt.T)
                 K = np.linalg.solve(L.T, tmp).T
             except np.linalg.LinAlgError:
-                K = np.linalg.solve(S + self.eps * np.eye(n_avail, dtype=float), PHt.T).T
+                K = np.linalg.solve(
+                    S + self.eps * np.eye(n_avail * d_y, dtype=float), PHt.T
+                ).T
 
             innovation = y_vec - pred_mean
             joint_mu_post = joint_mu + K @ innovation
@@ -3379,6 +3413,10 @@ class FactorizedSLDS(SLDSIMMRouter):
         use_validation: bool = True,
         set_em_tk: bool = True,
         transition_log_stage: Optional[str] = None,
+        check_finite: bool = True,
+        warn_nll_increase: bool = True,
+        nll_increase_tol: float = 1e-6,
+        sanitize_cov: bool = True,
     ) -> dict:
         rng = np.random.default_rng(None if seed is None else int(seed))
         contexts = list(contexts)
@@ -3554,6 +3592,8 @@ class FactorizedSLDS(SLDSIMMRouter):
 
         # Debug diagnostics: snapshot EM parameters before training
         self._log_em_params_before()
+
+        prev_score = None
 
         for em_idx in range(n_em):
 
@@ -3964,6 +4004,22 @@ class FactorizedSLDS(SLDSIMMRouter):
                             continue
                         self.R[m, k] = (b_R + 0.5 * num) / (a_R + 0.5 * denom)
 
+            if sanitize_cov:
+                for m in range(self.M):
+                    if self.d_g > 0:
+                        self.Q_g[m] = self._sanitize_cov(self.Q_g[m], self.Q_g[m])
+                    if self.d_phi > 0:
+                        self.Q_u[m] = self._sanitize_cov(self.Q_u[m], self.Q_u[m])
+                if self.R_mode == "full":
+                    for m in range(self.M):
+                        for k in expert_ids:
+                            self.R[m, k] = self._sanitize_cov(self.R[m, k], self.R[m, k])
+                else:
+                    if np.ndim(self.R) == 0:
+                        self.R = float(max(float(self.R), self.eps))
+                    else:
+                        self.R = np.maximum(self.R, self.eps)
+
             # Update transition parameters (torch model, attention, or linear).
             if self.transition_model is not None or self.transition_hidden_dims is not None:
                 self._train_transition_model(
@@ -4029,6 +4085,18 @@ class FactorizedSLDS(SLDSIMMRouter):
                     residuals_full=train_residuals_full if full_feedback else None,
                 )
                 metric_label = "train_nll"
+            if check_finite and not np.isfinite(score):
+                raise ValueError(
+                    f"EM produced non-finite {metric_label}={score} at iter {em_idx + 1}."
+                )
+            if warn_nll_increase and prev_score is not None:
+                tol = float(nll_increase_tol)
+                if score > prev_score + tol:
+                    print(
+                        f"[FactorizedSLDS EM WARNING] {metric_label} increased: "
+                        f"{prev_score:.6f} -> {score:.6f} (tol={tol:.2e})"
+                    )
+            prev_score = score
             if print_val_loss:
                 if metric_label == "val_roll_nll_mean":
                     std_str = (
