@@ -9,7 +9,7 @@ from argparse import ArgumentParser
 
 import yaml
 
-from environment.etth1_env import ETTh1Environment
+from environment.etth1_env import ETTh1TimeSeriesEnv
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE = ROOT / "config" / "config_melbourne_review.yaml"
@@ -59,7 +59,7 @@ def main() -> None:
     config_path = args.config.resolve()
     with config_path.open("r", encoding="utf-8") as f:
         base_cfg = yaml.safe_load(f)
-    env = ETTh1Environment(**base_cfg["environment"])
+    env = ETTh1TimeSeriesEnv(**base_cfg["environment"])
     horizon = int(env.T)
 
     prefixes = {

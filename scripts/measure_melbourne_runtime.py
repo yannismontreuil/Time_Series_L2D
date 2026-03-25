@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 import yaml
 
-from environment.etth1_env import ETTh1Environment
+from environment.etth1_env import ETTh1TimeSeriesEnv
 from models.factorized_slds import FactorizedSLDS
 from models.linucb_baseline import LinUCB
 from models.neuralucb_baseline import NeuralUCB
@@ -73,15 +73,15 @@ def _make_temp_cfg(base_cfg: dict[str, Any], horizon: int | None = None) -> path
     return pathlib.Path(tmp.name)
 
 
-def _build_env(cfg: dict[str, Any]) -> ETTh1Environment:
-    return ETTh1Environment(**cfg["environment"])
+def _build_env(cfg: dict[str, Any]) -> ETTh1TimeSeriesEnv:
+    return ETTh1TimeSeriesEnv(**cfg["environment"])
 
 
 def _measure(
     name: str,
     runner: Callable[..., Any],
     actor: Any,
-    env: ETTh1Environment,
+    env: ETTh1TimeSeriesEnv,
 ) -> tuple[str, float, float]:
     t0 = time.perf_counter()
     if runner is run_router_on_env:
