@@ -9,7 +9,7 @@ from argparse import ArgumentParser
 
 import yaml
 
-from environment.etth1_env import ETTh1TimeSeriesEnv
+from environment.etth1_env import ETTh1TimeSeriesEnv, ensure_daily_temp_csv
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE = ROOT / "config" / "config_melbourne_review.yaml"
@@ -54,12 +54,64 @@ def _extract_metrics(stdout: str, prefixes: dict[str, str]) -> dict[str, float]:
     return found
 
 
+def _build_env_from_cfg(env_cfg: dict) -> ETTh1TimeSeriesEnv:
+    csv_path = env_cfg.get("csv_path", "data/daily_temp_melbourne.csv")
+    if not os.path.exists(csv_path):
+        csv_path = ensure_daily_temp_csv(csv_path)
+    target_column = env_cfg.get("target_column", "temp")
+    T_raw = env_cfg.get("T", None)
+    T_env = None if T_raw is None else int(T_raw)
+    return ETTh1TimeSeriesEnv(
+        csv_path=csv_path,
+        target_column=target_column,
+        num_experts=int(env_cfg["num_experts"]),
+        num_regimes=int(env_cfg["num_regimes"]),
+        T=T_env,
+        seed=int(env_cfg.get("seed", 42)),
+        data_seed=env_cfg.get("data_seed", None),
+        unavailable_expert_idx=env_cfg.get("unavailable_expert_idx", None),
+        unavailable_intervals=env_cfg.get("unavailable_intervals", None),
+        arrival_expert_idx=env_cfg.get("arrival_expert_idx", None),
+        arrival_intervals=env_cfg.get("arrival_intervals", None),
+        context_columns=env_cfg.get("context_columns", None),
+        context_lags=env_cfg.get("context_lags", None),
+        row_stride=env_cfg.get("row_stride", 1),
+        include_time_features=env_cfg.get("include_time_features", False),
+        time_features=env_cfg.get("time_features", None),
+        normalize_context=env_cfg.get("normalize_context", False),
+        normalization_window=env_cfg.get("normalization_window", None),
+        normalization_eps=env_cfg.get("normalization_eps", 1e-6),
+        normalization_mode=env_cfg.get("normalization_mode", "zscore"),
+        feature_expansions=env_cfg.get("feature_expansions", None),
+        lag_diff_pairs=env_cfg.get("lag_diff_pairs", None),
+        expert_archs=env_cfg.get("expert_archs", None),
+        nn_expert_type=env_cfg.get("nn_expert_type", None),
+        rnn_hidden_dim=env_cfg.get("rnn_hidden_dim", 8),
+        rnn_spectral_radius=env_cfg.get("rnn_spectral_radius", 0.9),
+        rnn_ridge=env_cfg.get("rnn_ridge", 1e-3),
+        rnn_washout=env_cfg.get("rnn_washout", 5),
+        rnn_input_scale=env_cfg.get("rnn_input_scale", 0.5),
+        rnn_share_reservoir=env_cfg.get("rnn_share_reservoir", True),
+        rnn_hidden_dims=env_cfg.get("rnn_hidden_dims", None),
+        rnn_spectral_radii=env_cfg.get("rnn_spectral_radii", None),
+        rnn_ridges=env_cfg.get("rnn_ridges", None),
+        rnn_washouts=env_cfg.get("rnn_washouts", None),
+        rnn_input_scales=env_cfg.get("rnn_input_scales", None),
+        expert_pred_noise_std=env_cfg.get("expert_pred_noise_std", None),
+        expert_train_ranges=env_cfg.get("expert_train_ranges", None),
+        expert_train_date_ranges=env_cfg.get("expert_train_date_ranges", None),
+        arima_lags=env_cfg.get("arima_lags", None),
+        arima_diff_order=env_cfg.get("arima_diff_order", 0),
+        analysis_window=env_cfg.get("analysis_window", None),
+    )
+
+
 def main() -> None:
     args = _parse_args()
     config_path = args.config.resolve()
     with config_path.open("r", encoding="utf-8") as f:
         base_cfg = yaml.safe_load(f)
-    env = ETTh1TimeSeriesEnv(**base_cfg["environment"])
+    env = _build_env_from_cfg(base_cfg["environment"])
     horizon = int(env.T)
 
     prefixes = {
