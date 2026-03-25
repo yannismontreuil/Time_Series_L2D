@@ -257,6 +257,32 @@ class FactorizedSLDS(SLDSIMMRouter):
         self.cov_clip = float(cov_clip)
         self.loss_fn = loss_fn
         self.loss_quad_points = max(int(loss_quad_points), 0)
+        self._eye_g = np.eye(self.d_g, dtype=float) if self.d_g > 0 else np.zeros((0, 0), dtype=float)
+        self._eye_phi = np.eye(self.d_phi, dtype=float) if self.d_phi > 0 else np.zeros((0, 0), dtype=float)
+        self._diag_flat_g = (
+            np.arange(0, self.d_g * self.d_g, self.d_g + 1, dtype=int)
+            if self.d_g > 0
+            else np.zeros(0, dtype=int)
+        )
+        self._diag_flat_phi = (
+            np.arange(0, self.d_phi * self.d_phi, self.d_phi + 1, dtype=int)
+            if self.d_phi > 0
+            else np.zeros(0, dtype=int)
+        )
+        self._A_g_diag: Optional[np.ndarray] = None
+        self._A_u_diag: Optional[np.ndarray] = None
+        self._A_g_outer: Optional[np.ndarray] = None
+        self._A_u_outer: Optional[np.ndarray] = None
+        if self.d_g > 0:
+            A_g_diag = np.diagonal(self.A_g, axis1=1, axis2=2)
+            if np.allclose(self.A_g, np.eye(self.d_g)[None, :, :] * A_g_diag[:, None, :]):
+                self._A_g_diag = A_g_diag.copy()
+                self._A_g_outer = self._A_g_diag[:, :, None] * self._A_g_diag[:, None, :]
+        if self.d_phi > 0:
+            A_u_diag = np.diagonal(self.A_u, axis1=1, axis2=2)
+            if np.allclose(self.A_u, np.eye(self.d_phi)[None, :, :] * A_u_diag[:, None, :]):
+                self._A_u_diag = A_u_diag.copy()
+                self._A_u_outer = self._A_u_diag[:, :, None] * self._A_u_diag[:, None, :]
 
         if observation_mode != "residual":
             raise ValueError(
@@ -607,7 +633,14 @@ class FactorizedSLDS(SLDSIMMRouter):
         vec = np.asarray(vec, dtype=float)
         if not np.isfinite(vec).all():
             return np.asarray(fallback, dtype=float).copy()
-        return np.clip(vec, -self.state_clip, self.state_clip)
+        if vec.size == 0:
+            return vec
+        max_abs = float(np.max(np.abs(vec)))
+        if max_abs <= self.state_clip:
+            return vec
+        out = vec.copy()
+        np.clip(out, -self.state_clip, self.state_clip, out=out)
+        return out
 
     def _sanitize_cov(self, cov: np.ndarray, fallback: np.ndarray) -> np.ndarray:
         cov = np.asarray(cov, dtype=float)
@@ -628,6 +661,46 @@ class FactorizedSLDS(SLDSIMMRouter):
                 return (eigvecs * eigvals) @ eigvecs.T
             except np.linalg.LinAlgError:
                 return np.asarray(fallback, dtype=float).copy()
+
+    def _stabilize_cov_fast(
+        self,
+        cov: np.ndarray,
+        fallback: np.ndarray,
+        diag_flat_idx: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
+        """Fast covariance stabilization for hot filtering paths.
+
+        In the interaction/prediction step the covariance is built from convex
+        combinations of PSD matrices plus process noise, so it is PSD by
+        construction up to numerical drift. In that setting we avoid repeated
+        Cholesky/eigendecomposition and only enforce finiteness, symmetry, entry
+        clipping, and a positive diagonal floor. If the matrix contains invalid
+        values we still fall back to the slower robust sanitizer.
+        """
+        cov = np.asarray(cov, dtype=float)
+        if not np.isfinite(cov).all():
+            return self._sanitize_cov(cov, fallback)
+        if cov.size == 0:
+            return cov.copy()
+        if cov.shape == (1, 1):
+            val = float(cov[0, 0])
+            if not np.isfinite(val):
+                return np.asarray(fallback, dtype=float).copy()
+            val = min(max(val, self.eps), self.cov_clip)
+            return np.array([[val]], dtype=float)
+        out = 0.5 * (cov + cov.T)
+        if self.cov_clip < 1.0e10:
+            np.clip(out, -self.cov_clip, self.cov_clip, out=out)
+        flat = out.reshape(-1)
+        if diag_flat_idx is None:
+            step = out.shape[0] + 1
+            diag_flat_idx = np.arange(0, flat.size, step, dtype=int)
+        diag_vals = flat[diag_flat_idx]
+        diag_vals = np.minimum(np.maximum(diag_vals, self.eps), self.cov_clip)
+        if self.eps > 0.0:
+            diag_vals = diag_vals + self.eps
+        flat[diag_flat_idx] = diag_vals
+        return out
 
     def _transition_log_enabled(self) -> bool:
         if not isinstance(self.transition_log_cfg, dict):
@@ -1300,46 +1373,40 @@ class FactorizedSLDS(SLDSIMMRouter):
             mixed_Sigma_g = np.zeros((self.M, 0, 0), dtype=float)
         else:
             mu_g_prev = np.clip(mu_g_prev, -self.state_clip, self.state_clip)
-            mixed_mu_g = np.zeros_like(mu_g_prev)
-            mixed_Sigma_g = np.zeros_like(Sigma_g_prev)
+            mixed_mu_g = mu_ij.T @ mu_g_prev
+            diff_g = np.clip(
+                mu_g_prev[:, None, :] - mixed_mu_g[None, :, :],
+                -self.state_clip,
+                self.state_clip,
+            )
+            mixed_Sigma_g = np.einsum("ij,iab->jab", mu_ij, Sigma_g_prev)
+            mixed_Sigma_g += np.einsum("ij,ija,ijb->jab", mu_ij, diff_g, diff_g)
             for j in range(self.M):
-                for i in range(self.M):
-                    w_ij = mu_ij[i, j]
-                    mixed_mu_g[j] += w_ij * mu_g_prev[i]
-                for i in range(self.M):
-                    w_ij = mu_ij[i, j]
-                    diff = mu_g_prev[i] - mixed_mu_g[j]
-                    diff = np.clip(diff, -self.state_clip, self.state_clip)
-                    mixed_Sigma_g[j] += w_ij * (
-                        Sigma_g_prev[i] + np.outer(diff, diff)
-                    )
-                mixed_mu_g[j] = self._sanitize_vector(mixed_mu_g[j], self.g_mean0[j])
-                mixed_Sigma_g[j] = self._sanitize_cov(mixed_Sigma_g[j], self.g_cov0[j])
+                if not np.isfinite(mixed_mu_g[j]).all():
+                    mixed_mu_g[j] = self.g_mean0[j].copy()
+                if not np.isfinite(mixed_Sigma_g[j]).all():
+                    mixed_Sigma_g[j] = self.g_cov0[j].copy()
 
         mixed_mu_u: Dict[int, np.ndarray] = {}
         mixed_Sigma_u: Dict[int, np.ndarray] = {}
         for k in self.registry:
             mu_modes = np.clip(mu_u_prev[k], -self.state_clip, self.state_clip)
             Sigma_modes = Sigma_u_prev[k]
-            mixed_mu_u[k] = np.zeros_like(mu_modes)
-            mixed_Sigma_u[k] = np.zeros_like(Sigma_modes)
+            mixed_mu = mu_ij.T @ mu_modes
+            diff_u = np.clip(
+                mu_modes[:, None, :] - mixed_mu[None, :, :],
+                -self.state_clip,
+                self.state_clip,
+            )
+            mixed_Sigma = np.einsum("ij,iab->jab", mu_ij, Sigma_modes)
+            mixed_Sigma += np.einsum("ij,ija,ijb->jab", mu_ij, diff_u, diff_u)
             for j in range(self.M):
-                for i in range(self.M):
-                    w_ij = mu_ij[i, j]
-                    mixed_mu_u[k][j] += w_ij * mu_modes[i]
-                for i in range(self.M):
-                    w_ij = mu_ij[i, j]
-                    diff = mu_modes[i] - mixed_mu_u[k][j]
-                    diff = np.clip(diff, -self.state_clip, self.state_clip)
-                    mixed_Sigma_u[k][j] += w_ij * (
-                        Sigma_modes[i] + np.outer(diff, diff)
-                    )
-                mixed_mu_u[k][j] = self._sanitize_vector(
-                    mixed_mu_u[k][j], self.u_mean0[j]
-                )
-                mixed_Sigma_u[k][j] = self._sanitize_cov(
-                    mixed_Sigma_u[k][j], self.u_cov0[j]
-                )
+                if not np.isfinite(mixed_mu[j]).all():
+                    mixed_mu[j] = self.u_mean0[j].copy()
+                if not np.isfinite(mixed_Sigma[j]).all():
+                    mixed_Sigma[j] = self.u_cov0[j].copy()
+            mixed_mu_u[k] = mixed_mu
+            mixed_Sigma_u[k] = mixed_Sigma
 
         mu_g_pred = np.zeros_like(mixed_mu_g)
         Sigma_g_pred = np.zeros_like(mixed_Sigma_g)
@@ -1347,30 +1414,36 @@ class FactorizedSLDS(SLDSIMMRouter):
         Sigma_u_pred: Dict[int, np.ndarray] = {}
 
         if self.d_g > 0:
+            if self._A_g_diag is not None and self._A_g_outer is not None:
+                mu_g_pred = mixed_mu_g * self._A_g_diag
+                Sigma_g_pred = mixed_Sigma_g * self._A_g_outer + self.Q_g
+            else:
+                mu_g_pred = np.einsum("mij,mj->mi", self.A_g, mixed_mu_g)
+                tmp_g = np.matmul(self.A_g, mixed_Sigma_g)
+                Sigma_g_pred = np.matmul(tmp_g, np.transpose(self.A_g, (0, 2, 1))) + self.Q_g
             for m in range(self.M):
-                mu_g_pred[m] = self.A_g[m] @ mixed_mu_g[m]
-                Sigma_g_pred[m] = (
-                    self.A_g[m] @ mixed_Sigma_g[m] @ self.A_g[m].T + self.Q_g[m]
+                Sigma_g_pred[m] = self._stabilize_cov_fast(
+                    Sigma_g_pred[m],
+                    self.g_cov0[m],
+                    self._diag_flat_g,
                 )
-                Sigma_g_pred[m] = self._sanitize_cov(Sigma_g_pred[m], self.g_cov0[m])
-                Sigma_g_pred[m] = 0.5 * (
-                    Sigma_g_pred[m] + Sigma_g_pred[m].T
-                ) + self.eps * np.eye(self.d_g, dtype=float)
 
         for k in self.registry:
-            mu_u_pred[k] = np.zeros_like(mixed_mu_u[k])
-            Sigma_u_pred[k] = np.zeros_like(mixed_Sigma_u[k])
+            if self._A_u_diag is not None and self._A_u_outer is not None:
+                mu_u_pred[k] = mixed_mu_u[k] * self._A_u_diag
+                Sigma_u_pred[k] = mixed_Sigma_u[k] * self._A_u_outer + self.Q_u
+            else:
+                mu_u_pred[k] = np.einsum("mij,mj->mi", self.A_u, mixed_mu_u[k])
+                tmp_u = np.matmul(self.A_u, mixed_Sigma_u[k])
+                Sigma_u_pred[k] = (
+                    np.matmul(tmp_u, np.transpose(self.A_u, (0, 2, 1))) + self.Q_u
+                )
             for m in range(self.M):
-                mu_u_pred[k][m] = self.A_u[m] @ mixed_mu_u[k][m]
-                Sigma_u_pred[k][m] = (
-                    self.A_u[m] @ mixed_Sigma_u[k][m] @ self.A_u[m].T + self.Q_u[m]
+                Sigma_u_pred[k][m] = self._stabilize_cov_fast(
+                    Sigma_u_pred[k][m],
+                    self.u_cov0[m],
+                    self._diag_flat_phi,
                 )
-                Sigma_u_pred[k][m] = self._sanitize_cov(
-                    Sigma_u_pred[k][m], self.u_cov0[m]
-                )
-                Sigma_u_pred[k][m] = 0.5 * (
-                    Sigma_u_pred[k][m] + Sigma_u_pred[k][m].T
-                ) + self.eps * np.eye(self.d_phi, dtype=float)
 
         return w_pred, mu_g_pred, Sigma_g_pred, mu_u_pred, Sigma_u_pred
 
@@ -1387,9 +1460,83 @@ class FactorizedSLDS(SLDSIMMRouter):
         costs: Dict[int, float] = {}
         info_gains: Dict[int, float] = {}
         stats: Dict[int, dict] = {}
+        need_sampling_stats = self.exploration == "sampling"
 
         phi_T = phi.T
         d_y = int(phi_T.shape[0])
+        if d_y == 1 and not need_sampling_stats:
+            phi_vec = phi[:, 0]
+            for k in available_experts:
+                k = int(k)
+                if k not in mu_u_pred or k not in Sigma_u_pred:
+                    continue
+                mean_modes = np.zeros(self.M, dtype=float)
+                cov_modes = np.zeros(self.M, dtype=float)
+                loss_modes = np.zeros(self.M, dtype=float)
+                ig_modes = np.zeros(self.M, dtype=float)
+
+                b_modes = mu_u_pred[k] @ phi_vec
+                noise_modes = np.einsum(
+                    "i,mij,j->m",
+                    phi_vec,
+                    Sigma_u_pred[k],
+                    phi_vec,
+                )
+                if self.R_mode == "scalar":
+                    if np.ndim(self.R) == 2 and self.N is not None:
+                        noise_modes = noise_modes + np.asarray(self.R, dtype=float)[:, k]
+                    else:
+                        noise_modes = noise_modes + float(self.R)
+                else:
+                    noise_modes = np.array(
+                        [
+                            float(
+                                phi_T @ Sigma_u_pred[k][m] @ phi
+                                + self._get_R_matrix(m, k, d_y)
+                            )
+                            for m in range(self.M)
+                        ],
+                        dtype=float,
+                    )
+                noise_modes = np.maximum(noise_modes, self.eps)
+
+                if self.d_g > 0:
+                    Bk = self._ensure_B(k)
+                    h_g = Bk.T @ phi_vec
+                    mean_modes = mu_g_pred @ h_g + b_modes
+                    signal_modes = np.einsum(
+                        "i,mij,j->m",
+                        h_g,
+                        Sigma_g_pred,
+                        h_g,
+                    )
+                    signal_modes = np.maximum(signal_modes, 0.0)
+                else:
+                    mean_modes = b_modes
+                    signal_modes = np.zeros(self.M, dtype=float)
+
+                cov_modes = signal_modes + noise_modes
+                if self.loss_fn is None:
+                    loss_modes = cov_modes + mean_modes * mean_modes
+                else:
+                    for m in range(self.M):
+                        loss_modes[m] = self._expected_loss_gaussian(
+                            np.array([mean_modes[m]], dtype=float),
+                            cov_modes[m],
+                        )
+                ig_modes = 0.5 * np.log1p(signal_modes / noise_modes)
+
+                cost = float(w_pred @ loss_modes) + self._get_beta(k)
+                ig = float(w_pred @ ig_modes)
+
+                costs[k] = cost
+                info_gains[k] = ig
+                stats[k] = {
+                    "mean": mean_modes,
+                    "cov": cov_modes,
+                }
+            return costs, info_gains, stats
+
         for k in available_experts:
             k = int(k)
             if k not in mu_u_pred or k not in Sigma_u_pred:
@@ -1402,9 +1549,21 @@ class FactorizedSLDS(SLDSIMMRouter):
             mean_modes = np.zeros((self.M, d_y), dtype=float)
             cov_modes = np.zeros((self.M, d_y, d_y), dtype=float)
             loss_modes = np.zeros(self.M, dtype=float)
-            signal_modes = np.zeros((self.M, d_y, d_y), dtype=float)
-            noise_modes = np.zeros((self.M, d_y, d_y), dtype=float)
-            b_modes = np.zeros((self.M, d_y), dtype=float)
+            signal_modes = (
+                np.zeros((self.M, d_y, d_y), dtype=float)
+                if need_sampling_stats
+                else None
+            )
+            noise_modes = (
+                np.zeros((self.M, d_y, d_y), dtype=float)
+                if need_sampling_stats
+                else None
+            )
+            b_modes = (
+                np.zeros((self.M, d_y), dtype=float)
+                if need_sampling_stats
+                else None
+            )
             ig_modes = np.zeros(self.M, dtype=float)
             for m in range(self.M):
                 mu_u_m = mu_u_pred[k][m]
@@ -1425,9 +1584,10 @@ class FactorizedSLDS(SLDSIMMRouter):
                 mean_modes[m] = mean_m
                 cov_modes[m] = cov_m
                 loss_modes[m] = self._expected_loss_gaussian(mean_m, cov_m)
-                signal_modes[m] = signal_cov
-                noise_modes[m] = noise_cov
-                b_modes[m] = b_m
+                if need_sampling_stats:
+                    signal_modes[m] = signal_cov
+                    noise_modes[m] = noise_cov
+                    b_modes[m] = b_m
                 if d_y == 1:
                     denom = max(float(noise_cov[0, 0]), self.eps)
                     numer = max(float(signal_cov[0, 0]), 0.0)
@@ -1447,14 +1607,20 @@ class FactorizedSLDS(SLDSIMMRouter):
 
             costs[k] = cost
             info_gains[k] = ig
-            stats[k] = {
-                "H_g": H_g,
-                "mean": mean_modes,
-                "cov": cov_modes,
-                "signal": signal_modes,
-                "noise": noise_modes,
-                "b": b_modes,
-            }
+            if need_sampling_stats:
+                stats[k] = {
+                    "H_g": H_g,
+                    "mean": mean_modes,
+                    "cov": cov_modes,
+                    "signal": signal_modes,
+                    "noise": noise_modes,
+                    "b": b_modes,
+                }
+            else:
+                stats[k] = {
+                    "mean": mean_modes,
+                    "cov": cov_modes,
+                }
 
         return costs, info_gains, stats
 
@@ -1538,17 +1704,20 @@ class FactorizedSLDS(SLDSIMMRouter):
         cov_modes: np.ndarray,
         w_pred: np.ndarray,
         n_samples: int,
+        log_w: Optional[np.ndarray] = None,
     ) -> float:
         M = int(w_pred.shape[0])
         if M <= 1 or n_samples <= 0:
             return 0.0
         mean_arr = np.asarray(mean_modes, dtype=float)
         cov_arr = np.asarray(cov_modes, dtype=float)
-        log_w = np.log(np.maximum(w_pred, self.eps))
+        if log_w is None:
+            log_w = np.log(np.maximum(w_pred, self.eps))
         ig = 0.0
-        if cov_arr.ndim == 3 and cov_arr.shape[1:] == (1, 1):
-            mean_vec = mean_arr.reshape(-1)
-            var_vec = cov_arr.reshape(-1)
+        if cov_arr.ndim == 1 and mean_arr.ndim == 1 and cov_arr.shape[0] == M:
+            mean_vec = mean_arr
+            var_vec = np.maximum(cov_arr, self.eps)
+            log_norm = -0.5 * np.log(2.0 * np.pi * var_vec)
             for m in range(M):
                 weight = float(w_pred[m])
                 if weight <= 0.0:
@@ -1558,13 +1727,34 @@ class FactorizedSLDS(SLDSIMMRouter):
                     scale=float(np.sqrt(var_vec[m])),
                     size=int(n_samples),
                 )
-                log_p_m = self._gaussian_logpdf_vec(
-                    samples, float(mean_vec[m]), float(var_vec[m])
+                centered = samples[None, :] - mean_vec[:, None]
+                log_p_all = log_norm[:, None] - 0.5 * (centered * centered) / var_vec[:, None]
+                log_p_m = log_p_all[m]
+                mix_terms = log_w[:, None] + log_p_all
+                vmax = np.max(mix_terms, axis=0)
+                log_mix = vmax + np.log(np.sum(np.exp(mix_terms - vmax[None, :]), axis=0))
+                ig += weight * float(np.mean(log_p_m - log_mix))
+            return max(float(ig), 0.0)
+        if cov_arr.ndim == 3 and cov_arr.shape[1:] == (1, 1):
+            mean_vec = mean_arr.reshape(-1)
+            var_vec = cov_arr.reshape(-1)
+            var_vec = np.maximum(var_vec, self.eps)
+            log_norm = -0.5 * np.log(2.0 * np.pi * var_vec)
+            for m in range(M):
+                weight = float(w_pred[m])
+                if weight <= 0.0:
+                    continue
+                samples = self._rng.normal(
+                    loc=float(mean_vec[m]),
+                    scale=float(np.sqrt(var_vec[m])),
+                    size=int(n_samples),
                 )
-                log_p_all = self._gaussian_logpdf_vec(
-                    samples[None, :], mean_vec[:, None], var_vec[:, None]
-                )
-                log_mix = self._logsumexp_vec(log_w[:, None] + log_p_all, axis=0)
+                centered = samples[None, :] - mean_vec[:, None]
+                log_p_all = log_norm[:, None] - 0.5 * (centered * centered) / var_vec[:, None]
+                log_p_m = log_p_all[m]
+                mix_terms = log_w[:, None] + log_p_all
+                vmax = np.max(mix_terms, axis=0)
+                log_mix = vmax + np.log(np.sum(np.exp(mix_terms - vmax[None, :]), axis=0))
                 ig += weight * float(np.mean(log_p_m - log_mix))
             return max(float(ig), 0.0)
 
@@ -1575,21 +1765,11 @@ class FactorizedSLDS(SLDSIMMRouter):
             samples = self._rng.multivariate_normal(
                 mean_arr[m], cov_arr[m], size=int(n_samples)
             )
-            log_p_m = np.array(
-                [
-                    self._gaussian_logpdf_mvn(s, mean_arr[m], cov_arr[m])
-                    for s in samples
-                ],
-                dtype=float,
-            )
+            log_p_m = self._gaussian_logpdf_mvn_batch(samples, mean_arr[m], cov_arr[m])
             log_p_all = np.zeros((M, int(n_samples)), dtype=float)
             for j in range(M):
-                log_p_all[j] = np.array(
-                    [
-                        self._gaussian_logpdf_mvn(s, mean_arr[j], cov_arr[j])
-                        for s in samples
-                    ],
-                    dtype=float,
+                log_p_all[j] = self._gaussian_logpdf_mvn_batch(
+                    samples, mean_arr[j], cov_arr[j]
                 )
             log_mix = self._logsumexp_vec(log_w[:, None] + log_p_all, axis=0)
             ig += weight * float(np.mean(log_p_m - log_mix))
@@ -1606,9 +1786,10 @@ class FactorizedSLDS(SLDSIMMRouter):
             for k in stats:
                 iz_scores[int(k)] = 0.0
             return iz_scores
+        log_w = np.log(np.maximum(w_pred, self.eps))
         for k, stat in stats.items():
             iz_scores[int(k)] = self._estimate_iz(
-                stat["mean"], stat["cov"], w_pred, n_samples
+                stat["mean"], stat["cov"], w_pred, n_samples, log_w=log_w
             )
         return iz_scores
 
@@ -1975,7 +2156,202 @@ class FactorizedSLDS(SLDSIMMRouter):
                 continue
         return -np.inf
 
+    def _gaussian_logpdf_mvn_batch(
+        self,
+        x: np.ndarray,
+        mean: np.ndarray,
+        cov: np.ndarray,
+    ) -> np.ndarray:
+        x_arr = np.asarray(x, dtype=float)
+        if x_arr.ndim == 1:
+            x_arr = x_arr.reshape(1, -1)
+        n, d = x_arr.shape
+        if d == 0:
+            return np.zeros(n, dtype=float)
+        mean_arr = np.asarray(mean, dtype=float).reshape(-1)
+        if mean_arr.shape[0] != d:
+            raise ValueError("Mean dimension mismatch in batched multivariate logpdf.")
+        cov_arr = np.asarray(cov, dtype=float)
+        if cov_arr.shape != (d, d):
+            raise ValueError("Covariance dimension mismatch in batched multivariate logpdf.")
+        cov_arr = 0.5 * (cov_arr + cov_arr.T)
+        diff = x_arr - mean_arr[None, :]
+        eye = np.eye(d, dtype=float)
+        for i in range(5):
+            jitter = (10.0 ** i) * self.eps
+            try:
+                L = np.linalg.cholesky(cov_arr + jitter * eye)
+                solve = np.linalg.solve(L, diff.T)
+                quad = np.sum(solve * solve, axis=0)
+                log_det = 2.0 * float(np.sum(np.log(np.diag(L))))
+                return -0.5 * (d * np.log(2.0 * np.pi) + log_det + quad)
+            except np.linalg.LinAlgError:
+                continue
+        return np.full(n, -np.inf, dtype=float)
+
     def _update_from_predicted(
+        self,
+        selected_expert: int,
+        observed_value: float | np.ndarray,
+        phi: np.ndarray,
+        w_pred: np.ndarray,
+        mu_g_pred: np.ndarray,
+        Sigma_g_pred: np.ndarray,
+        mu_u_pred: Dict[int, np.ndarray],
+        Sigma_u_pred: Dict[int, np.ndarray],
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[int, np.ndarray], Dict[int, np.ndarray]]:
+        k = int(selected_expert)
+        if k not in mu_u_pred or k not in Sigma_u_pred:
+            self._birth_expert(k)
+            mu_u_pred[k] = self.mu_u[k]
+            Sigma_u_pred[k] = self.Sigma_u[k]
+
+        mu_g_post = mu_g_pred.copy()
+        Sigma_g_post = Sigma_g_pred.copy()
+        mu_u_post: Dict[int, np.ndarray] = {kk: vv.copy() for kk, vv in mu_u_pred.items()}
+        Sigma_u_post: Dict[int, np.ndarray] = {kk: vv.copy() for kk, vv in Sigma_u_pred.items()}
+
+        log_like = np.zeros(self.M, dtype=float)
+        Bk = self._ensure_B(k)
+        obs_vec = self._as_residual_vector(observed_value)
+        if not np.all(np.isfinite(obs_vec)):
+            raise ValueError("Observed residual contains NaN/inf.")
+        phi_T = phi.T
+        d_y = int(obs_vec.shape[0])
+        if d_y == 1:
+            obs = float(obs_vec[0])
+            phi_vec = phi[:, 0]
+            H_u = phi_vec
+            if self.d_g > 0:
+                H_g = Bk.T @ phi_vec
+                cross_g = np.einsum("mij,j->mi", Sigma_g_pred, H_g)
+                signal = np.einsum("i,mi->m", H_g, cross_g)
+                pred_g = mu_g_pred @ H_g
+            else:
+                H_g = np.zeros(0, dtype=float)
+                cross_g = np.zeros((self.M, 0), dtype=float)
+                signal = np.zeros(self.M, dtype=float)
+                pred_g = np.zeros(self.M, dtype=float)
+            cross_u = np.einsum("mij,j->mi", Sigma_u_pred[k], H_u)
+            pred_u = mu_u_pred[k] @ H_u
+            if self.R_mode == "scalar":
+                if np.ndim(self.R) == 2 and self.N is not None:
+                    R_modes = np.asarray(self.R, dtype=float)[:, k]
+                else:
+                    R_modes = np.full(self.M, float(self.R), dtype=float)
+            else:
+                R_modes = np.array(
+                    [float(self._get_R_matrix(m, k, 1)[0, 0]) for m in range(self.M)],
+                    dtype=float,
+                )
+            S = signal + np.einsum("i,mi->m", H_u, cross_u) + R_modes
+            if not np.all(np.isfinite(S)):
+                return self._update_from_predicted_generic(
+                    selected_expert,
+                    observed_value,
+                    phi,
+                    w_pred,
+                    mu_g_pred,
+                    Sigma_g_pred,
+                    mu_u_pred,
+                    Sigma_u_pred,
+                )
+            S = np.maximum(S, self.eps)
+            pred_mean = pred_g + pred_u
+            innovation = obs - pred_mean
+            gain_scale = innovation / S
+            inv_S = 1.0 / S
+            if self.d_g > 0:
+                mu_g_post = mu_g_pred + cross_g * gain_scale[:, None]
+                Sigma_g_post = Sigma_g_pred - np.einsum(
+                    "mi,mj,m->mij",
+                    cross_g,
+                    cross_g,
+                    inv_S,
+                )
+                for m in range(self.M):
+                    Sigma_g_post[m] = self._stabilize_cov_fast(
+                        Sigma_g_post[m],
+                        self.g_cov0[m],
+                        self._diag_flat_g,
+                    )
+            mu_u_post[k] = mu_u_pred[k] + cross_u * gain_scale[:, None]
+            Sigma_u_post[k] = Sigma_u_pred[k] - np.einsum(
+                "mi,mj,m->mij",
+                cross_u,
+                cross_u,
+                inv_S,
+            )
+            for m in range(self.M):
+                Sigma_u_post[k][m] = self._stabilize_cov_fast(
+                    Sigma_u_post[k][m],
+                    self.u_cov0[m],
+                    self._diag_flat_phi,
+                )
+            log_like = self._gaussian_logpdf_vec(obs, pred_mean, S)
+            log_post = log_like + np.log(np.maximum(w_pred, self.eps))
+            log_post -= np.max(log_post)
+            w_post = np.exp(log_post)
+            w_post_sum = float(np.sum(w_post))
+            if w_post_sum <= 0:
+                w_post = np.ones(self.M, dtype=float) / float(self.M)
+            else:
+                w_post /= w_post_sum
+            return w_post, mu_g_post, Sigma_g_post, mu_u_post, Sigma_u_post
+
+        for m in range(self.M):
+            mu_g = mu_g_pred[m]
+            Sigma_g = Sigma_g_pred[m]
+            mu_u = mu_u_pred[k][m]
+            Sigma_u = Sigma_u_pred[k][m]
+
+            H_g = phi_T @ Bk
+            H_u = phi_T
+            pred_mean = H_g @ mu_g + H_u @ mu_u
+            R_mat = self._get_R_matrix(m, k, d_y)
+            cross_g = Sigma_g @ H_g.T
+            cross_u = Sigma_u @ H_u.T
+            S = H_g @ cross_g + H_u @ cross_u + R_mat
+            S = 0.5 * (S + S.T)
+
+            try:
+                L = np.linalg.cholesky(S + self.eps * np.eye(d_y, dtype=float))
+                tmp_g = np.linalg.solve(L, cross_g.T)
+                K_g = np.linalg.solve(L.T, tmp_g).T
+                tmp_u = np.linalg.solve(L, cross_u.T)
+                K_u = np.linalg.solve(L.T, tmp_u).T
+            except np.linalg.LinAlgError:
+                S_reg = S + self.eps * np.eye(d_y, dtype=float)
+                K_g = np.linalg.solve(S_reg, cross_g.T).T
+                K_u = np.linalg.solve(S_reg, cross_u.T).T
+            innovation = obs_vec - pred_mean
+            mu_g_post[m] = mu_g + K_g @ innovation
+            mu_u_post[k][m] = mu_u + K_u @ innovation
+            Sigma_g_post[m] = self._stabilize_cov_fast(
+                Sigma_g - K_g @ cross_g.T,
+                self.g_cov0[m],
+                self._diag_flat_g,
+            )
+            Sigma_u_post[k][m] = self._stabilize_cov_fast(
+                Sigma_u - K_u @ cross_u.T,
+                self.u_cov0[m],
+                self._diag_flat_phi,
+            )
+
+            log_like[m] = self._gaussian_logpdf_mvn(obs_vec, pred_mean, S)
+
+        log_post = log_like + np.log(np.maximum(w_pred, self.eps))
+        log_post -= np.max(log_post)
+        w_post = np.exp(log_post)
+        w_post_sum = float(np.sum(w_post))
+        if w_post_sum <= 0:
+            w_post = np.ones(self.M, dtype=float) / float(self.M)
+        else:
+            w_post /= w_post_sum
+
+        return w_post, mu_g_post, Sigma_g_post, mu_u_post, Sigma_u_post
+
+    def _update_from_predicted_generic(
         self,
         selected_expert: int,
         observed_value: float | np.ndarray,
@@ -2011,48 +2387,38 @@ class FactorizedSLDS(SLDSIMMRouter):
             mu_u = mu_u_pred[k][m]
             Sigma_u = Sigma_u_pred[k][m]
 
-            joint_mu = np.concatenate([mu_g, mu_u])
-            top = np.concatenate([Sigma_g, np.zeros((self.d_g, self.d_phi))], axis=1)
-            bottom = np.concatenate(
-                [np.zeros((self.d_phi, self.d_g)), Sigma_u], axis=1
-            )
-            joint_Sigma = np.concatenate([top, bottom], axis=0)
-
             H_g = phi_T @ Bk
             H_u = phi_T
-            H = np.concatenate([H_g, H_u], axis=1)
-
-            pred_mean = H @ joint_mu
+            pred_mean = H_g @ mu_g + H_u @ mu_u
             R_mat = self._get_R_matrix(m, k, d_y)
-            S = H @ joint_Sigma @ H.T + R_mat
+            cross_g = Sigma_g @ H_g.T
+            cross_u = Sigma_u @ H_u.T
+            S = H_g @ cross_g + H_u @ cross_u + R_mat
             S = 0.5 * (S + S.T)
 
-            PHt = joint_Sigma @ H.T
             try:
                 L = np.linalg.cholesky(S + self.eps * np.eye(d_y, dtype=float))
-                tmp = np.linalg.solve(L, PHt.T)
-                K = np.linalg.solve(L.T, tmp).T
+                tmp_g = np.linalg.solve(L, cross_g.T)
+                K_g = np.linalg.solve(L.T, tmp_g).T
+                tmp_u = np.linalg.solve(L, cross_u.T)
+                K_u = np.linalg.solve(L.T, tmp_u).T
             except np.linalg.LinAlgError:
-                K = np.linalg.solve(S + self.eps * np.eye(d_y, dtype=float), PHt.T).T
+                S_reg = S + self.eps * np.eye(d_y, dtype=float)
+                K_g = np.linalg.solve(S_reg, cross_g.T).T
+                K_u = np.linalg.solve(S_reg, cross_u.T).T
             innovation = obs_vec - pred_mean
-            joint_mu_post = joint_mu + K @ innovation
-            dim = joint_Sigma.shape[0]
-            I = np.eye(dim, dtype=float)
-            KH = K @ H
-            tmp = I - KH
-            joint_Sigma_post = tmp @ joint_Sigma @ tmp.T + K @ R_mat @ K.T
-
-            mu_g_post[m] = joint_mu_post[: self.d_g]
-            Sigma_g_post[m] = joint_Sigma_post[: self.d_g, : self.d_g]
-            Sigma_g_post[m] = 0.5 * (
-                Sigma_g_post[m] + Sigma_g_post[m].T
-            ) + self.eps * np.eye(self.d_g, dtype=float)
-
-            mu_u_post[k][m] = joint_mu_post[self.d_g :]
-            Sigma_u_post[k][m] = joint_Sigma_post[self.d_g :, self.d_g :]
-            Sigma_u_post[k][m] = 0.5 * (
-                Sigma_u_post[k][m] + Sigma_u_post[k][m].T
-            ) + self.eps * np.eye(self.d_phi, dtype=float)
+            mu_g_post[m] = mu_g + K_g @ innovation
+            mu_u_post[k][m] = mu_u + K_u @ innovation
+            Sigma_g_post[m] = self._stabilize_cov_fast(
+                Sigma_g - K_g @ cross_g.T,
+                self.g_cov0[m],
+                self._diag_flat_g,
+            )
+            Sigma_u_post[k][m] = self._stabilize_cov_fast(
+                Sigma_u - K_u @ cross_u.T,
+                self.u_cov0[m],
+                self._diag_flat_phi,
+            )
 
             log_like[m] = self._gaussian_logpdf_mvn(obs_vec, pred_mean, S)
 
