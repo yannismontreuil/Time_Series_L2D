@@ -102,7 +102,6 @@ def _build_env_from_cfg(env_cfg: dict) -> ETTh1TimeSeriesEnv:
         expert_train_date_ranges=env_cfg.get("expert_train_date_ranges", None),
         arima_lags=env_cfg.get("arima_lags", None),
         arima_diff_order=env_cfg.get("arima_diff_order", 0),
-        analysis_window=env_cfg.get("analysis_window", None),
     )
 
 
