@@ -36,15 +36,25 @@ def _parse_args():
 
 def _extract_metrics(stdout: str, prefixes: dict[str, str]) -> dict[str, float]:
     found: dict[str, float] = {}
+    in_average_block = False
     ordered_prefixes = sorted(prefixes.items(), key=lambda item: len(item[0]), reverse=True)
     for raw_line in stdout.splitlines():
         line = raw_line.strip()
+        if line == "=== Average costs ===":
+            in_average_block = True
+            continue
+        if line.startswith("=== ") and in_average_block:
+            break
+        if not in_average_block:
+            continue
         if ":" not in line:
             continue
         label, _, value_str = line.partition(":")
         label = label.strip()
         value_str = value_str.strip()
         for prefix, key in ordered_prefixes:
+            if key in found:
+                continue
             if label.startswith(prefix):
                 match = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", value_str)
                 if match is None:
