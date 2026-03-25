@@ -1,15 +1,50 @@
 import copy
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
+from argparse import ArgumentParser
 
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE = ROOT / "config" / "config_jena_tuned.yaml"
 RUNNER = ROOT / "slds_imm_router.py"
+
+
+def _parse_args() -> list[int]:
+    parser = ArgumentParser(description="Run multi-seed Jena evaluation and summarize mean +/- SE.")
+    parser.add_argument(
+        "--seeds",
+        nargs="+",
+        type=int,
+        default=[11, 12, 13, 14, 15],
+        help="Seeds to evaluate. Defaults to 11 12 13 14 15.",
+    )
+    args = parser.parse_args()
+    return args.seeds
+
+
+def _extract_metrics(stdout: str, prefixes: dict[str, str]) -> dict[str, float]:
+    found: dict[str, float] = {}
+    ordered_prefixes = sorted(prefixes.items(), key=lambda item: len(item[0]), reverse=True)
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip()
+        if ":" not in line:
+            continue
+        label, _, value_str = line.partition(":")
+        label = label.strip()
+        value_str = value_str.strip()
+        for prefix, key in ordered_prefixes:
+            if label.startswith(prefix):
+                match = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", value_str)
+                if match is None:
+                    continue
+                found[key] = float(match.group(0))
+                break
+    return found
 
 
 def main() -> None:
@@ -28,7 +63,7 @@ def main() -> None:
         "Oracle baseline": "oracle",
     }
     all_metrics = {k: [] for k in prefixes.values()}
-    seeds = [11, 12, 13, 14, 15]
+    seeds = _parse_args()
 
     for seed in seeds:
         cfg = copy.deepcopy(base_cfg)
@@ -62,13 +97,15 @@ def main() -> None:
             print(proc.stderr)
             raise SystemExit(proc.returncode)
 
-        found = {}
-        for line in proc.stdout.splitlines():
-            for prefix, key in prefixes.items():
-                if line.startswith(prefix + ":"):
-                    found[key] = float(line.split(":")[-1].strip())
-                    break
+        found = _extract_metrics(proc.stdout, prefixes)
         print("seed", seed, found)
+        missing = [key for key in all_metrics if key not in found]
+        if missing:
+            print(proc.stdout)
+            raise KeyError(
+                f"Missing parsed metrics for seed {seed}: {missing}. "
+                "Check metric labels in the evaluation output."
+            )
         for key in all_metrics:
             all_metrics[key].append(found[key])
 
