@@ -9,8 +9,20 @@ from environment.etth1_env import ETTh1TimeSeriesEnv
 from models.l2d_baseline import L2D
 from models.linucb_baseline import LinUCB
 from models.neuralucb_baseline import NeuralUCB
+from models.shared_linear_bandits import (
+    LinearEnsembleSampling,
+    LinearThompsonSampling,
+    SharedLinUCB,
+)
 
 TimeSeriesEnv = SyntheticTimeSeriesEnv | ETTh1TimeSeriesEnv
+SimpleBanditBaseline = (
+    LinUCB
+    | NeuralUCB
+    | SharedLinUCB
+    | LinearThompsonSampling
+    | LinearEnsembleSampling
+)
 
 _TRANSITION_LOG_CFG: Optional[dict] = None
 _TRANSITION_LOG_LABELS: dict[int, str] = {}
@@ -18,7 +30,7 @@ _TRANSITION_LOG_STORE: dict[str, list[tuple[int, Optional[np.ndarray]]]] = {}
 
 
 def _maybe_snapshot_router(
-    router: SLDSIMMRouter | FactorizedSLDS | L2D | LinUCB | NeuralUCB,
+    router: SLDSIMMRouter | FactorizedSLDS | L2D | SimpleBanditBaseline,
     t: int,
     snapshot_at_t: Optional[int],
     snapshot_dict: Optional[dict],
@@ -744,23 +756,13 @@ def run_l2d_on_env(
     return costs, choices
 
 
-def run_linucb_on_env(
-    baseline: LinUCB,
+def _run_simple_bandit_on_env(
+    baseline: SimpleBanditBaseline,
     env: TimeSeriesEnv,
     t_start: int = 1,
+    actor_label: str = "baseline",
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Run a LinUCB baseline on the synthetic environment.
-
-    At each time t (t_start,...,T-1):
-      - context x_t = env.get_context(t)
-      - policy selects expert r_t via LinUCB
-      - environment reveals squared losses at time t
-      - policy updates its per-expert linear models
-      - record incurred cost: ℓ_{r_t,t} + β_{r_t}
-    """
     T = env.T
-    N = env.num_experts
     t_start = max(1, int(t_start))
 
     costs = np.full(T - 1, np.nan, dtype=float)
@@ -769,11 +771,13 @@ def run_linucb_on_env(
     for t in range(t_start, T):
         x_t = env.get_context(t)
         _log_transition(baseline, t, x_t)
-        available = _require_available(env.get_available_experts(t), t, "LinUCB")
+        available = _require_available(env.get_available_experts(t), t, actor_label)
 
         r_t = baseline.select_expert(x_t, available)
         if not np.any(available == int(r_t)):
-            raise ValueError(f"LinUCB: selected expert {r_t} not in E_t at t={t}.")
+            raise ValueError(
+                f"{actor_label}: selected expert {r_t} not in E_t at t={t}."
+            )
 
         loss_all = env.losses(t)
         loss_r = float(loss_all[r_t])
@@ -791,6 +795,22 @@ def run_linucb_on_env(
         baseline.update(x_t, loss_masked, available, selected_expert=r_t)
 
     return costs, choices
+
+
+def run_linucb_on_env(
+    baseline: LinUCB,
+    env: TimeSeriesEnv,
+    t_start: int = 1,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Run a LinUCB baseline on the environment.
+    """
+    return _run_simple_bandit_on_env(
+        baseline=baseline,
+        env=env,
+        t_start=t_start,
+        actor_label="LinUCB",
+    )
 
 
 def run_neuralucb_on_env(
@@ -808,38 +828,51 @@ def run_neuralucb_on_env(
       - policy updates its neural embedding + linear heads
       - record incurred cost: ℓ_{r_t,t} + β_{r_t}
     """
-    T = env.T
-    N = env.num_experts
-    t_start = max(1, int(t_start))
+    return _run_simple_bandit_on_env(
+        baseline=baseline,
+        env=env,
+        t_start=t_start,
+        actor_label="NeuralUCB",
+    )
 
-    costs = np.full(T - 1, np.nan, dtype=float)
-    choices = np.zeros(T - 1, dtype=int)
 
-    for t in range(t_start, T):
-        x_t = env.get_context(t)
-        _log_transition(baseline, t, x_t)
-        available = _require_available(env.get_available_experts(t), t, "NeuralUCB")
+def run_shared_linucb_on_env(
+    baseline: SharedLinUCB,
+    env: TimeSeriesEnv,
+    t_start: int = 1,
+) -> Tuple[np.ndarray, np.ndarray]:
+    return _run_simple_bandit_on_env(
+        baseline=baseline,
+        env=env,
+        t_start=t_start,
+        actor_label="SharedLinUCB",
+    )
 
-        r_t = baseline.select_expert(x_t, available)
-        if not np.any(available == int(r_t)):
-            raise ValueError(f"NeuralUCB: selected expert {r_t} not in E_t at t={t}.")
 
-        loss_all = env.losses(t)
-        loss_r = float(loss_all[r_t])
-        cost_t = loss_r + baseline.beta[r_t]
-        loss_masked = _mask_feedback_vector(
-            loss_all,
-            available,
-            r_t,
-            full_feedback=baseline.feedback_mode == "full",
-        )
+def run_lin_ts_on_env(
+    baseline: LinearThompsonSampling,
+    env: TimeSeriesEnv,
+    t_start: int = 1,
+) -> Tuple[np.ndarray, np.ndarray]:
+    return _run_simple_bandit_on_env(
+        baseline=baseline,
+        env=env,
+        t_start=t_start,
+        actor_label="LinTS",
+    )
 
-        costs[t - 1] = cost_t
-        choices[t - 1] = int(r_t)
 
-        baseline.update(x_t, loss_masked, available, selected_expert=r_t)
-
-    return costs, choices
+def run_ensemble_sampling_on_env(
+    baseline: LinearEnsembleSampling,
+    env: TimeSeriesEnv,
+    t_start: int = 1,
+) -> Tuple[np.ndarray, np.ndarray]:
+    return _run_simple_bandit_on_env(
+        baseline=baseline,
+        env=env,
+        t_start=t_start,
+        actor_label="EnsembleSampling",
+    )
 
 
 def run_random_on_env(

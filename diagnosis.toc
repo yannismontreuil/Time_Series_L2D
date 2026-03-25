@@ -1,0 +1,123 @@
+\contentsline {section}{\numberline {1}Paper Overview}{3}{section.1}%
+\contentsline {subsection}{\numberline {1.1}Problem setting}{3}{subsection.1.1}%
+\contentsline {subsection}{\numberline {1.2}Main claim}{3}{subsection.1.2}%
+\contentsline {subsection}{\numberline {1.3}Claimed contributions}{4}{subsection.1.3}%
+\contentsline {paragraph}{Assessment of the contribution statement.}{4}{section*.2}%
+\contentsline {section}{\numberline {2}Precise Reconstruction of the Method}{4}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Formal setup}{4}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Variables and notation}{5}{subsection.2.2}%
+\contentsline {paragraph}{Well-definedness.}{5}{section*.3}%
+\contentsline {paragraph}{Notation issue.}{5}{section*.4}%
+\contentsline {subsection}{\numberline {2.3}Objective}{5}{subsection.2.3}%
+\contentsline {paragraph}{Important limitation.}{5}{section*.5}%
+\contentsline {subsection}{\numberline {2.4}Model}{5}{subsection.2.4}%
+\contentsline {subsubsection}{\numberline {2.4.1}Regime dynamics}{5}{subsubsection.2.4.1}%
+\contentsline {paragraph}{Interpretation.}{6}{section*.6}%
+\contentsline {subsubsection}{\numberline {2.4.2}Continuous latent dynamics}{6}{subsubsection.2.4.2}%
+\contentsline {paragraph}{Comment.}{6}{section*.7}%
+\contentsline {subsubsection}{\numberline {2.4.3}Emission model}{6}{subsubsection.2.4.3}%
+\contentsline {paragraph}{Interpretation.}{6}{section*.8}%
+\contentsline {subsection}{\numberline {2.5}Inference / estimation}{7}{subsection.2.5}%
+\contentsline {subsubsection}{\numberline {2.5.1}Filtering}{7}{subsubsection.2.5.1}%
+\contentsline {paragraph}{Mathematical status.}{7}{section*.9}%
+\contentsline {subsubsection}{\numberline {2.5.2}Cross-covariance and factorization}{7}{subsubsection.2.5.2}%
+\contentsline {paragraph}{Critique.}{7}{section*.10}%
+\contentsline {subsubsection}{\numberline {2.5.3}Parameter learning}{7}{subsubsection.2.5.3}%
+\contentsline {paragraph}{Assessment.}{7}{section*.11}%
+\contentsline {subsection}{\numberline {2.6}Decision rule}{8}{subsection.2.6}%
+\contentsline {paragraph}{Shared-factor term.}{8}{section*.12}%
+\contentsline {paragraph}{Mode-identification term.}{8}{section*.13}%
+\contentsline {paragraph}{Theoretical status.}{8}{section*.14}%
+\contentsline {paragraph}{Critical point.}{8}{section*.15}%
+\contentsline {subsection}{\numberline {2.7}Computational complexity}{8}{subsection.2.7}%
+\contentsline {paragraph}{What is clear.}{8}{section*.16}%
+\contentsline {paragraph}{What is missing.}{8}{section*.17}%
+\contentsline {section}{\numberline {3}Assumptions and Hidden Assumptions}{9}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Explicit assumptions}{9}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Implicit assumptions}{9}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Missing assumptions}{9}{subsection.3.3}%
+\contentsline {section}{\numberline {4}Theory Audit}{10}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Evaluation of the formal claims}{10}{subsection.4.1}%
+\contentsline {subsubsection}{\numberline {4.1.1}Problem formulation}{10}{subsubsection.4.1.1}%
+\contentsline {paragraph}{Diagnosis.}{10}{section*.18}%
+\contentsline {subsubsection}{\numberline {4.1.2}Proposition on cross-update}{10}{subsubsection.4.1.2}%
+\contentsline {paragraph}{Assessment.}{10}{section*.19}%
+\contentsline {paragraph}{Limitation.}{10}{section*.20}%
+\contentsline {subsubsection}{\numberline {4.1.3}Pruning proposition}{10}{subsubsection.4.1.3}%
+\contentsline {paragraph}{Assessment.}{10}{section*.21}%
+\contentsline {paragraph}{What it does not prove.}{10}{section*.22}%
+\contentsline {subsubsection}{\numberline {4.1.4}Birth coupling proposition}{10}{subsubsection.4.1.4}%
+\contentsline {paragraph}{Assessment.}{10}{section*.23}%
+\contentsline {paragraph}{Important caveat.}{11}{section*.24}%
+\contentsline {subsubsection}{\numberline {4.1.5}IDS-inspired exploration}{11}{subsubsection.4.1.5}%
+\contentsline {paragraph}{Assessment.}{11}{section*.25}%
+\contentsline {paragraph}{What is not justified.}{11}{section*.26}%
+\contentsline {subsection}{\numberline {4.2}Proof gaps or questionable steps}{11}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Claims correct only under stronger assumptions}{11}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Possible counterexamples or failure modes}{11}{subsection.4.4}%
+\contentsline {section}{\numberline {5}Implementation Walkthrough}{12}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Repository structure}{12}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Entry points}{12}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Data flow}{12}{subsection.5.3}%
+\contentsline {subsection}{\numberline {5.4}Model components}{13}{subsection.5.4}%
+\contentsline {subsubsection}{\numberline {5.4.1}Observation model in code}{13}{subsubsection.5.4.1}%
+\contentsline {subsubsection}{\numberline {5.4.2}Feature map}{13}{subsubsection.5.4.2}%
+\contentsline {paragraph}{Consequence.}{13}{section*.27}%
+\contentsline {subsubsection}{\numberline {5.4.3}Transition model}{13}{subsubsection.5.4.3}%
+\contentsline {paragraph}{Critical implementation fact.}{13}{section*.28}%
+\contentsline {subsection}{\numberline {5.5}Training loop}{13}{subsection.5.5}%
+\contentsline {paragraph}{Positive note.}{13}{section*.29}%
+\contentsline {subsection}{\numberline {5.6}Inference / prediction}{13}{subsection.5.6}%
+\contentsline {subsection}{\numberline {5.7}Evaluation procedure}{14}{subsection.5.7}%
+\contentsline {paragraph}{Interpretation.}{14}{section*.30}%
+\contentsline {section}{\numberline {6}Paper-to-Code Alignment}{14}{section.6}%
+\contentsline {section}{\numberline {7}Issues Found}{16}{section.7}%
+\contentsline {subsection}{\numberline {7.1}Critical errors}{16}{subsection.7.1}%
+\contentsline {subsubsection}{\numberline {7.1.1}Synthetic experiment in code does not match the paper's stated simulator}{16}{subsubsection.7.1.1}%
+\contentsline {paragraph}{Paper statement.}{16}{section*.31}%
+\contentsline {paragraph}{Code reality.}{16}{section*.32}%
+\contentsline {paragraph}{Why this matters.}{16}{section*.33}%
+\contentsline {paragraph}{Minimal fix.}{16}{section*.34}%
+\contentsline {subsubsection}{\numberline {7.1.2}Context-dependent transitions are random and untrained in synthetic and Melbourne runs}{16}{subsubsection.7.1.2}%
+\contentsline {paragraph}{Paper statement.}{17}{section*.35}%
+\contentsline {paragraph}{Code fact.}{17}{section*.36}%
+\contentsline {paragraph}{Consequence.}{17}{section*.37}%
+\contentsline {paragraph}{Why this matters.}{17}{section*.38}%
+\contentsline {paragraph}{Minimal fix.}{17}{section*.39}%
+\contentsline {subsubsection}{\numberline {7.1.3}FRED uses full-feedback offline EM and masked post-prefix reporting}{17}{subsubsection.7.1.3}%
+\contentsline {paragraph}{Code fact.}{17}{section*.40}%
+\contentsline {paragraph}{Consequence.}{17}{section*.41}%
+\contentsline {paragraph}{Why this matters.}{17}{section*.42}%
+\contentsline {subsubsection}{\numberline {7.1.4}The paper's NeuralUCB baseline is not the implementation}{17}{subsubsection.7.1.4}%
+\contentsline {paragraph}{Paper statement.}{17}{section*.43}%
+\contentsline {paragraph}{Code fact.}{18}{section*.44}%
+\contentsline {paragraph}{Consequence.}{18}{section*.45}%
+\contentsline {subsection}{\numberline {7.2}Moderate concerns}{18}{subsection.7.2}%
+\contentsline {subsubsection}{\numberline {7.2.1}Synthetic warmup described in paper is not implemented in the published config}{18}{subsubsection.7.2.1}%
+\contentsline {paragraph}{Paper statement.}{18}{section*.46}%
+\contentsline {paragraph}{Code fact.}{18}{section*.47}%
+\contentsline {paragraph}{Interpretation.}{18}{section*.48}%
+\contentsline {subsubsection}{\numberline {7.2.2}Synthetic multi-seed reporting uses a fixed data seed by default}{18}{subsubsection.7.2.2}%
+\contentsline {paragraph}{Code fact.}{18}{section*.49}%
+\contentsline {paragraph}{Consequence.}{18}{section*.50}%
+\contentsline {paragraph}{Why this matters.}{18}{section*.51}%
+\contentsline {subsubsection}{\numberline {7.2.3}Undocumented initialization heuristics affect Melbourne}{18}{subsubsection.7.2.3}%
+\contentsline {paragraph}{Code fact.}{19}{section*.52}%
+\contentsline {paragraph}{Consequence.}{19}{section*.53}%
+\contentsline {paragraph}{Why this matters.}{19}{section*.54}%
+\contentsline {subsubsection}{\numberline {7.2.4}Diagnostic sample count can change the actual routing behavior}{19}{subsubsection.7.2.4}%
+\contentsline {paragraph}{Code fact.}{19}{section*.55}%
+\contentsline {paragraph}{Consequence.}{19}{section*.56}%
+\contentsline {subsection}{\numberline {7.3}Minor issues / style / clarity issues}{19}{subsection.7.3}%
+\contentsline {section}{\numberline {8}Concrete Fixes}{19}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Paper fixes}{19}{subsection.8.1}%
+\contentsline {subsection}{\numberline {8.2}Code fixes}{20}{subsection.8.2}%
+\contentsline {subsection}{\numberline {8.3}Experimental fixes}{20}{subsection.8.3}%
+\contentsline {subsection}{\numberline {8.4}Theoretical fixes}{20}{subsection.8.4}%
+\contentsline {section}{\numberline {9}Final Verdict}{20}{section.9}%
+\contentsline {subsection}{\numberline {9.1}Is the problem formulation clear?}{20}{subsection.9.1}%
+\contentsline {subsection}{\numberline {9.2}Is the method mathematically sound?}{20}{subsection.9.2}%
+\contentsline {subsection}{\numberline {9.3}Are the theoretical claims justified?}{20}{subsection.9.3}%
+\contentsline {subsection}{\numberline {9.4}Does the code faithfully implement the paper?}{21}{subsection.9.4}%
+\contentsline {subsection}{\numberline {9.5}Top three risks that could invalidate the results}{21}{subsection.9.5}%
+\contentsline {paragraph}{Bottom line.}{21}{section*.57}%

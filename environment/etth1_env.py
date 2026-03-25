@@ -1,5 +1,9 @@
 import csv
 import os
+import shutil
+import tempfile
+import urllib.request
+import zipfile
 from datetime import datetime
 from typing import List, Optional, Sequence, Tuple
 
@@ -190,6 +194,37 @@ def ensure_daily_temp_csv(csv_path: str = "data/daily_temp_melbourne.csv") -> st
     return csv_path
 
 
+def ensure_jena_climate_csv(
+    csv_path: str = "data/jena_climate_2009_2016.csv",
+    url: str = "https://storage.googleapis.com/tensorflow/tf-keras-datasets/jena_climate_2009_2016.csv.zip",
+) -> str:
+    """
+    Ensure the Jena Climate dataset is available as a plain CSV.
+
+    The source distributed by tf.keras is a zip archive containing a single
+    CSV file named ``jena_climate_2009_2016.csv``. This helper downloads and
+    extracts that CSV into ``csv_path`` so the existing CSV-backed real-data
+    environment can reuse the exact same pipeline as ETTh and Melbourne.
+    """
+    if os.path.exists(csv_path):
+        return csv_path
+
+    os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="jena_climate_") as tmp_dir:
+        zip_path = os.path.join(tmp_dir, "jena_climate_2009_2016.csv.zip")
+        urllib.request.urlretrieve(url, zip_path)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            members = [name for name in zf.namelist() if name.lower().endswith(".csv")]
+            if not members:
+                raise ValueError(
+                    "Downloaded Jena archive does not contain a CSV file."
+                )
+            member = members[0]
+            extracted_path = zf.extract(member, path=tmp_dir)
+            shutil.move(extracted_path, csv_path)
+    return csv_path
+
+
 def _select_torch_device(device_pref: Optional[str] = None):
     """Pick a torch device, optionally honoring an explicit preference."""
     if torch is None:
@@ -254,6 +289,7 @@ class ETTh1TimeSeriesEnv:
         arrival_intervals: Optional[List[Tuple[int, int]]] = None,
         context_columns: Optional[Sequence[str]] = None,
         context_lags: Optional[Sequence[int]] = None,
+        row_stride: int = 1,
         include_time_features: bool = False,
         time_features: Optional[Sequence[str]] = None,
         normalize_context: bool = False,
@@ -338,7 +374,11 @@ class ETTh1TimeSeriesEnv:
 
             date_idx = None
             for i, name in enumerate(header):
-                if str(name).strip().lower() in ("date", "timestamp", "time", "day"):
+                name_norm = str(name).strip().lower()
+                if name_norm in ("date", "timestamp", "time", "day", "date time"):
+                    date_idx = i
+                    break
+                if "date" in name_norm and "time" in name_norm:
                     date_idx = i
                     break
 
@@ -386,6 +426,13 @@ class ETTh1TimeSeriesEnv:
 
         y_arr = np.asarray(y_all, dtype=float)
         col_arrs = {name: np.asarray(vals, dtype=float) for name, vals in col_data.items()}
+
+        row_stride_local = max(int(row_stride), 1)
+        if row_stride_local > 1:
+            y_arr = y_arr[::row_stride_local]
+            col_arrs = {name: arr[::row_stride_local] for name, arr in col_arrs.items()}
+            if date_vals:
+                date_vals = date_vals[::row_stride_local]
 
         # Truncate or use full series according to T
         if T is None:
@@ -460,10 +507,24 @@ class ETTh1TimeSeriesEnv:
                 )
 
             def _parse_dt(raw: str) -> datetime:
+                raw = str(raw).strip()
+                fmts = (
+                    "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%d",
+                    "%d.%m.%Y %H:%M:%S",
+                    "%d.%m.%Y",
+                )
+                for fmt in fmts:
+                    try:
+                        return datetime.strptime(raw, fmt)
+                    except ValueError:
+                        continue
                 try:
-                    return datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
-                except ValueError:
                     return datetime.fromisoformat(raw)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Unsupported datetime format '{raw}' in {csv_path}."
+                    ) from exc
 
             parsed_dates = [_parse_dt(val) for val in date_vals]
 

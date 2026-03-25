@@ -1,0 +1,201 @@
+\section{Experiments}
+\label{sec:experiments}
+
+We evaluate \textbf{L2D-SLDS} (Section~\ref{sec:generative_model}) in the
+online learning-to-defer setting of Section~\ref{sec:problem_formulation}, focusing on three failure modes
+of offline L2D: \emph{partial feedback}, \emph{non-stationarity}, and \emph{dynamic expert
+availability}. Throughout, at each round \(t\) the router observes \((\mathbf{x}_t,\mathcal{E}_t)\),
+selects \(I_t\in\mathcal{E}_t\), and then observes \(\vy_t\) and the queried prediction
+\(\vhaty_{t,I_t}\) (hence the realized residual \(e_t=e_{t,I_t}\)). Unless stated otherwise, we
+use squared loss and no query fees (\(\psi(e)=\lVert e\rVert_2^2\), \(\beta_k\equiv 0\)). We report
+averages over multiple random seeds with standard errors.
+Following standard Learning-to-Defer evaluations
+\citep{mozannar2021consistent, Narasimhan, mao2023twostage, montreuil2024twostagelearningtodefermultitasklearning}, we
+treat each expert as a fixed prediction rule \(f_k\) and focus on learning the \emph{router} under
+partial feedback. We report results on ETTh1 and a synthetic experiment in the main paper, and defer the experiments on FRED to Appendix \ref{sec:experiments-details}. 
+
+
+\textbf{Compared methods.}
+We compare our \textbf{L2D-SLDS} router under partial feedback to the following baselines.
+\emph{(i) Ablation:} L2D-SLDS without the shared global factor (set \(d_g=0\)).
+\emph{(ii) Contextual bandits:} LinUCB \citep{li2010contextual} and NeuralUCB
+\citep{zhou2020neuralcontextualbanditsucbbased} (details in Appendix~\ref{subsection:baselines}).
+
+\textbf{Metric.}
+We report the time-averaged cumulative routing cost over horizon \(T\) (Eq.~\eqref{eq:routing_objective}). Concretely, we
+compute the estimate
+\(
+\hat{J}(\pi) \coloneqq \frac{1}{T}\sum_{t=1}^T C_{t,I_t},
+\)
+where \(C_{t,I_t}\) is the realized cost of deferring to the selected expert at round \(t\). Lower is better.
+
+
+
+\begin{figure*}[tb]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/corr_new_v2}
+    \caption{Regime-0 expert dependence in the synthetic transfer experiment. Each heatmap shows the
+    pairwise Pearson correlation (color: \([-1,1]\)) between experts' per-round losses (experts indexed
+    \(0\)--\(3\)). Top row: partial feedback (only queried losses observed).
+    Columns (left-to-right) show the ground-truth correlation implied by the simulator and the
+    correlations estimated by each method. L2D-SLDS best recovers the block-structured correlations
+    (experts \(\{0,1\}\) vs.\ \(\{2,3\}\)). }
+    \label{fig:exp_synthetic_transfer_regime_estimation}
+\end{figure*}
+
+\subsection{Synthetic: Regime-Dependent Correlation and Information Transfer}
+\label{sec:exp_synthetic_transfer}
+
+\textbf{Design goal.}
+We construct a controlled routing instance in which (i) experts are \emph{correlated} in a
+regime-dependent way, so that observing one expert should update beliefs about others (information
+transfer; Proposition~\ref{prop:cross_update}); and (ii) one expert temporarily disappears and
+re-enters.
+
+\textbf{Environment (regimes, target, context).}
+We use \(M=2\) regimes and deterministic switching in blocks of length \(L=150\) over horizon
+\(T=3000\) such as $z_t \coloneqq 1 + \left\lfloor \frac{t-1}{L}\right\rfloor \bmod 2$.
+The target follows a regime-dependent AR(1), and the context is the one-step lag:
+\begin{equation*}
+% \label{eq:exp_tri_cycle_ts}
+y_t = 0.8\,y_{t-1} + d_{z_t} + \eta_t,\qquad \eta_t\sim\mathcal{N}(0,\sigma_y^2).
+\end{equation*}
+We set the router's context to \(x_t\coloneqq y_{t-1}\).
+The regime \(z_t\) is latent to the router: the router observes only \(x_t\) (before acting) and the
+single queried prediction \(\hat y_{t,I_t}\) (after acting).
+
+\textbf{Experts and availability.}
+We use \(K=4\) experts indexed \(k\in\{0,1,2,3\}\). Expert \(k=1\) is removed from the available set \(\mathcal{E}_t\)
+for a contiguous interval \(t\in[2000,2500]\) and then re-enters. Each expert is a one-step forecaster
+\(\hat y_{t,k}=f_k(x_t)\) with a shared slope and expert-specific intercept plus noise:
+\begin{equation*}
+\label{eq:exp_synth_expert_rule}
+\hat y_{t,k} \coloneqq 0.8\,y_{t-1} + b_k + \varepsilon_{t,k}.
+\end{equation*}
+We set \((b_0,b_1,b_2,b_3)=(d_1,d_1,d_2,d_2)\), so experts \(\{0,1\}\) are well-calibrated in regime
+\(z_t=1\) and experts \(\{2,3\}\) are well-calibrated in regime \(z_t=2\).
+
+To induce \emph{regime-dependent correlation} under partial feedback, we generate the expert noises as
+\[
+\varepsilon_{t,k} \coloneqq s_{t,g(k)} + \tilde\varepsilon_{t,k},
+\qquad
+g(k)\coloneqq 1+\mathbf{1}\{k\in\{2,3\}\},
+\]
+with independent components \(s_{t,1},s_{t,2},(\tilde\varepsilon_{t,k})_{k}\) and regime-dependent
+variances $s_{t,1}\sim\mathcal{N}(0,\sigma_{z_t,1}^2), s_{t,2}\sim\mathcal{N}(0,\sigma_{z_t,2}^2),
+\tilde\varepsilon_{t,k}\sim\mathcal{N}(0,\sigma_{\mathrm{id}}^2)$, where \((\sigma_{1,1}^2,\sigma_{1,2}^2)=(\sigma_{\mathrm{hi}}^2,\sigma_{\mathrm{lo}}^2)\) and
+\((\sigma_{2,1}^2,\sigma_{2,2}^2)=(\sigma_{\mathrm{lo}}^2,\sigma_{\mathrm{hi}}^2)\) with
+\(\sigma_{\mathrm{hi}}^2\gg\sigma_{\mathrm{lo}}^2\). This makes experts \(\{0,1\}\) strongly
+correlated in regime \(1\) and experts \(\{2,3\}\) strongly correlated in regime \(2\). We report
+averaged cumulative costs in Table~\ref{tab:exp_avg_costs}.
+
+
+\begin{table}[ht]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Averaged cumulative cost \eqref{eq:routing_objective} on synthetic experiment (Section~
+\ref{sec:exp_synthetic_transfer}). Experts are evaluated only when they are available. We report mean \(\pm\) standard error across five runs. Lower is better.}
+\label{tab:exp_avg_costs}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Method & Averaged Cumulative Cost \\
+\midrule
+\textbf{L2D-SLDS} & \(\mathbf{13.58 \pm 0.07}\)  \\
+L2D-SLDS w/o \(\mathbf{g}_t\) & \(14.68 \pm 0.01\)  \\
+\midrule
+LinUCB & \(22.94 \pm 0.01\)  \\
+NeuralUCB & \(21.92 \pm 0.31\)  \\
+Random & \(26.13 \pm 0.25\)   \\
+Always expert 0 & \(23.07\)  \\
+Always expert 1 & \(30.17\)  \\
+Always expert 2 & \(23.05\)  \\
+Always expert 3 & \(29.36\)  \\
+Oracle & \(9.04\)\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Model Configuration.}
+We use $M = 2$ regimes with shared factor dimension $d_g = 1$ and idiosyncratic dimension $d_\alpha = 1$.
+The staleness horizon for pruning is $\Delta_{\max} = 500$. We simply run a small warmup of 100 steps before
+running L2D-SLDS and UCBs. For NeuralUCB we use an RNN with 16 hidden layers. For both UCBs baselines we use
+$\alpha=5$ and a learning rate of $0.001$.
+
+
+
+\textbf{Correlation recovery.}
+Figure~\ref{fig:exp_synthetic_transfer_regime_estimation} compares the regime-0 loss correlation
+structure. The ground truth exhibits a clear block structure: experts \(\{0,1\}\)
+form one correlated group while experts \(\{2,3\}\) form another.
+Under partial feedback, L2D-SLDS more consistently recovers this two-block structure than
+LinUCB/NeuralUCB and the no-\(\mathbf{g}_t\) ablation. Removing \(\mathbf{g}_t\) blurs the separation
+and increases cross-group correlations, consistent with reduced cross-expert information transfer.
+In contrast, LinUCB/NeuralUCB yield noisier or near-uniform correlation estimates, reflecting that
+purely discriminative bandit updates do not maintain a coherent joint belief over experts' latent
+error processes.
+
+\textbf{Results and Analysis.}
+Table~\ref{tab:exp_avg_costs} shows that \textbf{L2D-SLDS} achieves the lowest routing cost under
+partial feedback (\(13.58\pm 0.07\)), improving over LinUCB/NeuralUCB by a wide margin and also
+outperforming the best fixed expert. L2D-SLDS also improves over the no-\(\mathbf{g}_t\) ablation
+(\(14.68\pm 0.01\) vs.\ \(13.58\pm 0.07\)); in this synthetic correlated setting, the shared factor
+provides a mechanism for updating beliefs about unqueried experts from a single queried residual
+(Proposition~\ref{prop:transfer}).
+
+\subsection{Melbourne Daily Temperatures}
+\label{sec:exp_melbourne}
+
+\textbf{Environment.}
+We evaluate L2D-SLDS on the daily minimum temperature series for Melbourne \citep{daily_min_temp_melbourne_kaggle}, using the column 'minimum temperatures' as the target \(y_t\). 
+
+\textbf{Experts and availability.}
+We consider \(K=5\) fixed experts with architectures specified in the configuration:
+experts 0--1 are AR models and experts 2--4 are ARIMA models. To stress-test dynamic availability, we enforce time-varying expert sets by removing expert 2 on
+\(t\in[800,1200]\) and expert 3 on \(t\in[500,1500]\) (inclusive endpoints in the configuration).  
+
+
+\textbf{Model Configuration.}
+We use L2D-SLDS in partial-feedback mode with 4 latent regimes, shared factor dimension
+\(d_g=2\), and idiosyncratic dimension \(d_\alpha=8\). The staleness horizon is \(\Delta_{\max}=2000\), the consultation
+cost is \(\beta=0\). EM adaptation (offline and online) is disabled. Baselines use partial feedback: LinUCB with \(\alpha=5\) and \(L_2\) regularization \(=1.0\), and NeuralUCB with
+\(\alpha=5\), hidden dimension 16, and learning rate \(10^{-3}\).
+
+
+\begin{table}[ht]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\caption{Averaged cumulative cost \eqref{eq:routing_objective} on Melbourne.
+We report the mean $\pm$ standard error over five runs; lower is better.
+All routing policies are evaluated over the full horizon \(T\).}
+\label{tab:exp_avg_costs_melbourne}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Method & Averaged Cumulative Cost  \\
+\midrule
+\textbf{L2D-SLDS} & \(\mathbf{5.69 \pm 0.01}\)  \\
+L2D-SLDS w/o \(\mathbf{g}_t\) & \(5.78 \pm 0.02\) \\
+\midrule
+LinUCB & \(6.10 \pm 0.03\)  \\
+NeuralUCB & \(5.88 \pm 0.04\)  \\
+Random & \(6.71 \pm 0.03\)  \\
+Always expert 0 & \(5.73\)  \\
+Always expert 1 & \(5.72\) \\
+Always expert 2 & \(7.49\) \\
+Always expert 3 & \(7.61\) \\
+Always expert 4 & \(7.29\)  \\
+Oracle & \(4.21\)  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Results and analysis.}
+Table~\ref{tab:exp_avg_costs_melbourne} reports the averaged cumulative routing cost. Under partial feedback, L2D-SLDS attains
+\(5.69 \pm 0.01\), better than both LinUCB (\(6.10 \pm 0.03\)) and NeuralUCB (\(6.71 \pm 0.03\)). Removing the shared factor
+\(\mathbf{g}_t\) degrades performance to \(5.78 \pm 0.02\), a relative increase of \(\approx 16\%\).
+This gap is consistent with the role of \(\mathbf{g}_t\) under censoring: Melbourne exhibits common shocks (e.g., global
+load/temperature patterns) that affect multiple experts similarly, so a shared latent component lets a single queried residual
+update beliefs about \emph{unqueried} experts via the learned cross-expert dependence.
+
+

@@ -1,0 +1,126 @@
+\subsection*{Official Review by Reviewer QbaF}
+
+\textbf{Summary.}
+
+This paper studies online learning to defer under partial feedback and non-stationary conditions, where only the residual of the selected expert is observed at each round. It models expert residuals using a factorized switching linear dynamical system with regime changes, a shared global factor, and expert-specific states. The shared factor links experts, so enables cross-expert information transfer. The routing decision leverages predictive residual distributions with an information-directed sampling to balance exploration and exploitation.
+
+\textbf{Strengths.}
+\begin{enumerate}
+    \item Clear structured modeling of expert residual and good presentation of this model.
+    \item The authors deal with non-stationarity by leveraging factorized switching linear dynamical system which is also enabling closed-form updates and making the method computationally feasible.
+    \item Results on synthetic and real-world datasets are consistent with the paper's claims.
+    \item Figure 2 is a good presentation for understanding this model.
+\end{enumerate}
+
+\textbf{Weaknesses.}
+\begin{enumerate}
+    \item While the proposed model structure is interesting, the paper provides limited discussion on statistical guarantees. So it is difficult to compare the proposed method with existing approaches.
+    \item The computational cost of the proposed method is not clearly analyzed.
+    \item The experimental comparison is limited to LinUCB and NeuralUCB. It is unclear why the method is not compared with other exploration strategies such as Thompson sampling or ensemble sampling (Lu and Van Roy, 2017).
+\end{enumerate}
+
+Lu, Xiuyuan, and Benjamin Van Roy. ``Ensemble sampling.'' \textit{Advances in neural information processing systems} 30 (2017).
+
+\textbf{Soundness:} 3: good
+
+\textbf{Presentation:} 3: good
+
+\textbf{Significance:} 3: good
+
+\textbf{Originality:} 3: good
+
+\textbf{Key Questions For Author.}
+\begin{enumerate}
+    \item Can you provide a clear discussion of the computational complexity of the proposed method? Also, it would be helpful to understand how the runtime compares to the baselines used in the experiments.
+    \item In the LinUCB setting, the paper uses a separate parameter for each expert. It is unclear why a shared parameter is not considered. The standard contextual LinUCB typically assumes a common parameter across arms(experts). It would be helpful to understand the motivation for this choice, and whether comparisons with a shared-parameter LinUCB would change the results.
+\end{enumerate}
+
+\textbf{Limitations:} yes
+
+\textbf{Rating:} 4: Weak accept: Technically solid paper that advances at least one sub-area of AI, with a contribution that others are likely to build on, but with some weaknesses that limit its impact (e.g., limited evaluation). Please use sparingly.
+
+\textbf{Confidence:} 1: Your assessment is an educated guess. The submission is not in your area, or the submission was difficult to understand. Math/other details were not carefully checked.
+
+
+\subsection*{Official Review by Reviewer iNRb}
+
+\textbf{Summary.}
+
+The paper proposes a factorized switching linear dynamical system model for the learning-to-defer problem with dependent data. The problem seeks to randomize among experts to minimize cost in predictions where the choice yields a bandit feedback in that only the cost of the expert chosen is revealed post that choice. The expert's prediction costs are dependent across experts and time.
+
+The idea of the construction of a dynamical system model for belief construction for the experts' prediction cost is well conceived. These costs are correlated across each other and over time. Modeling it as a switching linear dynamical system allows the authors to address the learning-to-defer problem with correlated data. The linear-Gaussian setup has the advantage of predictions to be all based on Gaussian updates, which is a plus.
+
+There are perhaps four features of the whole model:
+\begin{enumerate}
+    \item Context-dependent regime switching
+    \item Linear dynamics with two types of factors (global and expert-dependent)
+    \item Information-directed sampling for exploration of experts
+    \item Dynamic registry management
+\end{enumerate}
+
+The whole setup covers all bases of various modeling needs that this problem domain might need. Since the paper presents a new method without theoretical analysis, a more comprehensive experimental validation would have made a better case.
+
+In practice, the predicted costs require model parameters such as , etc., and these would need to be estimated from data. The main body of the paper does not talk about estimation at all. It is presented in Algorithm 3 in the appendix. Once you factor in an estimation phase, the sample complexity will depend crucially on the size of the model. With that in mind, the whole idea of regimes and its soft-max-based model appears somewhat of an overkill. A discussion to that effect should be included.
+
+The paper spends a lot of real estate in ``developing'' the model, but it does not quite provide a straightforward set of algorithms to implement it. It would have been easier if the linear-Gaussian model was presented way before and then it was explained.
+
+\textbf{Soundness:} 3: good
+
+\textbf{Presentation:} 2: fair
+
+\textbf{Significance:} 3: good
+
+\textbf{Originality:} 2: fair
+
+\textbf{Key Questions For Author.}
+
+Please see my comments about the strengths and weaknesses regarding the model complexity.
+
+\textbf{Limitations:} No
+
+\textbf{Rating:} 3: Weak reject: A paper with clear merits, but also some weaknesses, which overall outweigh the merits. Papers in this category require revisions before they can be meaningfully built upon by others. Please use sparingly.
+
+\textbf{Confidence:} 3: You are fairly confident in your assessment. It is possible that you did not understand some parts of the submission or that you are unfamiliar with some pieces of related work. Math/other details were not carefully checked.
+
+
+\subsection*{Official Review by Reviewer W5VY}
+
+\textbf{Summary.}
+
+The paper studies the problem of learning to defer in non-stationary time series settings with partial feedback and time-varying expert availability. The goal is to determine, at each round and for each context, which expert to query so that the cumulative cost incurred by these queries is minimized over time. The authors propose modeling the experts' predictions using a linear Gaussian dynamic model that incorporates both a shared global factor across experts and individual expert-specific factors. This model is combined with an IDS-inspired routing rule to minimize cumulative cost. The authors also conduct experiments to demonstrate the effectiveness of their method.
+
+\textbf{Strengths.}
+\begin{enumerate}
+    \item The authors propose using a linear Gaussian dynamic model to represent the experts' predictions. This time-series perspective for modeling experts in bandit settings has been relatively less explored.
+    \item The authors further introduce a model that includes both a shared global factor to capture cross-expert dependencies and individual factors to account for heterogeneity across experts. This modeling choice is also relatively underexplored in the literature and contributes to the novelty of the proposed method.
+    \item The proposed methodology achieves lower cumulative cost in the numerical experiments, demonstrating its potential effectiveness.
+\end{enumerate}
+
+\textbf{Weaknesses.}
+\begin{enumerate}
+    \item I have two main concerns regarding the paper. The first relates to presentation. I found the paper difficult to read and hard to follow. This stems from several reasons. First, the paper introduces many technical terms and abbreviations without sufficient explanation, which hinders accessibility for a broader audience. For example, the abstract includes abbreviations such as L2D-SLDS and IDS without spelling out their full names. Moreover, some key modeling components are introduced without clear motivation. For instance, the shared factor and individual states are introduced at the beginning of Section 4.2, but their connection to the problem only becomes clear much later in Equation (13).
+    \item My second concern relates to the evaluation. As a methodology paper, the work would benefit from either stronger theoretical guarantees or more comprehensive empirical validation. While the paper provides some theoretical analysis, it does not establish learning-theoretic results such as cumulative regret bounds or minimax optimality. The empirical evaluation is also somewhat limited. The synthetic experiment is relatively simple, relying on a linear AR(1) model, and the comparisons are restricted to classical bandit approaches such as LinUCB and NeuralUCB. Overall, neither the theoretical results nor the empirical evaluation fully justify the proposed methodology.
+    \item While $C_k(x, y)$ is explicitly defined in Equation (1), $C_I(x, y)$ is not clearly defined when $I$ is a set. It is unclear whether it represents the sum of the individual costs for $k \in I$, or a vector containing all such individual costs.
+\end{enumerate}
+
+\textbf{Soundness:} 3: good
+
+\textbf{Presentation:} 2: fair
+
+\textbf{Significance:} 2: fair
+
+\textbf{Originality:} 3: good
+
+\textbf{Key Questions For Author.}
+\begin{enumerate}
+    \item What is the definition of $C_I$ on Line 81, Page 2?
+    \item Would it be possible to establish an information-theoretic lower bound for the cumulative cost under the proposed setting, and to determine whether the regret of the proposed method matches this lower bound?
+\end{enumerate}
+
+\textbf{Limitations.}
+
+I might have missed something, but I did not find adequate discussion of the limitations of the proposed methodology in the paper.
+
+\textbf{Rating:} 3: Weak reject: A paper with clear merits, but also some weaknesses, which overall outweigh the merits. Papers in this category require revisions before they can be meaningfully built upon by others. Please use sparingly.
+
+\textbf{Confidence:} 2: You are willing to defend your assessment, but it is quite likely that you did not understand the central parts of the submission or that you are unfamiliar with some pieces of related work. Math/other details were not carefully checked.

@@ -1,0 +1,65 @@
+\section{Background}
+\label{sec:background}
+\subsection{Offline Learning-to-Defer}
+\label{sec:background_l2d}
+We briefly recall the standard \emph{offline} learning-to-defer (L2D) setup
+\citep{madras2018predict, mozannar2021consistent, Narasimhan, mao2024regressionmultiexpertdeferral}.
+In its simplest form, one observes i.i.d.\ samples \((\mathbf{x},\vy)\sim\mathcal{D}\), where
+\(\mathbf{x}\in\mathcal{X}\subseteq\mathbb{R}^{d}\) and \(\vy\in\mathcal{Y}\subseteq\mathbb{R}^{d_y}\).
+There is a fixed registry \(\mathcal{K}=\{1,\dots,K\}\) of experts (or predictors), each providing a prediction
+\(\vhaty_k(\mathbf{x})\in\mathcal{Y}\) when queried.  Given a per-expert consultation fee \(\beta_k\ge 0\) and a loss on the prediction error
+\(\psi:\mathbb{R}^{d_y}\to\mathbb{R}_{\ge 0}\), the incurred cost of routing \((\mathbf{x},\vy)\) to
+expert \(k\) is
+\begin{equation}
+\label{eq:l2d_cost}
+C_k(\mathbf{x},\vy)\coloneqq \psi\big(\vhaty_k(\mathbf{x})-\vy\big)+\beta_k.
+\end{equation}
+A router is a policy \(\pi:\mathcal{X}\to\Delta^{K-1}\) mapping each input to a
+distribution over experts. Its population objective is the expected routing cost
+\begin{equation}
+\label{eq:l2d_objective}
+\mathcal{R}(\pi)
+\coloneqq
+\mathbb{E}_{(\mathbf{x},\vy)\sim\mathcal{D}}\left[\sum_{k=1}^{K}\pi(k\mid \mathbf{x})\,C_k(\mathbf{x},\vy)\right].
+\end{equation}
+Conditioned on \(\mathbf{x}\), the Bayes-optimal deterministic router selects
+\begin{equation}
+\label{eq:l2d_bayes_rule}
+k^\star(\mathbf{x})
+\in
+\arg\min_{k\in\mathcal{K}} \ \mathbb{E}\left[C_k(\mathbf{x},\vy)\mid \mathbf{x}\right].
+\end{equation}
+
+If the router selects expert \(I\in\mathcal{K}\) on input \(\mathbf{x}\) with outcome \(\vy\), the incurred cost is \(C_I(\mathbf{x},\vy)\).
+Thus, conditioned on \(\mathbf{x}\), the Bayes-optimal deterministic router chooses the expert with the smallest conditional expected cost, as in \eqref{eq:l2d_bayes_rule}.
+
+Most prior works learn \(\pi\) from a fixed dataset by empirical risk minimization on a dedicated surrogate loss \citep{mozannar2021consistent}, often
+assuming access to all experts' predictions \((\vhaty_k(\mathbf{x}_i))_{k=1}^K\) (or equivalently all
+costs \((C_k(\mathbf{x}_i,\vy_i))_{k=1}^K\)) for each training sample. Practical algorithms
+parameterize \(\pi\) with a model (e.g., a neural network) and may use surrogates or relaxations to
+handle discrete routing decisions and to obtain statistical guarantees
+\citep{mozannar2021consistent, Verma2022LearningTD, mao2024regressionmultiexpertdeferral}.
+
+\subsection{Non-Stationary Time Series and SSMs}
+\label{sec:background_slds}
+
+The offline L2D formulation above assumes i.i.d.\ data under a fixed distribution \(\mathcal{D}\).
+In time-series, the data-generating process is typically \emph{non-stationary}: the joint law of a process need not be
+invariant to time shifts \citep{hamilton2020time}.
+In many learning problems with observed contexts, this manifests as \emph{time-varying conditional
+laws} (concept drift), i.e., the conditional distribution of \(\vy_t\) given \(\mathbf{x}_t\) can
+evolve with \(t\).
+
+State-space models (SSMs) provide a standard probabilistic representation of such non-stationarity by
+introducing a latent state \(\mathbf{h}_t\) capturing time-varying conditions \citep{rabiner2003introduction, shumway2006time}.
+In our setting, the observation will later correspond to an expert residual.
+In a linear-Gaussian SSM,
+\begin{align}
+    \mathbf{h}_t &= A \mathbf{h}_{t-1} + w_t,\qquad w_t\sim \mathcal{N}(0,Q),\\
+    r_t &= C \mathbf{h}_t + v_t,\qquad v_t\sim \mathcal{N}(0,R),
+\end{align}
+and the Kalman filter \citep{kalman1960new, welch1995introduction} yields tractable online posteriors and predictive
+uncertainties.
+Switching linear dynamical systems (SLDSs) \citep{bengio1994input, ghahramani2000variational, fox2008nonparametric, hu2024modeling, geadah2024parsing} enrich this model with a discrete regime variable
+\(z_t\in\{1,\dots,M\}\) selecting among multiple linear-Gaussian dynamics; conditioned on \(z_t=m\),
+\((A,Q,C,R)\) are replaced by \((A_m,Q_m,C_m,R_m)\).

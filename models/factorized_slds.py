@@ -194,6 +194,8 @@ class FactorizedSLDS(SLDSIMMRouter):
         self.transition_input_dim: Optional[int] = None
         self.transition_device: Optional["torch.device"] = None
         self._transition_device_str = transition_device
+        self.transition_log_cfg: Optional[dict] = None
+        self.transition_log_label: Optional[str] = None
         self.transition_mode = str(transition_mode)
         if self.transition_mode not in ("attention", "linear"):
             raise ValueError("transition_mode must be 'attention' or 'linear'.")
@@ -282,8 +284,6 @@ class FactorizedSLDS(SLDSIMMRouter):
         self._online_em_suspended = False
         self._em_records: List[Dict[str, Any]] = []
         self._em_records_start: Optional[int] = None
-        self.transition_log_cfg: Optional[dict] = None
-        self.transition_log_label: Optional[str] = None
 
         # Debug diagnostics for tracking underperformance
         self._debug_diag_cfg: Dict[str, Any] = {
@@ -4068,7 +4068,16 @@ class FactorizedSLDS(SLDSIMMRouter):
                     )
                     metric_label = "val_roll_nll_mean"
                 else:
-                    score = self._evaluate_nll(
+                    # Evaluate the validation tail conditionally on the training
+                    # prefix. Resetting to default beliefs here would score the
+                    # wrong prediction problem and ignore all information
+                    # accumulated on the training block.
+                    score = self._evaluate_nll_with_prefix(
+                        train_ctx,
+                        train_avail,
+                        train_actions,
+                        train_residuals,
+                        train_residuals_full if full_feedback else None,
                         val_ctx,
                         val_avail,
                         val_actions,

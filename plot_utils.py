@@ -24,6 +24,11 @@ from environment.synthetic_env import SyntheticTimeSeriesEnv
 from models.l2d_baseline import L2D
 from models.linucb_baseline import LinUCB
 from models.neuralucb_baseline import NeuralUCB
+from models.shared_linear_bandits import (
+    LinearEnsembleSampling,
+    LinearThompsonSampling,
+    SharedLinUCB,
+)
 from router_eval import (
     run_router_on_env,
     run_l2d_on_env,
@@ -31,7 +36,11 @@ from router_eval import (
     run_oracle_on_env,
     compute_predictions_from_choices,
     run_linucb_on_env,
-    run_neuralucb_on_env, run_factored_router_on_env,
+    run_neuralucb_on_env,
+    run_shared_linucb_on_env,
+    run_lin_ts_on_env,
+    run_ensemble_sampling_on_env,
+    run_factored_router_on_env,
     run_router_on_env_em_split,
     get_transition_log_store,
     get_transition_log_config,
@@ -115,7 +124,13 @@ def get_model_color(name: str) -> str:
         "l2d_sw": "tab:pink",
         "linucb_partial": "tab:olive",
         "linucb_full": "tab:cyan",
+        "shared_linucb_partial": "tab:green",
+        "shared_linucb_full": "tab:green",
         "neuralucb": "tab:brown",
+        "lin_ts_partial": "tab:orange",
+        "lin_ts_full": "tab:orange",
+        "ensemble_sampling_partial": "tab:red",
+        "ensemble_sampling_full": "tab:red",
         "factorized_partial": "tab:purple",
         "factorized_full": "tab:red",
         "no_g_partial": "tab:green",
@@ -559,8 +574,14 @@ def evaluate_routers_and_baselines(
     l2d_sw_baseline: Optional[L2D] = None,
     linucb_partial=None,
     linucb_full=None,
+    shared_linucb_partial=None,
+    shared_linucb_full=None,
     neuralucb_partial=None,
     neuralucb_full=None,
+    lin_ts_partial=None,
+    lin_ts_full=None,
+    ensemble_sampling_partial=None,
+    ensemble_sampling_full=None,
     router_partial_neural=None,
     router_full_neural=None,
     seed: int = 0,
@@ -604,8 +625,14 @@ def evaluate_routers_and_baselines(
         l2d_sw_baseline,
         linucb_partial,
         linucb_full,
+        shared_linucb_partial,
+        shared_linucb_full,
         neuralucb_partial,
         neuralucb_full,
+        lin_ts_partial,
+        lin_ts_full,
+        ensemble_sampling_partial,
+        ensemble_sampling_full,
     ):
         _reset_router(baseline)
     def _get_em_tk_anchor(*routers) -> Optional[int]:
@@ -923,6 +950,24 @@ def evaluate_routers_and_baselines(
     else:
         costs_linucb_full, choices_linucb_full = None, None
 
+    if shared_linucb_partial is not None:
+        costs_shared_linucb_partial, choices_shared_linucb_partial = (
+            run_shared_linucb_on_env(
+                shared_linucb_partial, env, t_start=baseline_start_t
+            )
+        )
+    else:
+        costs_shared_linucb_partial, choices_shared_linucb_partial = None, None
+
+    if shared_linucb_full is not None:
+        costs_shared_linucb_full, choices_shared_linucb_full = (
+            run_shared_linucb_on_env(
+                shared_linucb_full, env, t_start=baseline_start_t
+            )
+        )
+    else:
+        costs_shared_linucb_full, choices_shared_linucb_full = None, None
+
     # Run NeuralUCB baselines if provided
     if neuralucb_partial is not None:
         costs_neuralucb_partial, choices_neuralucb_partial = run_neuralucb_on_env(
@@ -937,6 +982,36 @@ def evaluate_routers_and_baselines(
         )
     else:
         costs_neuralucb_full, choices_neuralucb_full = None, None
+
+    if lin_ts_partial is not None:
+        costs_lin_ts_partial, choices_lin_ts_partial = run_lin_ts_on_env(
+            lin_ts_partial, env, t_start=baseline_start_t
+        )
+    else:
+        costs_lin_ts_partial, choices_lin_ts_partial = None, None
+
+    if lin_ts_full is not None:
+        costs_lin_ts_full, choices_lin_ts_full = run_lin_ts_on_env(
+            lin_ts_full, env, t_start=baseline_start_t
+        )
+    else:
+        costs_lin_ts_full, choices_lin_ts_full = None, None
+
+    if ensemble_sampling_partial is not None:
+        costs_ensemble_partial, choices_ensemble_partial = (
+            run_ensemble_sampling_on_env(
+                ensemble_sampling_partial, env, t_start=baseline_start_t
+            )
+        )
+    else:
+        costs_ensemble_partial, choices_ensemble_partial = None, None
+
+    if ensemble_sampling_full is not None:
+        costs_ensemble_full, choices_ensemble_full = run_ensemble_sampling_on_env(
+            ensemble_sampling_full, env, t_start=baseline_start_t
+        )
+    else:
+        costs_ensemble_full, choices_ensemble_full = None, None
 
     # Common consultation costs (assumed shared across methods)
     beta_source = router_partial if router_partial is not None else router_full
@@ -958,8 +1033,14 @@ def evaluate_routers_and_baselines(
             l2d_sw_baseline,
             linucb_partial,
             linucb_full,
+            shared_linucb_partial,
+            shared_linucb_full,
             neuralucb_partial,
             neuralucb_full,
+            lin_ts_partial,
+            lin_ts_full,
+            ensemble_sampling_partial,
+            ensemble_sampling_full,
         )
         for candidate in candidates:
             if candidate is not None and hasattr(candidate, "beta"):
@@ -1069,6 +1150,16 @@ def evaluate_routers_and_baselines(
         if choices_linucb_full is not None
         else None
     )
+    preds_shared_linucb_partial = (
+        compute_predictions_from_choices(env, choices_shared_linucb_partial)
+        if choices_shared_linucb_partial is not None
+        else None
+    )
+    preds_shared_linucb_full = (
+        compute_predictions_from_choices(env, choices_shared_linucb_full)
+        if choices_shared_linucb_full is not None
+        else None
+    )
     preds_neuralucb_partial = (
         compute_predictions_from_choices(env, choices_neuralucb_partial)
         if choices_neuralucb_partial is not None
@@ -1077,6 +1168,26 @@ def evaluate_routers_and_baselines(
     preds_neuralucb_full = (
         compute_predictions_from_choices(env, choices_neuralucb_full)
         if choices_neuralucb_full is not None
+        else None
+    )
+    preds_lin_ts_partial = (
+        compute_predictions_from_choices(env, choices_lin_ts_partial)
+        if choices_lin_ts_partial is not None
+        else None
+    )
+    preds_lin_ts_full = (
+        compute_predictions_from_choices(env, choices_lin_ts_full)
+        if choices_lin_ts_full is not None
+        else None
+    )
+    preds_ensemble_partial = (
+        compute_predictions_from_choices(env, choices_ensemble_partial)
+        if choices_ensemble_partial is not None
+        else None
+    )
+    preds_ensemble_full = (
+        compute_predictions_from_choices(env, choices_ensemble_full)
+        if choices_ensemble_full is not None
         else None
     )
     preds_random = compute_predictions_from_choices(env, choices_random)
@@ -1149,8 +1260,18 @@ def evaluate_routers_and_baselines(
         costs_l2d_sw = _mask_em_costs(costs_l2d_sw, em_tk_anchor)
         costs_linucb_partial = _mask_em_costs(costs_linucb_partial, em_tk_anchor)
         costs_linucb_full = _mask_em_costs(costs_linucb_full, em_tk_anchor)
+        costs_shared_linucb_partial = _mask_em_costs(
+            costs_shared_linucb_partial, em_tk_anchor
+        )
+        costs_shared_linucb_full = _mask_em_costs(
+            costs_shared_linucb_full, em_tk_anchor
+        )
         costs_neuralucb_partial = _mask_em_costs(costs_neuralucb_partial, em_tk_anchor)
         costs_neuralucb_full = _mask_em_costs(costs_neuralucb_full, em_tk_anchor)
+        costs_lin_ts_partial = _mask_em_costs(costs_lin_ts_partial, em_tk_anchor)
+        costs_lin_ts_full = _mask_em_costs(costs_lin_ts_full, em_tk_anchor)
+        costs_ensemble_partial = _mask_em_costs(costs_ensemble_partial, em_tk_anchor)
+        costs_ensemble_full = _mask_em_costs(costs_ensemble_full, em_tk_anchor)
         costs_random = _mask_em_costs(costs_random, em_tk_anchor)
         costs_oracle = _mask_em_costs(costs_oracle, em_tk_anchor)
 
@@ -1216,8 +1337,14 @@ def evaluate_routers_and_baselines(
     choices_l2d_sw_plot = choices_l2d_sw
     choices_linucb_partial_plot = choices_linucb_partial
     choices_linucb_full_plot = choices_linucb_full
+    choices_shared_linucb_partial_plot = choices_shared_linucb_partial
+    choices_shared_linucb_full_plot = choices_shared_linucb_full
     choices_neuralucb_partial_plot = choices_neuralucb_partial
     choices_neuralucb_full_plot = choices_neuralucb_full
+    choices_lin_ts_partial_plot = choices_lin_ts_partial
+    choices_lin_ts_full_plot = choices_lin_ts_full
+    choices_ensemble_partial_plot = choices_ensemble_partial
+    choices_ensemble_full_plot = choices_ensemble_full
     choices_random_plot = choices_random
     choices_oracle_plot = choices_oracle
     if em_tk_anchor is not None:
@@ -1235,11 +1362,27 @@ def evaluate_routers_and_baselines(
         choices_linucb_full_plot = _mask_em_choices(
             choices_linucb_full, em_tk_anchor
         )
+        choices_shared_linucb_partial_plot = _mask_em_choices(
+            choices_shared_linucb_partial, em_tk_anchor
+        )
+        choices_shared_linucb_full_plot = _mask_em_choices(
+            choices_shared_linucb_full, em_tk_anchor
+        )
         choices_neuralucb_partial_plot = _mask_em_choices(
             choices_neuralucb_partial, em_tk_anchor
         )
         choices_neuralucb_full_plot = _mask_em_choices(
             choices_neuralucb_full, em_tk_anchor
+        )
+        choices_lin_ts_partial_plot = _mask_em_choices(
+            choices_lin_ts_partial, em_tk_anchor
+        )
+        choices_lin_ts_full_plot = _mask_em_choices(choices_lin_ts_full, em_tk_anchor)
+        choices_ensemble_partial_plot = _mask_em_choices(
+            choices_ensemble_partial, em_tk_anchor
+        )
+        choices_ensemble_full_plot = _mask_em_choices(
+            choices_ensemble_full, em_tk_anchor
         )
         choices_random_plot = _mask_em_choices(choices_random, em_tk_anchor)
         choices_oracle_plot = _mask_em_choices(choices_oracle, em_tk_anchor)
@@ -1350,6 +1493,16 @@ def evaluate_routers_and_baselines(
     avg_cost_linucb_full = (
         float(np.nanmean(costs_linucb_full)) if costs_linucb_full is not None else None
     )
+    avg_cost_shared_linucb_partial = (
+        float(np.nanmean(costs_shared_linucb_partial))
+        if costs_shared_linucb_partial is not None
+        else None
+    )
+    avg_cost_shared_linucb_full = (
+        float(np.nanmean(costs_shared_linucb_full))
+        if costs_shared_linucb_full is not None
+        else None
+    )
     avg_cost_neuralucb_partial = (
         float(np.nanmean(costs_neuralucb_partial))
         if costs_neuralucb_partial is not None
@@ -1358,6 +1511,22 @@ def evaluate_routers_and_baselines(
     avg_cost_neuralucb_full = (
         float(np.nanmean(costs_neuralucb_full))
         if costs_neuralucb_full is not None
+        else None
+    )
+    avg_cost_lin_ts_partial = (
+        float(np.nanmean(costs_lin_ts_partial)) if costs_lin_ts_partial is not None else None
+    )
+    avg_cost_lin_ts_full = (
+        float(np.nanmean(costs_lin_ts_full)) if costs_lin_ts_full is not None else None
+    )
+    avg_cost_ensemble_partial = (
+        float(np.nanmean(costs_ensemble_partial))
+        if costs_ensemble_partial is not None
+        else None
+    )
+    avg_cost_ensemble_full = (
+        float(np.nanmean(costs_ensemble_full))
+        if costs_ensemble_full is not None
         else None
     )
     avg_cost_random = float(np.nanmean(costs_random))
@@ -1398,8 +1567,14 @@ def evaluate_routers_and_baselines(
     last_cost_l2d_sw = _mean_last(costs_l2d_sw)
     last_cost_linucb_partial = _mean_last(costs_linucb_partial)
     last_cost_linucb_full = _mean_last(costs_linucb_full)
+    last_cost_shared_linucb_partial = _mean_last(costs_shared_linucb_partial)
+    last_cost_shared_linucb_full = _mean_last(costs_shared_linucb_full)
     last_cost_neuralucb_partial = _mean_last(costs_neuralucb_partial)
     last_cost_neuralucb_full = _mean_last(costs_neuralucb_full)
+    last_cost_lin_ts_partial = _mean_last(costs_lin_ts_partial)
+    last_cost_lin_ts_full = _mean_last(costs_lin_ts_full)
+    last_cost_ensemble_partial = _mean_last(costs_ensemble_partial)
+    last_cost_ensemble_full = _mean_last(costs_ensemble_full)
     last_cost_random = _mean_last(costs_random)
     last_cost_oracle = _mean_last(costs_oracle)
 
@@ -1479,10 +1654,28 @@ def evaluate_routers_and_baselines(
         print(f"LinUCB (partial feedback):     {_fmt(avg_cost_linucb_partial)}")
     if avg_cost_linucb_full is not None:
         print(f"LinUCB (full feedback):        {_fmt(avg_cost_linucb_full)}")
+    if avg_cost_shared_linucb_partial is not None:
+        print(
+            f"SharedLinUCB (partial fb):     {_fmt(avg_cost_shared_linucb_partial)}"
+        )
+    if avg_cost_shared_linucb_full is not None:
+        print(
+            f"SharedLinUCB (full fb):        {_fmt(avg_cost_shared_linucb_full)}"
+        )
     if avg_cost_neuralucb_partial is not None:
         print(f"NeuralUCB (partial feedback):  {_fmt(avg_cost_neuralucb_partial)}")
     if avg_cost_neuralucb_full is not None:
         print(f"NeuralUCB (full feedback):     {_fmt(avg_cost_neuralucb_full)}")
+    if avg_cost_lin_ts_partial is not None:
+        print(f"LinTS (partial feedback):      {_fmt(avg_cost_lin_ts_partial)}")
+    if avg_cost_lin_ts_full is not None:
+        print(f"LinTS (full feedback):         {_fmt(avg_cost_lin_ts_full)}")
+    if avg_cost_ensemble_partial is not None:
+        print(
+            f"EnsembleSampling (partial fb): {_fmt(avg_cost_ensemble_partial)}"
+        )
+    if avg_cost_ensemble_full is not None:
+        print(f"EnsembleSampling (full fb):    {_fmt(avg_cost_ensemble_full)}")
     print(f"Random baseline:               {_fmt(avg_cost_random)}")
     print(f"Oracle baseline:               {_fmt(avg_cost_oracle)}")
     for j in range(env.num_experts):
@@ -1555,10 +1748,30 @@ def evaluate_routers_and_baselines(
             print(f"LinUCB (partial feedback):     {_fmt(last_cost_linucb_partial)}")
         if last_cost_linucb_full is not None:
             print(f"LinUCB (full feedback):        {_fmt(last_cost_linucb_full)}")
+        if last_cost_shared_linucb_partial is not None:
+            print(
+                f"SharedLinUCB (partial fb):     {_fmt(last_cost_shared_linucb_partial)}"
+            )
+        if last_cost_shared_linucb_full is not None:
+            print(
+                f"SharedLinUCB (full fb):        {_fmt(last_cost_shared_linucb_full)}"
+            )
         if last_cost_neuralucb_partial is not None:
             print(f"NeuralUCB (partial feedback):  {_fmt(last_cost_neuralucb_partial)}")
         if last_cost_neuralucb_full is not None:
             print(f"NeuralUCB (full feedback):     {_fmt(last_cost_neuralucb_full)}")
+        if last_cost_lin_ts_partial is not None:
+            print(f"LinTS (partial feedback):      {_fmt(last_cost_lin_ts_partial)}")
+        if last_cost_lin_ts_full is not None:
+            print(f"LinTS (full feedback):         {_fmt(last_cost_lin_ts_full)}")
+        if last_cost_ensemble_partial is not None:
+            print(
+                f"EnsembleSampling (partial fb): {_fmt(last_cost_ensemble_partial)}"
+            )
+        if last_cost_ensemble_full is not None:
+            print(
+                f"EnsembleSampling (full fb):    {_fmt(last_cost_ensemble_full)}"
+            )
         if last_cost_random is not None:
             print(f"Random baseline:               {_fmt(last_cost_random)}")
         if last_cost_oracle is not None:
@@ -1843,10 +2056,22 @@ def evaluate_routers_and_baselines(
         entries.append(("linucb_partial", choices_linucb_partial_plot))
     if choices_linucb_full_plot is not None:
         entries.append(("linucb_full", choices_linucb_full_plot))
+    if choices_shared_linucb_partial_plot is not None:
+        entries.append(("shared_linucb_partial", choices_shared_linucb_partial_plot))
+    if choices_shared_linucb_full_plot is not None:
+        entries.append(("shared_linucb_full", choices_shared_linucb_full_plot))
     if choices_neuralucb_partial_plot is not None:
         entries.append(("neuralucb_partial", choices_neuralucb_partial_plot))
     if choices_neuralucb_full_plot is not None:
         entries.append(("neuralucb_full", choices_neuralucb_full_plot))
+    if choices_lin_ts_partial_plot is not None:
+        entries.append(("lin_ts_partial", choices_lin_ts_partial_plot))
+    if choices_lin_ts_full_plot is not None:
+        entries.append(("lin_ts_full", choices_lin_ts_full_plot))
+    if choices_ensemble_partial_plot is not None:
+        entries.append(("ensemble_sampling_partial", choices_ensemble_partial_plot))
+    if choices_ensemble_full_plot is not None:
+        entries.append(("ensemble_sampling_full", choices_ensemble_full_plot))
 
     # ---------------------------------------------
     # Uncomment the following lines to print selection distributions
@@ -1914,8 +2139,16 @@ def evaluate_routers_and_baselines(
     )
     preds_linucb_partial_plot = _shift_preds_for_plot(preds_linucb_partial)
     preds_linucb_full_plot = _shift_preds_for_plot(preds_linucb_full)
+    preds_shared_linucb_partial_plot = _shift_preds_for_plot(
+        preds_shared_linucb_partial
+    )
+    preds_shared_linucb_full_plot = _shift_preds_for_plot(preds_shared_linucb_full)
     preds_neuralucb_partial_plot = _shift_preds_for_plot(preds_neuralucb_partial)
     preds_neuralucb_full_plot = _shift_preds_for_plot(preds_neuralucb_full)
+    preds_lin_ts_partial_plot = _shift_preds_for_plot(preds_lin_ts_partial)
+    preds_lin_ts_full_plot = _shift_preds_for_plot(preds_lin_ts_full)
+    preds_ensemble_partial_plot = _shift_preds_for_plot(preds_ensemble_partial)
+    preds_ensemble_full_plot = _shift_preds_for_plot(preds_ensemble_full)
     preds_random_plot = _shift_preds_for_plot(preds_random)
     preds_oracle_plot = _shift_preds_for_plot(preds_oracle)
 
@@ -2090,6 +2323,24 @@ def evaluate_routers_and_baselines(
             linestyle="-",
             alpha=0.8,
         )
+    if preds_shared_linucb_partial_plot is not None:
+        ax_pred.plot(
+            t_grid_plot,
+            preds_shared_linucb_partial_plot,
+            label="SharedLinUCB (partial)",
+            color=get_model_color("shared_linucb_partial"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_shared_linucb_full_plot is not None:
+        ax_pred.plot(
+            t_grid_plot,
+            preds_shared_linucb_full_plot,
+            label="SharedLinUCB (full)",
+            color=get_model_color("shared_linucb_full"),
+            linestyle="--",
+            alpha=0.8,
+        )
     if preds_neuralucb_partial_plot is not None:
         ax_pred.plot(
             t_grid_plot,
@@ -2105,6 +2356,42 @@ def evaluate_routers_and_baselines(
             preds_neuralucb_full_plot,
             label="NeuralUCB (full)",
             color=get_model_color("neuralucb"),
+            linestyle="--",
+            alpha=0.8,
+        )
+    if preds_lin_ts_partial_plot is not None:
+        ax_pred.plot(
+            t_grid_plot,
+            preds_lin_ts_partial_plot,
+            label="LinTS (partial)",
+            color=get_model_color("lin_ts_partial"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_lin_ts_full_plot is not None:
+        ax_pred.plot(
+            t_grid_plot,
+            preds_lin_ts_full_plot,
+            label="LinTS (full)",
+            color=get_model_color("lin_ts_full"),
+            linestyle="--",
+            alpha=0.8,
+        )
+    if preds_ensemble_partial_plot is not None:
+        ax_pred.plot(
+            t_grid_plot,
+            preds_ensemble_partial_plot,
+            label="EnsembleSampling (partial)",
+            color=get_model_color("ensemble_sampling_partial"),
+            linestyle="-",
+            alpha=0.8,
+        )
+    if preds_ensemble_full_plot is not None:
+        ax_pred.plot(
+            t_grid_plot,
+            preds_ensemble_full_plot,
+            label="EnsembleSampling (full)",
+            color=get_model_color("ensemble_sampling_full"),
             linestyle="--",
             alpha=0.8,
         )
@@ -2177,6 +2464,16 @@ def evaluate_routers_and_baselines(
     avg_linucb_full_t = (
         _running_avg(costs_linucb_full) if costs_linucb_full is not None else None
     )
+    avg_shared_linucb_partial_t = (
+        _running_avg(costs_shared_linucb_partial)
+        if costs_shared_linucb_partial is not None
+        else None
+    )
+    avg_shared_linucb_full_t = (
+        _running_avg(costs_shared_linucb_full)
+        if costs_shared_linucb_full is not None
+        else None
+    )
     avg_neuralucb_partial_t = (
         _running_avg(costs_neuralucb_partial)
         if costs_neuralucb_partial is not None
@@ -2185,6 +2482,24 @@ def evaluate_routers_and_baselines(
     avg_neuralucb_full_t = (
         _running_avg(costs_neuralucb_full)
         if costs_neuralucb_full is not None
+        else None
+    )
+    avg_lin_ts_partial_t = (
+        _running_avg(costs_lin_ts_partial)
+        if costs_lin_ts_partial is not None
+        else None
+    )
+    avg_lin_ts_full_t = (
+        _running_avg(costs_lin_ts_full) if costs_lin_ts_full is not None else None
+    )
+    avg_ensemble_partial_t = (
+        _running_avg(costs_ensemble_partial)
+        if costs_ensemble_partial is not None
+        else None
+    )
+    avg_ensemble_full_t = (
+        _running_avg(costs_ensemble_full)
+        if costs_ensemble_full is not None
         else None
     )
     avg_factorized_partial_t = (
@@ -2344,6 +2659,22 @@ def evaluate_routers_and_baselines(
             color=get_model_color("linucb_full"),
             linestyle="-",
         )
+    if avg_shared_linucb_partial_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_shared_linucb_partial_t,
+            label="SharedLinUCB (partial, avg cost)",
+            color=get_model_color("shared_linucb_partial"),
+            linestyle="-",
+        )
+    if avg_shared_linucb_full_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_shared_linucb_full_t,
+            label="SharedLinUCB (full, avg cost)",
+            color=get_model_color("shared_linucb_full"),
+            linestyle="--",
+        )
     if avg_neuralucb_partial_t is not None:
         ax_cost.plot(
             t_grid,
@@ -2358,6 +2689,38 @@ def evaluate_routers_and_baselines(
             avg_neuralucb_full_t,
             label="NeuralUCB (full, avg cost)",
             color=get_model_color("neuralucb"),
+            linestyle="--",
+        )
+    if avg_lin_ts_partial_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_lin_ts_partial_t,
+            label="LinTS (partial, avg cost)",
+            color=get_model_color("lin_ts_partial"),
+            linestyle="-",
+        )
+    if avg_lin_ts_full_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_lin_ts_full_t,
+            label="LinTS (full, avg cost)",
+            color=get_model_color("lin_ts_full"),
+            linestyle="--",
+        )
+    if avg_ensemble_partial_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_ensemble_partial_t,
+            label="EnsembleSampling (partial, avg cost)",
+            color=get_model_color("ensemble_sampling_partial"),
+            linestyle="-",
+        )
+    if avg_ensemble_full_t is not None:
+        ax_cost.plot(
+            t_grid,
+            avg_ensemble_full_t,
+            label="EnsembleSampling (full, avg cost)",
+            color=get_model_color("ensemble_sampling_full"),
             linestyle="--",
         )
     if avg_factorized_partial_t is not None:
@@ -3668,7 +4031,7 @@ def _collect_factorized_diagnostics(
 
 
 def _collect_ucb_predicted_losses(
-    baseline: LinUCB | NeuralUCB,
+    baseline: LinUCB | NeuralUCB | SharedLinUCB,
     env: SyntheticTimeSeriesEnv,
     t_start: int = 1,
     t_end: Optional[int] = None,
@@ -3693,6 +4056,12 @@ def _collect_ucb_predicted_losses(
             for k in range(env.num_experts):
                 mu_k, _ = baseline_local._theta_and_sigma(int(k), phi)
                 pred_loss[int(k)] = float(mu_k)
+        elif isinstance(baseline_local, SharedLinUCB):
+            phi = baseline_local._context_features(x_t)
+            theta = baseline_local._posterior_mean()
+            for k in range(env.num_experts):
+                feat = baseline_local._joint_features(phi, int(k))
+                pred_loss[int(k)] = float(theta @ feat)
         elif isinstance(baseline_local, NeuralUCB):
             phi = baseline_local._phi(x_t)
             h, _ = baseline_local._embed(phi)
@@ -4140,6 +4509,8 @@ def run_tri_cycle_corr_diagnostics(
     router_full: Optional[FactorizedSLDS] = None,
     linucb_partial: Optional[LinUCB] = None,
     linucb_full: Optional[LinUCB] = None,
+    shared_linucb_partial: Optional[SharedLinUCB] = None,
+    shared_linucb_full: Optional[SharedLinUCB] = None,
     neuralucb_partial: Optional[NeuralUCB] = None,
     neuralucb_full: Optional[NeuralUCB] = None,
     l2d_baseline: Optional[L2D] = None,

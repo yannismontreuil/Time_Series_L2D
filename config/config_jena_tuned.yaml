@@ -1,0 +1,167 @@
+# Tuned Jena Climate 2009-2016 experiment.
+# This keeps the stronger reviewer-requested baselines and uses the
+# best full-horizon FactorizedSLDS dynamics found in the local sweep.
+
+plot_shift: 1
+plot_target: "y"
+plot_synth_preview: false
+plot_time_series_pdf: true
+plot_time_series_png: true
+
+transition_log:
+  enabled: false
+  print: false
+  precision: 4
+  stride: 1
+  print_wlin_blin: false
+  plot: true
+  plot_show: false
+  plot_save: true
+  plot_na: true
+  online_only: true
+  plot_only_ours: true
+  plot_entropy: true
+
+environment:
+  data_source: jena
+  csv_path: data/jena_climate_2009_2016.csv
+  target_column: "T (degC)"
+  row_stride: 24
+  T: 6000
+  seed: 11
+  data_seed: 42
+  num_experts: 5
+  num_regimes: 4
+  state_dim: 13
+  context_columns: ["p (mbar)", "rh (%)", "wv (m/s)"]
+  context_lags: [1, 6, 42, 180]
+  include_time_features: true
+  time_features: [hour, dayofweek, month]
+  normalize_context: true
+  normalization_window: 2190
+  normalization_eps: 1.0e-6
+  normalization_mode: "zscore"
+  expert_archs: [ar, ar, arima, arima, ar]
+  expert_pred_noise_std: [0.04, 0.07, 0.03, 0.05, 0.03]
+  arima_lags: [1, 6, 42, 180]
+  arima_diff_order: 0
+  unavailable_expert_idx: [2, 3]
+  unavailable_intervals:
+    - [1200, 2200]
+    - [2800, 4200]
+  analysis_window: 180
+
+routers:
+  beta: 0.0
+  staleness_threshold: null
+  lambda_risk: -0.1
+  slds_imm:
+    enabled: false
+  slds_imm_em:
+    enabled: false
+  slds_imm_corr:
+    enabled: false
+  slds_imm_corr_em:
+    enabled: false
+
+  factorized_slds:
+    enabled: true
+    feedback_mode: partial
+    include_no_g: true
+    label_with_g: "L2D-SLDS w/ $g_t$"
+    label_no_g: "L2D-SLDS w/o $g_t$"
+    num_regimes: 4
+    shared_dim: 2
+    idiosyncratic_dim: 13
+    delta_max: 1500
+    R_scalar: 0.1
+
+    A_g:
+      - [[0.985, 0.0], [0.0, 0.985]]
+      - [[0.975, 0.0], [0.0, 0.975]]
+      - [[0.965, 0.0], [0.0, 0.965]]
+      - [[0.955, 0.0], [0.0, 0.955]]
+    Q_g_scales: [0.04, 0.06, 0.08, 0.10]
+
+    # Tuned from the Jena smoke/full sweep.
+    A_u_scale: [0.993, 0.987, 0.981, 0.975]
+    Q_u_scales: [0.01, 0.015, 0.02, 0.025]
+
+    exploration: ["g_z"]
+    exploration_diag_enabled: false
+    exploration_diag_stride: 180
+    exploration_diag_samples: 80
+    exploration_diag_print: true
+
+    init_R_mode: empirical_expert
+    init_R_window: 1500
+    init_R_use_available: true
+    init_R_floor: 1.0e-4
+    init_R_print: true
+    init_state_from_residuals: u
+    init_state_window: 1500
+    init_state_u_scale: 1.0
+    init_state_g_scale: 0.3
+    init_state_print: true
+
+    em_enabled: false
+    em_online_enabled: false
+    transition_mode: attention
+    transition_init: uniform
+    seed: 42
+
+baselines:
+  linucb:
+    alpha_ucb: 5
+    l2_reg: 1.0
+    feedback_mode: partial
+  shared_linucb:
+    alpha_ucb: 3.0
+    lambda_reg: 1.0
+    feedback_mode: partial
+    include_shared_context: true
+    include_arm_bias: true
+    include_arm_interactions: true
+  neural_ucb:
+    alpha_ucb: 5
+    lambda_reg: 1.0
+    hidden_dim: 16
+    nn_learning_rate: 0.001
+    feedback_mode: partial
+  lin_ts:
+    lambda_reg: 1.0
+    posterior_scale: 0.75
+    feedback_mode: partial
+    include_shared_context: true
+    include_arm_bias: true
+    include_arm_interactions: true
+  ensemble_sampling:
+    ensemble_size: 16
+    lambda_reg: 1.0
+    obs_noise_std: 1.0
+    feedback_mode: partial
+    include_shared_context: true
+    include_arm_bias: true
+    include_arm_interactions: true
+
+analysis:
+  baselines_train_from_start: true
+  print_available_only: false
+  print_last_window: false
+  tri_cycle_corr:
+    enabled: false
+    router: factorized_full
+    out_dir: out/jena
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true
+  pruning:
+    enabled: true
+    expert_idx: 2
+    rolling_window: 180
+    out_dir: out/jena/pruning
+    show_plots: false
+    save_plots: true
+    save_png: true
+    save_pdf: true

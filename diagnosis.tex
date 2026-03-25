@@ -1,0 +1,1224 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\setlist[itemize]{topsep=2pt,itemsep=2pt,parsep=0pt,leftmargin=1.5em}
+\setlist[enumerate]{topsep=2pt,itemsep=2pt,parsep=0pt,leftmargin=1.7em}
+
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\paperref}[1]{\textbf{Paper ref:} \code{#1}}
+\newcommand{\coderef}[1]{\textbf{Code ref:} \code{#1}}
+\newcommand{\status}[1]{\textbf{Status:} #1}
+\newcommand{\explicit}{\textbf{Explicitly stated.}}
+\newcommand{\implicit}{\textbf{Implicitly used.}}
+\newcommand{\inferred}{\textbf{Inferred.}}
+\newcommand{\missing}{\textbf{Missing.}}
+
+\title{Technical Diagnosis of the L2D-SLDS Paper and Implementation}
+\author{Repository audit written from \code{Paper/icml2026/main.tex} and local code}
+\date{2026-03-25}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document is a rigorous diagnosis of the research paper in
+\code{Paper/icml2026/main.tex} and the accompanying implementation in the
+repository root. The goal is not to summarize at a high level, but to
+reconstruct the exact mathematical object being proposed, identify what is and
+is not formally defined, map the implementation back to the paper line by line,
+and isolate paper errors, code errors, hidden assumptions, and protocol
+mismatches. Every important criticism below is justified by direct references to
+the paper or code.
+\end{abstract}
+
+\tableofcontents
+
+\section{Paper Overview}
+
+\subsection{Problem setting}
+
+The paper studies sequential expert routing under partial feedback,
+non-stationarity, and dynamic expert availability. The formal setup is given in
+\code{Paper/icml2026/Section/Approach.tex:10--106}. At round $t$:
+\begin{itemize}
+    \item the environment reveals a context $x_t \in \mathcal{X} \subseteq \mathbb{R}^d$,
+    \item a target $y_t \in \mathcal{Y} \subseteq \mathbb{R}^{d_y}$ exists,
+    \item a non-empty available expert set $\mathcal{E}_t$ is observed,
+    \item the router selects $I_t \in \mathcal{E}_t$,
+    \item only the queried prediction $\hat y_{t,I_t}$ and target $y_t$ are observed,
+    \item therefore only the queried residual
+    \[
+    e_t = e_{t,I_t} = \hat y_{t,I_t} - y_t
+    \]
+    and queried cost $C_{t,I_t}$ are observed.
+\end{itemize}
+
+The paper defines the potential residual and cost of expert $k$ at time $t$ as
+\[
+e_{t,k} = \hat y_{t,k} - y_t, \qquad
+C_{t,k} = \psi(e_{t,k}) + \beta_k,
+\]
+where $\psi$ is a convex loss and $\beta_k \ge 0$ is a known consultation fee;
+see \code{Paper/icml2026/Section/Approach.tex:24--43}.
+
+The paper allows a time-varying expert registry $\mathcal{K}_t$ that may be
+larger than the currently available set $\mathcal{E}_t$, and stale experts may
+be pruned from the registry; see
+\code{Paper/icml2026/Section/Approach.tex:17--20} and
+\code{Paper/icml2026/Section/Approach.tex:343--447}.
+
+\subsection{Main claim}
+
+The main claim is that a factorized switching linear dynamical system over
+expert residuals yields a tractable predictive belief over \emph{unqueried}
+experts under censoring, and that this can be used for routing by minimizing a
+myopic IDS-style information ratio. This claim is developed in
+\code{Paper/icml2026/Section/Approach.tex:108--340}. The latent structure has:
+\begin{itemize}
+    \item a regime variable $z_t$,
+    \item a shared factor $g_t$,
+    \item expert-specific states $u_{t,k}$,
+    \item context-dependent regime transitions $\Pi_\theta(x_t)$,
+    \item a residual emission model
+    \[
+    e_{t,k} \mid z_t, g_t, u_{t,k}, x_t \sim
+    \mathcal{N}\!\left(\Phi(x_t)^\top(B_k g_t + u_{t,k}), R_{z_t,k}\right).
+    \]
+\end{itemize}
+
+The claimed benefit of the shared factor is cross-expert information transfer:
+after querying one expert, posterior beliefs about other experts change because
+their residual laws share dependence on $g_t$.
+
+\subsection{Claimed contributions}
+
+The claimed contributions are listed in
+\code{Paper/icml2026/Section/Introduction.tex:28--36}:
+\begin{enumerate}
+    \item a formulation of online expert routing for non-stationary time series
+    with bandit feedback and dynamic availability;
+    \item the L2D-SLDS model;
+    \item an IMM-style filtering recursion and pruning mechanism;
+    \item an IDS-inspired routing rule based on information about $(z_t, g_t)$;
+    \item empirical evaluation on synthetic, Melbourne, and FRED tasks.
+\end{enumerate}
+
+\paragraph{Assessment of the contribution statement.}
+This list is internally coherent. However, it mixes three different levels of
+claim:
+\begin{itemize}
+    \item formal problem definition,
+    \item algorithm design,
+    \item empirical evidence.
+\end{itemize}
+What it does \emph{not} provide is a learning-theoretic guarantee such as regret
+or consistency. The framing invokes online learning and bandits, but the paper's
+formal guarantee layer is much weaker than the framing suggests.
+
+\section{Precise Reconstruction of the Method}
+
+\subsection{Formal setup}
+
+I separate here what the paper states explicitly from what is only implied.
+
+\explicit The decision-time sigma-algebra is
+\[
+\mathcal{F}_t = \sigma(\mathcal{H}_{t-1}, x_t, \mathcal{E}_t),
+\]
+with $\mathcal{H}_t = ((x_\tau,\mathcal{E}_\tau,O_\tau))_{\tau=1}^t$ and
+$O_t = (I_t, \hat y_{t,I_t}, y_t)$; see
+\code{Paper/icml2026/Section/Approach.tex:52--63}.
+
+\explicit A policy $\pi_t(\cdot \mid \mathcal{F}_t)$ is an
+$\mathcal{F}_t$-measurable distribution over $\mathcal{E}_t$, and the action is
+sampled as $I_t \sim \pi_t(\cdot \mid \mathcal{F}_t)$; see
+\code{Paper/icml2026/Section/Approach.tex:59--63}.
+
+\explicit The objective is expected cumulative cost
+\[
+J(\pi) = \mathbb{E}\left[\sum_{t=1}^T C_{t,I_t}\right];
+\]
+see \code{Paper/icml2026/Section/Approach.tex:90--106}.
+
+\explicit As a one-step ideal benchmark, the paper defines
+\[
+k_t^\star \in \arg\min_{k \in \mathcal{E}_t} \mathbb{E}[C_{t,k} \mid \mathcal{F}_t],
+\]
+which it calls the myopic Bayes selector; see
+\code{Paper/icml2026/Section/Approach.tex:96--105}.
+
+\missing The paper does \emph{not} define:
+\begin{itemize}
+    \item a regret notion,
+    \item a comparator class over policies,
+    \item a non-stationary regret benchmark,
+    \item a bandit sample complexity target,
+    \item or a consistency criterion for the router.
+\end{itemize}
+
+Therefore the problem is a sequential decision problem, but not a formal online
+learning theorem statement.
+
+\subsection{Variables and notation}
+
+The core notation in the model section is mostly coherent:
+\begin{itemize}
+    \item $z_t \in \{1,\dots,M\}$: latent regime;
+    \item $g_t \in \mathbb{R}^{d_g}$: shared latent factor;
+    \item $u_{t,k} \in \mathbb{R}^{d_\alpha}$: expert-specific latent state;
+    \item $B_k \in \mathbb{R}^{d_\alpha \times d_g}$: loading matrix for expert $k$;
+    \item $\Phi: \mathcal{X} \to \mathbb{R}^{d_\alpha \times d_y}$: feature map;
+    \item $\alpha_{t,k} = B_k g_t + u_{t,k}$: latent reliability vector;
+    \item $R_{m,k} \in \mathbb{S}^{d_y}_{++}$: emission covariance.
+\end{itemize}
+
+\paragraph{Well-definedness.}
+The expression
+\[
+\Phi(x_t)^\top \alpha_{t,k}
+\]
+is dimensionally valid because $\Phi(x_t)^\top \in \mathbb{R}^{d_y \times d_\alpha}$
+and $\alpha_{t,k} \in \mathbb{R}^{d_\alpha}$, so the output lies in
+$\mathbb{R}^{d_y}$; see
+\code{Paper/icml2026/Section/Approach.tex:211--230}.
+
+\paragraph{Notation issue.}
+The paper alternates between $d_\alpha$ and the implementation's $d_\phi$ for
+the idiosyncratic-state dimension. This is not mathematically wrong, but it
+creates friction when mapping paper to code. The implementation uses
+\code{d_phi} as the dimension of $u_{t,k}$ and of the feature vector returned by
+\code{feature_phi}; see \code{models/factorized_slds.py:68--110} and
+\code{models/router_model.py:5--9}.
+
+\subsection{Objective}
+
+The paper's operational decision rule is myopic. It computes predicted
+one-step costs, then combines them with an exploration score. The exploitation
+part is
+\[
+\bar C_{t,k}^{\mathrm{pred}}
+=
+\mathbb{E}\bigl[\psi(e_{t,k}^{\mathrm{pred}})\mid \mathcal{F}_t\bigr] + \beta_k
+\]
+and the predictive gap is
+\[
+\Delta_t(k)
+=
+\bar C_{t,k}^{\mathrm{pred}} - \bar C_{t,k_t^{\mathrm{pred}}}^{\mathrm{pred}},
+\qquad
+k_t^{\mathrm{pred}} \in \arg\min_k \bar C_{t,k}^{\mathrm{pred}}.
+\]
+See \code{Paper/icml2026/Section/Approach.tex:306--318} and
+\code{Paper/icml2026/Section/AppendixParts/info_gain.tex:97--161}.
+
+\paragraph{Important limitation.}
+This is not a dynamic programming objective. It is a one-step predictive
+criterion plus an information heuristic. The paper is explicit about this point
+and does not claim Bayes optimal control; see
+\code{Paper/icml2026/Section/Approach.tex:299--304}.
+
+\subsection{Model}
+
+\subsubsection{Regime dynamics}
+
+The regime dynamics are context-dependent:
+\[
+\mathbb{P}(z_t = m \mid z_{t-1} = \ell, x_t)
+=
+\Pi_\theta(x_t)_{\ell m}.
+\]
+The paper parameterizes $\Pi_\theta(x_t)$ by low-rank attention logits:
+\[
+S(x_t) = \frac{1}{\sqrt{d_{\mathrm{attn}}}} Q_\theta(x_t) K_\theta(x_t)^\top,
+\qquad
+\Pi_\theta(x_t)_{\ell m}
+=
+\frac{\exp(S_{\ell m}(x_t))}{\sum_j \exp(S_{\ell j}(x_t))}.
+\]
+See \code{Paper/icml2026/Section/Approach.tex:135--163}.
+
+\paragraph{Interpretation.}
+\explicit The paper intends a learned context-dependent transition kernel.
+
+\implicit This assumes enough data and a stable enough training problem to
+identify the dependence of regime switching on context.
+
+\missing The paper never states what happens when transition parameters are
+untrained or weakly trained, even though the code permits exactly that.
+
+\subsubsection{Continuous latent dynamics}
+
+Conditioned on regime $z_t = m$:
+\[
+g_t = A_m^{(g)} g_{t-1} + w_t^{(g)}, \qquad
+w_t^{(g)} \sim \mathcal{N}(0,Q_m^{(g)}),
+\]
+\[
+u_{t,k} = A_m^{(u)} u_{t-1,k} + w_{t,k}^{(u)}, \qquad
+w_{t,k}^{(u)} \sim \mathcal{N}(0,Q_m^{(u)}).
+\]
+See \code{Paper/icml2026/Section/Approach.tex:165--203}.
+
+\paragraph{Comment.}
+The paper shares $(A_m^{(u)},Q_m^{(u)})$ across experts and uses expert-specific
+heterogeneity only through $u_{t,k}$ realizations and $B_k$; this is a modeling
+choice that improves statistical strength but imposes a strong inductive bias.
+
+\subsubsection{Emission model}
+
+The latent reliability of expert $k$ is
+\[
+\alpha_{t,k} = B_k g_t + u_{t,k},
+\]
+and the residual emission is
+\[
+e_{t,k} \mid (z_t=m, g_t, u_{t,k}, x_t)
+\sim
+\mathcal{N}\!\left(\Phi(x_t)^\top \alpha_{t,k}, R_{m,k}\right).
+\]
+See \code{Paper/icml2026/Section/Approach.tex:205--239}.
+
+\paragraph{Interpretation.}
+\explicit The model is defined for residuals, not losses.
+
+\inferred This is because residuals can be negative and therefore admit a linear
+Gaussian state-space treatment, whereas losses generally do not.
+
+\missing The paper does not discuss misspecification when the true residual law
+is heavy-tailed, skewed, heteroskedastic in a way not captured by $R_{m,k}$, or
+nonlinear in $\Phi(x_t)$.
+
+\subsection{Inference / estimation}
+
+\subsubsection{Filtering}
+
+The filter is described in algorithmic form in
+\code{Paper/icml2026/Section/AppendixParts/alg_router.tex:10--58}. The intended
+per-round recursion is:
+\begin{enumerate}
+    \item update the registry $\mathcal{K}_t$ by adding current experts and
+    pruning stale unavailable experts;
+    \item initialize entering experts with default idiosyncratic priors;
+    \item perform an IMM predictive step using $\Pi_\theta(x_t)$;
+    \item time-update the Gaussian beliefs of $g_t$ and each stored $u_{t,k}$;
+    \item compute per-expert predictive residual laws;
+    \item choose an action via predicted cost and information ratio;
+    \item after observing the queried residual, update the joint state
+    $(g_t,u_{t,I_t})$ by a Kalman correction;
+    \item project the updated covariance back to a factorized family by dropping
+    posterior cross-covariances.
+\end{enumerate}
+
+\paragraph{Mathematical status.}
+The exact queried update is standard Kalman conditioning on the joint state. The
+approximation enters only at the projection step.
+
+\subsubsection{Cross-covariance and factorization}
+
+The appendix explicitly notes that even if the predictive covariance is
+block-diagonal, the posterior covariance after conditioning on the queried
+residual generally has a non-zero $g$--$u_{I_t}$ cross-covariance; see
+\code{Paper/icml2026/Section/AppendixParts/derivations.tex:4--66}. This is
+important:
+\begin{itemize}
+    \item the paper is aware that the exact posterior is not factorized;
+    \item the factorized filter is therefore a projection approximation, not an
+    exact Bayes update.
+\end{itemize}
+
+\paragraph{Critique.}
+This is the central approximation of the method, but the paper gives no
+quantitative control on the error induced by repeatedly discarding these
+cross-covariances. That is acceptable for an empirical methods paper, but not
+for a learning-theoretic claim.
+
+\subsubsection{Parameter learning}
+
+The paper's learning routine is optional MCEM; see
+\code{Paper/icml2026/Section/AppendixParts/alg_learning.tex:9--112}. The
+algorithmic idea is:
+\begin{itemize}
+    \item sample regime paths $z_{1:T}$ given current latent trajectories,
+    \item sample $g_{1:T}$ given $z_{1:T}$ and expert-specific trajectories,
+    \item sample $u_{1:T,k}$ expertwise,
+    \item update $(A,Q,B,R)$ by weighted moment matching / regression,
+    \item update the transition model parameters $\theta$ from expected regime
+    transition counts.
+\end{itemize}
+
+\paragraph{Assessment.}
+The algorithm is plausible and the code largely implements it. What is missing
+is a statement of convergence assumptions or identifiability.
+
+\subsection{Decision rule}
+
+The decision rule is an IDS-inspired information ratio:
+\[
+I_t \in \arg\min_{k \in \mathcal{E}_t} \frac{\Delta_t(k)^2}{\mathrm{IG}_t(k)},
+\]
+where
+\[
+\mathrm{IG}_t(k)
+=
+\mathcal{I}\!\left((z_t,g_t); e_{t,k}^{\mathrm{pred}} \mid \mathcal{F}_t\right).
+\]
+The decomposition
+\[
+\mathcal{I}((z_t,g_t);e)
+=
+\mathcal{I}(z_t;e)
++
+\mathcal{I}(g_t;e \mid z_t)
+\]
+is given in \code{Paper/icml2026/Section/AppendixParts/info_gain.tex:7--34} and
+\code{Paper/icml2026/Section/AppendixParts/info_gain.tex:163--260}.
+
+\paragraph{Shared-factor term.}
+The closed-form term
+\[
+\frac{1}{2}\log\det\!\left(I + H_{t,k}\Sigma_{g,t|t-1}^{(m)} H_{t,k}^\top
+(S_{t,k}^{(m)})^{-1}\right)
+\]
+is correct for a linear Gaussian channel.
+
+\paragraph{Mode-identification term.}
+The paper estimates $\mathcal{I}(z_t;e_{t,k}^{\mathrm{pred}} \mid \mathcal{F}_t)$
+by Monte Carlo under a Gaussian mixture model. This is technically sound as an
+estimator of the quantity it defines.
+
+\paragraph{Theoretical status.}
+\explicit The paper states this is a pragmatic exploration heuristic, not an
+optimality guarantee; see
+\code{Paper/icml2026/Section/Approach.tex:299--304}.
+
+\paragraph{Critical point.}
+This honesty matters. The paper should not be read as proving an IDS guarantee.
+It does not. It only borrows the information-ratio shape.
+
+\subsection{Computational complexity}
+
+The paper mentions scalability motivations, but it does not provide a clean
+complexity statement. The practical complexity depends on:
+\begin{itemize}
+    \item the size of the active registry,
+    \item the latent dimensions $d_g$ and $d_\alpha$,
+    \item the number of regimes $M$,
+    \item the Monte Carlo budget for $I(z_t;e)$.
+\end{itemize}
+
+\paragraph{What is clear.}
+The factorized representation avoids storing a full joint covariance across all
+experts, which would scale poorly with registry size.
+
+\paragraph{What is missing.}
+There is no explicit asymptotic runtime or memory claim in the paper, so the
+reader cannot evaluate the scalability gain precisely from the manuscript alone.
+
+\section{Assumptions and Hidden Assumptions}
+
+\subsection{Explicit assumptions}
+
+The following assumptions are stated or directly encoded in the formal model:
+\begin{itemize}
+    \item \textbf{Exogeneity of the data stream:} past routing actions do not
+    affect the law of $(x_t,\mathcal{E}_t,y_t)$ beyond the censoring of
+    observations; see \code{Paper/icml2026/Section/Approach.tex:76--89}.
+    \item \textbf{Conditional Gaussianity:} both latent dynamics and emissions
+    are linear Gaussian given the regime; see
+    \code{Paper/icml2026/Section/Approach.tex:174--239}.
+    \item \textbf{Positive-definite noise covariances:} $Q_m^{(g)}$,
+    $Q_m^{(u)}$, and $R_{m,k}$ are positive definite.
+    \item \textbf{Factorized filtering approximation:} posterior
+    cross-covariances are discarded after each queried update; see
+    \code{Paper/icml2026/Section/Approach.tex:250--257} and
+    \code{Paper/icml2026/Section/AppendixParts/derivations.tex:57--66}.
+    \item \textbf{Shared idiosyncratic dynamics parameters across experts:}
+    $(A_m^{(u)},Q_m^{(u)})$ do not depend on $k$.
+\end{itemize}
+
+\subsection{Implicit assumptions}
+
+The method also relies on several assumptions that are not made explicit enough:
+\begin{itemize}
+    \item \textbf{Persistent expert identities.} The meaning of re-entry depends
+    on an expert ID corresponding to the same forecasting mechanism over time.
+    This is used operationally but not formally discussed.
+    \item \textbf{Identifiability of the decomposition} $B_k g_t + u_{t,k}$.
+    Without additional constraints, there can be tradeoffs between the shared and
+    idiosyncratic components.
+    \item \textbf{Stable enough dynamics.} The filter and EM updates become
+    difficult to interpret if $A_m^{(g)}$ or $A_m^{(u)}$ imply explosive latent
+    trajectories.
+    \item \textbf{Availability process does not induce confounding.} If
+    availability is itself coupled to latent difficulty in a way that violates
+    exogeneity, the probabilistic interpretation changes.
+    \item \textbf{Feature map adequacy.} The model assumes $\Phi(x_t)$ captures
+    the context dependence of residuals well enough for linear-Gaussian modeling
+    to be informative.
+\end{itemize}
+
+\subsection{Missing assumptions}
+
+Several assumptions are needed for stronger claims but are absent:
+\begin{itemize}
+    \item conditions for identifiability of $(B_k,g_t,u_{t,k})$;
+    \item consistency or convergence conditions for MCEM under censoring;
+    \item approximation-error control for repeated posterior projection;
+    \item assumptions under which the IDS-inspired rule improves long-run
+    performance;
+    \item assumptions under which pruning and re-entry preserve not just retained
+    marginals, but decision quality for re-entering experts.
+\end{itemize}
+
+\section{Theory Audit}
+
+\subsection{Evaluation of the formal claims}
+
+\subsubsection{Problem formulation}
+
+The problem formulation is precise enough to define the stochastic process and
+the one-step Bayes benchmark. However, it does not support a specialist-level
+online learning claim in the regret sense, because no comparator or regret is
+defined.
+
+\paragraph{Diagnosis.}
+The paper is better described as a model-based sequential decision method under
+partial feedback than as a learning-theoretic online-learning paper.
+
+\subsubsection{Proposition on cross-update}
+
+Proposition \code{prop:cross_update} states that, conditional on fixed regime and
+joint Gaussianity, observing the queried residual changes the predictive mean of
+another expert if and only if the predictive cross-covariance is non-zero; see
+\code{Paper/icml2026/Section/Approach.tex:259--278} and
+\code{Paper/icml2026/Section/AppendixParts/proofs.tex:10--38}.
+
+\paragraph{Assessment.}
+This proposition is correct. It is a direct consequence of Gaussian
+conditioning:
+\[
+\mathbb{E}[X \mid Y=y]
+=
+\mu_X + \Sigma_{XY}\Sigma_Y^{-1}(y-\mu_Y).
+\]
+
+\paragraph{Limitation.}
+It is an elementary structural fact, not a performance theorem.
+
+\subsubsection{Pruning proposition}
+
+Proposition \code{prop:invariance} states that pruning experts from the registry
+does not change the retained marginals because pruning is defined by
+marginalization; see
+\code{Paper/icml2026/Section/Approach.tex:384--405} and
+\code{Paper/icml2026/Section/AppendixParts/proofs.tex:44--86}.
+
+\paragraph{Assessment.}
+The proposition is correct but tautological. It proves exactly what its
+definition encodes.
+
+\paragraph{What it does not prove.}
+It does not show that re-entered experts are well initialized, only that
+retained experts are not perturbed by pruning.
+
+\subsubsection{Birth coupling proposition}
+
+Proposition \code{prop:transfer} states that under the factorized predictive
+belief,
+\[
+\mathrm{Cov}(\alpha_{t,j}, \alpha_{t,k} \mid \mathcal{F}_t,z_t=m)
+=
+B_j \Sigma_{g,t|t-1}^{(m)} B_k^\top,
+\]
+so shared-factor uncertainty induces coupling across experts; see
+\code{Paper/icml2026/Section/Approach.tex:449--464} and
+\code{Paper/icml2026/Section/AppendixParts/proofs.tex:92--117}.
+
+\paragraph{Assessment.}
+This proposition is correct as stated for the latent reliability vectors
+$\alpha_{t,j},\alpha_{t,k}$.
+
+\paragraph{Important caveat.}
+It is \emph{not} the proposition that justifies queried update transfer at the
+residual level. That role belongs to \code{prop:cross_update}. The paper later
+mis-cites this point in the synthetic results.
+
+\subsubsection{IDS-inspired exploration}
+
+The paper's mutual-information construction is technically coherent and the
+shared-factor term is derived correctly. The mode-identification term is
+estimated by Monte Carlo because the predictive residual law is a Gaussian
+mixture; see
+\code{Paper/icml2026/Section/AppendixParts/info_gain.tex:31--34} and
+\code{Paper/icml2026/Section/AppendixParts/info_gain.tex:204--260}.
+
+\paragraph{Assessment.}
+As a heuristic exploration score under the model, this is fine.
+
+\paragraph{What is not justified.}
+There is no proof that minimizing the resulting ratio improves cumulative cost,
+minimizes Bayes regret, or satisfies any IDS theorem. The paper is careful in
+its wording, but the framing is still stronger than the theorem layer.
+
+\subsection{Proof gaps or questionable steps}
+
+\begin{enumerate}
+    \item \textbf{No approximation analysis for factorization.}
+    The main computational approximation is the repeated projection to a
+    factorized posterior. The paper acknowledges this, but gives no bound on how
+    much predictive distributions or information scores may drift from the exact
+    posterior.
+
+    \item \textbf{Latent-to-residual transfer is not fully unpacked.}
+    The paper correctly notes that latent shared-factor covariance induces
+    residual cross-covariance through $\Phi(x_t)^\top B_k$, but it does not spell
+    out the minimal non-degeneracy conditions under which this actually affects
+    the queried conditional mean for another expert.
+
+    \item \textbf{No identifiability discussion.}
+    The same residual variation can often be explained by $g_t$ or by
+    $u_{t,k}$. This matters both conceptually and for MCEM, but the paper does
+    not discuss it.
+\end{enumerate}
+
+\subsection{Claims correct only under stronger assumptions}
+
+\begin{itemize}
+    \item \textbf{Context-aware switching.} This only means something if
+    transition parameters are trained or otherwise intentionally specified. In
+    the actual synthetic and Melbourne configs, EM is disabled while the
+    transition mode is attention-based, so the model uses random transition
+    parameters unless trained elsewhere.
+
+    \item \textbf{General vector output $d_y \ge 1$.} The notation supports it,
+    but all provided environments and experiments are scalar-output. The claim is
+    formal generality, not demonstrated generality.
+
+    \item \textbf{Cross-expert transfer in practice.} The theoretical mechanism
+    requires non-trivial shared loadings and a feature map that does not suppress
+    the shared channel. Without these, transfer can vanish.
+\end{itemize}
+
+\subsection{Possible counterexamples or failure modes}
+
+\begin{itemize}
+    \item If $B_k = 0$ for all $k$, then the shared factor plays no role and the
+    model collapses to independent expert-specific processes.
+    \item If $\Phi(x_t)$ is zero or orthogonal to the shared component, then even
+    non-zero latent shared covariance need not produce residual-level transfer.
+    \item If availability depends adversarially on latent difficulty, the
+    exogeneity assumption fails and the interpretation of partial feedback as
+    pure censoring becomes invalid.
+    \item If the true residual law is strongly non-Gaussian, the information
+    scores may be badly calibrated.
+\end{itemize}
+
+\section{Implementation Walkthrough}
+
+\subsection{Repository structure}
+
+The implementation relevant to the paper is distributed across:
+\begin{itemize}
+    \item \code{slds_imm_router.py}: experiment driver and router construction;
+    \item \code{models/factorized_slds.py}: proposed model implementation;
+    \item \code{router_eval.py}: interaction loops with environments;
+    \item \code{plot_utils.py}: aggregation, masking, and reporting;
+    \item \code{environment/synthetic_env.py}: synthetic benchmark;
+    \item \code{environment/etth1_env.py}: time-series data environment also used
+    for FRED-like and Melbourne-like experiments;
+    \item \code{models/linucb_baseline.py} and
+    \code{models/neuralucb_baseline.py}: baseline implementations;
+    \item \code{config/exp_synthetic_1.yaml},
+    \code{config/config_melbourne.yaml}, and \code{config/exp_FRED.yaml}:
+    experiment protocols.
+\end{itemize}
+
+\subsection{Entry points}
+
+The proposed method is instantiated in
+\code{slds_imm_router.py:1247--1575}. The driver builds one or more
+\code{FactorizedSLDS} instances depending on:
+\begin{itemize}
+    \item feedback mode,
+    \item transition mode,
+    \item exploration mode,
+    \item inclusion of the no-$g_t$ ablation.
+\end{itemize}
+
+Offline EM, when enabled, is dispatched from
+\code{slds_imm_router.py:1980--2104} and parameter copies are shared across
+paired router instances in \code{slds_imm_router.py:2295--2367}.
+
+\subsection{Data flow}
+
+At evaluation time, \code{router_eval.py} does the following:
+\begin{enumerate}
+    \item fetch context and availability at time $t$,
+    \item call the router's \code{select\_expert},
+    \item obtain either residual or loss observations,
+    \item record cost,
+    \item update the router.
+\end{enumerate}
+See \code{router_eval.py:486--554}.
+
+For \code{FactorizedSLDS}, the observation passed to the model is the residual,
+not the loss, in \code{router_eval.py:216--243}. This matches the paper.
+
+\subsection{Model components}
+
+\subsubsection{Observation model in code}
+
+The class docstring in \code{models/factorized_slds.py:48--66} implements the
+same residual emission model as the paper:
+\[
+e_{t,k} = \phi(x_t)^\top(B_k g_t + u_{t,k}) + \varepsilon.
+\]
+
+The implementation only supports residual observations:
+\code{models/factorized_slds.py:107--108} and
+\code{models/factorized_slds.py:259--264}.
+
+\subsubsection{Feature map}
+
+The default feature map is identity:
+\code{models/router_model.py:5--9}.
+
+\paragraph{Consequence.}
+For the provided experiments, $\Phi(x_t)$ is effectively a vectorized identity
+map on the context features. This is simpler than the general matrix-valued
+$\Phi$ notation in the paper.
+
+\subsubsection{Transition model}
+
+The implementation supports:
+\begin{itemize}
+    \item an attention-based transition parameterization,
+    \item a linear transition parameterization,
+    \item an optional neural transition model.
+\end{itemize}
+The default is
+\code{transition_mode="attention"} and \code{transition_init="random"} in
+\code{models/factorized_slds.py:114--115}. The decision-time transition matrix
+is produced by \code{\_context\_transition} in
+\code{models/factorized_slds.py:741--763}.
+
+\paragraph{Critical implementation fact.}
+If EM is disabled and no trained transition model is loaded, then
+\code{\_context\_transition} uses random initialized parameters. This is not a
+minor implementation detail; it affects the meaning of the paper's
+``context-aware switching'' claim in the no-EM experiments.
+
+\subsection{Training loop}
+
+The EM implementation in \code{models/factorized_slds.py:3390--4050} broadly
+matches the appendix:
+\begin{itemize}
+    \item latent regime sampling,
+    \item Kalman sampling for $g_t$,
+    \item Kalman sampling for each $u_{t,k}$,
+    \item M-step updates for $A_g$, $Q_g$, $A_u$, $Q_u$, $B_k$, $R_{m,k}$,
+    \item gradient-based transition training.
+\end{itemize}
+
+\paragraph{Positive note.}
+This is one of the stronger paper-to-code alignments in the repository.
+
+\subsection{Inference / prediction}
+
+Predictive statistics are computed in
+\code{models/factorized_slds.py:1377--1459}. The code:
+\begin{itemize}
+    \item computes per-mode predictive means and covariances,
+    \item computes expected loss under each mode,
+    \item computes the shared-factor mutual-information term,
+    \item returns per-expert predicted cost and information gain.
+\end{itemize}
+
+Mode-identification information is estimated in
+\code{models/factorized_slds.py:1535--1613}. IDS selection is implemented in
+\code{models/factorized_slds.py:1679--1786}.
+
+\subsection{Evaluation procedure}
+
+Evaluation masking occurs in \code{plot_utils.py:1085--1155}: costs and choices
+before \code{em\_tk} are replaced by \code{NaN}. Reported average costs are then
+computed with \code{np.nanmean} in \code{plot_utils.py:1291--1335}. Constant
+expert baselines are also recomputed starting from \code{t\_start = em\_tk + 1}
+in \code{plot_utils.py:1267--1290}.
+
+\paragraph{Interpretation.}
+This means the reported summaries for experiments with EM warm-up are
+\emph{post-warmup} averages, not full-horizon averages, unless explicitly stated
+otherwise.
+
+\section{Paper-to-Code Alignment}
+
+\small
+\begin{longtable}{p{0.18\textwidth} p{0.19\textwidth} p{0.20\textwidth} p{0.12\textwidth} p{0.24\textwidth}}
+\toprule
+\textbf{Paper component} & \textbf{Location in paper} & \textbf{Code file/function} & \textbf{Status} & \textbf{Explanation} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Paper component} & \textbf{Location in paper} & \textbf{Code file/function} & \textbf{Status} & \textbf{Explanation} \\
+\midrule
+\endhead
+
+Sequential partial-feedback routing
+& \code{Approach.tex:45--73}
+& \code{router_eval.py:216--243}, \code{router_eval.py:486--554}
+& Match
+& The code passes only the queried residual to \code{FactorizedSLDS} in partial mode, matching the paper's observation model. \\
+
+Residual state-space model
+& \code{Approach.tex:205--239}
+& \code{models/factorized_slds.py:48--66}
+& Match
+& The implemented observation model is residual-based and uses the same shared plus idiosyncratic decomposition. \\
+
+Context-dependent regime transitions
+& \code{Approach.tex:135--163}
+& \code{models/factorized_slds.py:741--763}
+& Partial match
+& The code implements context-dependent transitions, but in some published experiments the parameters are random because EM is disabled. \\
+
+Predictive cost computation
+& \code{info_gain.tex:128--161}
+& \code{models/factorized_slds.py:1377--1459}
+& Match
+& The code computes per-mode predictive moments and expected loss exactly in the spirit of the appendix. \\
+
+Shared-factor IG term
+& \code{info_gain.tex:188--202}
+& \code{models/factorized_slds.py:1431--1443}
+& Match
+& The scalar and multivariate log-det forms are implemented. \\
+
+Mode-identification term
+& \code{info_gain.tex:204--260}
+& \code{models/factorized_slds.py:1535--1613}
+& Match
+& Monte Carlo KL-to-mixture estimator is implemented with stable log-sum-exp. \\
+
+IDS-inspired routing rule
+& \code{Approach.tex:333--340}
+& \code{models/factorized_slds.py:1679--1786}
+& Match with extra heuristics
+& The code adds score clipping and greedy fallbacks not documented in the paper. \\
+
+Queried Kalman update and factorized projection
+& \code{alg_router.tex:39--58}
+& \code{models/factorized_slds.py:1980--2068}
+& Match
+& The code updates the joint state $(g_t,u_{t,I_t})$, then stores only block marginals. \\
+
+Registry pruning
+& \code{Approach.tex:362--405}
+& \code{models/factorized_slds.py:2385--2413}
+& Match
+& Stale unavailable experts are dropped after \code{Delta_max}; re-entry restarts from default priors. \\
+
+Offline MCEM
+& \code{alg_learning.tex:9--112}
+& \code{models/factorized_slds.py:3390--4050}
+& Match
+& The code contains a genuine latent-variable EM-style procedure broadly consistent with the appendix. \\
+
+Synthetic experiment design
+& \code{Experiments.tex:55--123}
+& \code{environment/synthetic_env.py:547--582}, \code{config/exp_synthetic_1.yaml:44--79}
+& Mismatch
+& The code uses a latent model-matched residual generator with \code{shared_dim: 2}, not the additive expert-noise simulator with \mbox{$d_g=1$} described in the paper. \\
+
+Synthetic warmup of 100 steps
+& \code{Experiments.tex:121--123}
+& \code{router_eval.py:514--554}, \code{config/exp_synthetic_1.yaml:98--100}
+& Mismatch
+& The published synthetic config disables EM and the interaction starts immediately from $t=1$. \\
+
+Melbourne no-EM claim
+& \code{Experiments.tex:158--162}
+& \code{config/config_melbourne.yaml:123--153}
+& Match at config level
+& EM is indeed disabled in the Melbourne config. However, the transition model remains attention-based and therefore untrained unless separately learned. \\
+
+FRED evaluation protocol
+& Appendix experiment text
+& \code{config/exp_FRED.yaml:166--168}, \code{plot_utils.py:1085--1155}
+& Mismatch
+& The code uses offline full-feedback EM on the prefix and reports post-prefix averages after masking the warmup. \\
+
+NeuralUCB baseline
+& \code{AppendixParts/Experiments.tex:83--110}
+& \code{models/neuralucb_baseline.py:5--25}
+& Mismatch
+& The paper describes gradient-feature NeuralUCB; the code explicitly implements a NeuralLinear-style approximation. \\
+
+General $d_y \ge 1$ support
+& \code{Approach.tex:13--15}, \code{Approach.tex:211--230}
+& \code{models/router_model.py:5--9}, environments
+& Unclear / weakly supported
+& The code can accept vector residuals in principle, but all provided experiments are scalar-output and the default feature map is vector-valued identity. \\
+
+\bottomrule
+\end{longtable}
+\normalsize
+
+\section{Issues Found}
+
+\subsection{Critical errors}
+
+\subsubsection{Synthetic experiment in code does not match the paper's stated simulator}
+
+\status{Critical mismatch}
+
+\paragraph{Paper statement.}
+The paper says the synthetic experts are
+\[
+\hat y_{t,k} = 0.8 y_{t-1} + b_k + \varepsilon_{t,k},
+\]
+with regime-dependent correlated additive noises constructed from two shared
+scalar noises and idiosyncratic noise; see
+\code{Paper/icml2026/Section/Experiments.tex:67--90}. It also states
+\mbox{$d_g = 1$} in \code{Paper/icml2026/Section/Experiments.tex:119--123}.
+
+\paragraph{Code reality.}
+The synthetic config instead sets
+\code{shared_noise_mode: "model_match"} and \code{shared_dim: 2} in
+\code{config/exp_synthetic_1.yaml:44--46} and
+\code{config/exp_synthetic_1.yaml:78--79}. The environment then generates
+latent shared factors $g_t$, latent expert-specific states $u_t$, and residuals
+via
+\[
+\texttt{residuals[t] = x\_t * (loadings @ g\_t + u\_t) + noise},
+\]
+implemented in \code{environment/synthetic_env.py:571--577}. The actual expert
+prediction is
+\[
+\hat y_{t,k} = y_t + \texttt{residual}_{t,k}
+\]
+in \code{environment/synthetic_env.py:841--846}.
+
+\paragraph{Why this matters.}
+This is not a cosmetic mismatch. The code's simulator is substantially closer to
+the proposed model class than the paper's additive-intercept simulator. That can
+materially bias the benchmark in favor of L2D-SLDS.
+
+\paragraph{Minimal fix.}
+Either:
+\begin{itemize}
+    \item rewrite the paper to describe the actual latent residual generator, or
+    \item change the experiment code to the stated additive-noise simulator and
+    rerun the results.
+\end{itemize}
+
+\subsubsection{Context-dependent transitions are random and untrained in synthetic and Melbourne runs}
+
+\status{Critical paper-code mismatch}
+
+\paragraph{Paper statement.}
+The method is presented as using context-dependent regime transitions
+$\Pi_\theta(x_t)$ with learned low-rank attention logits; see
+\code{Paper/icml2026/Section/Approach.tex:135--163}.
+
+\paragraph{Code fact.}
+The \code{FactorizedSLDS} defaults are
+\code{transition_mode="attention"} and \code{transition_init="random"} in
+\code{models/factorized_slds.py:114--115}. If no trained transition model is
+present, \code{\_context\_transition} constructs transition scores from those
+parameters in \code{models/factorized_slds.py:741--763}. The synthetic config
+uses \code{transition_mode: "attention"} and \code{em_enabled: false} in
+\code{config/exp_synthetic_1.yaml:98--128}. The Melbourne config does the same
+in \code{config/config_melbourne.yaml:123--153}.
+
+\paragraph{Consequence.}
+In those experiments, the purported context-aware transition kernel is not
+learned. It is simply a random function of context unless some external
+initialization path exists. I found no such training path for those runs.
+
+\paragraph{Why this matters.}
+This invalidates the natural reading that the reported no-EM results are using a
+meaningful learned context-driven switching mechanism.
+
+\paragraph{Minimal fix.}
+If EM is disabled, default to a fixed homogeneous transition matrix or disclose
+that the transition scores are random and not learned.
+
+\subsubsection{FRED uses full-feedback offline EM and masked post-prefix reporting}
+
+\status{Critical evaluation-protocol mismatch}
+
+\paragraph{Code fact.}
+The FRED config sets
+\code{em_enabled: true}, \code{em_offline_full_feedback: true}, and
+\code{em_tk: 2000} in \code{config/exp_FRED.yaml:166--168}. The driver forces
+\code{router.feedback_mode = "full"} during offline EM in
+\code{slds_imm_router.py:1983--2069}. The evaluation code masks all costs before
+\code{em_tk} to \code{NaN} in \code{plot_utils.py:1085--1155}, and then reports
+\code{np.nanmean} in \code{plot_utils.py:1291--1335}.
+
+\paragraph{Consequence.}
+The reported averages in such experiments are not full-horizon online
+partial-feedback performance. They are post-warmup averages after a full-feedback
+parameter estimation phase on the initial prefix.
+
+\paragraph{Why this matters.}
+This is a different experimental protocol. It may be perfectly legitimate, but
+it must be stated plainly because it changes what the results mean.
+
+\subsubsection{The paper's NeuralUCB baseline is not the implementation}
+
+\status{Critical baseline mismatch}
+
+\paragraph{Paper statement.}
+The appendix describes NeuralUCB using gradient features
+$h_{t,k} = \nabla_\omega f_\omega(x_t,k)$ and a single Gram matrix in parameter
+space; see \code{Paper/icml2026/Section/AppendixParts/Experiments.tex:83--110}.
+
+\paragraph{Code fact.}
+The implementation explicitly states:
+``This is a `NeuralLinear' approximation to NeuralUCB'' in
+\code{models/neuralucb_baseline.py:22--25}. It uses:
+\begin{itemize}
+    \item a one-hidden-layer ReLU MLP embedding,
+    \item per-expert ridge matrices in embedding space,
+    \item SGD updates to the embedding.
+\end{itemize}
+See \code{models/neuralucb_baseline.py:70--83} and
+\code{models/neuralucb_baseline.py:165--192}.
+
+\paragraph{Consequence.}
+The baseline is mislabeled. This matters because NeuralUCB's theoretical and
+empirical behavior is not the same as a NeuralLinear approximation.
+
+\subsection{Moderate concerns}
+
+\subsubsection{Synthetic warmup described in paper is not implemented in the published config}
+
+\status{Moderate mismatch}
+
+\paragraph{Paper statement.}
+The synthetic experiment section says: ``We simply run a small warmup of 100
+steps before running L2D-SLDS and UCBs'' in
+\code{Paper/icml2026/Section/Experiments.tex:121--123}.
+
+\paragraph{Code fact.}
+The synthetic config disables EM in \code{config/exp_synthetic_1.yaml:98}. The
+main interaction loop starts from $t=1$ in \code{router_eval.py:514--554}. I did
+not find a separate 100-step synthetic warmup path for the published config.
+
+\paragraph{Interpretation.}
+Either the text is outdated or the config is.
+
+\subsubsection{Synthetic multi-seed reporting uses a fixed data seed by default}
+
+\status{Moderate reporting issue}
+
+\paragraph{Code fact.}
+The synthetic environment hard-codes
+\code{DATA_GENERATION_SEED = 42} unless \code{data_seed} is explicitly provided;
+see \code{environment/synthetic_env.py:3--8} and
+\code{environment/synthetic_env.py:44--50}. The helper script
+\code{scripts/run_exp_synth_seeds.sh:34--39} only changes
+\code{environment.seed}, not \code{data_seed}.
+
+\paragraph{Consequence.}
+By default, multi-seed synthetic runs vary learner randomness while keeping the
+underlying synthetic time series and expert behaviors fixed.
+
+\paragraph{Why this matters.}
+That is acceptable if disclosed. It is misleading if the paper suggests the
+error bars are over independent environment draws.
+
+\subsubsection{Undocumented initialization heuristics affect Melbourne}
+
+\status{Moderate method-reporting gap}
+
+\paragraph{Code fact.}
+The Melbourne config uses:
+\begin{itemize}
+    \item \code{init_R_mode: empirical_expert},
+    \item \code{init_state_from_residuals: u},
+\end{itemize}
+in \code{config/config_melbourne.yaml:112--121}. These heuristics are implemented
+in \code{slds_imm_router.py:1827--1951}.
+
+\paragraph{Consequence.}
+The model is not being evaluated only with the generic priors described in the
+paper. It receives data-dependent initialization help.
+
+\paragraph{Why this matters.}
+Again, this may be sensible engineering, but it belongs in the paper if the
+reported results depend on it.
+
+\subsubsection{Diagnostic sample count can change the actual routing behavior}
+
+\status{Moderate implementation quirk}
+
+\paragraph{Code fact.}
+When diagnostics are enabled, \code{select_expert} precomputes
+\code{iz_scores} using \code{exploration_diag_samples} and then reuses those
+scores in the action selection path; see
+\code{models/factorized_slds.py:1820--1836}.
+
+\paragraph{Consequence.}
+The number of diagnostic Monte Carlo samples can affect the selected actions,
+not just the logs. This is undocumented.
+
+\subsection{Minor issues / style / clarity issues}
+
+\begin{enumerate}
+    \item \textbf{Wrong proposition cited in synthetic analysis.}
+    The synthetic results section cites \code{prop:transfer} for query-time
+    information transfer in
+    \code{Paper/icml2026/Section/Experiments.tex:143--144}. The relevant result
+    is \code{prop:cross_update}, not \code{prop:transfer}.
+
+    \item \textbf{Melbourne text/table inconsistency.}
+    Table values show NeuralUCB as \mbox{$5.88 \pm 0.04$} and Random as
+    \mbox{$6.71 \pm 0.03$} in
+    \code{Paper/icml2026/Section/Experiments.tex:177--182}, but the narrative in
+    \code{Paper/icml2026/Section/Experiments.tex:194--196} says NeuralUCB is
+    \mbox{$6.71 \pm 0.03$}.
+
+    \item \textbf{Incorrect percentage arithmetic.}
+    The increase from $5.69$ to $5.78$ is about $1.58\%$, not $16\%$.
+
+    \item \textbf{Indexing inconsistency in synthetic regimes.}
+    The text defines $z_t \in \{1,2\}$ in
+    \code{Paper/icml2026/Section/Experiments.tex:56--57}, but the figure caption
+    refers to ``Regime-0'' in
+    \code{Paper/icml2026/Section/Experiments.tex:37--42}.
+
+    \item \textbf{README command is stale.}
+    The README points to \code{config/config_synth_paper.yaml} in
+    \code{README.md:24}, but that file does not exist in the repository root.
+\end{enumerate}
+
+\section{Concrete Fixes}
+
+\subsection{Paper fixes}
+
+\begin{itemize}
+    \item Rewrite the synthetic experiment description to match the actual code,
+    or replace the code with the stated simulator and regenerate the table and
+    figure.
+    \item Correct the Melbourne table narrative, the 16\% arithmetic mistake, the
+    regime indexing inconsistency, and the wrong proposition citation.
+    \item State explicitly when experiments use offline EM, whether it uses full
+    feedback, and whether reported averages exclude the warmup prefix.
+    \item Replace ``NeuralUCB'' by ``NeuralLinear-style baseline'' unless the
+    true algorithm is implemented.
+    \item Add a short implementation-details paragraph documenting empirical
+    initialization of $R$ and initial state covariances.
+\end{itemize}
+
+\subsection{Code fixes}
+
+\begin{itemize}
+    \item If \code{em_enabled: false}, set a deterministic fallback transition
+    matrix instead of random attention weights, or require explicit transition
+    parameters in the config.
+    \item Add a paper-faithful synthetic mode implementing the exact equations in
+    the manuscript.
+    \item Decouple diagnostics from decision-making by ensuring
+    \code{exploration_diag_samples} never overrides the action-path Monte Carlo
+    budget.
+    \item Update the README command to a valid config path.
+\end{itemize}
+
+\subsection{Experimental fixes}
+
+\begin{itemize}
+    \item Rerun synthetic experiments under the exact simulator stated in the
+    paper.
+    \item Report both full-horizon and post-warmup averages whenever EM warmup is
+    used.
+    \item For synthetic seed sweeps, vary both the learner seed and the data seed
+    unless the goal is specifically to condition on one environment draw.
+    \item Either implement the baseline described as NeuralUCB or relabel the
+    existing results.
+\end{itemize}
+
+\subsection{Theoretical fixes}
+
+\begin{itemize}
+    \item Narrow the framing: present the method as a model-based routing
+    heuristic under partial feedback, not as a learning-theoretic result unless a
+    regret statement is added.
+    \item Add a discussion of identifiability and approximation error from
+    posterior projection.
+    \item State explicitly the minimal conditions under which shared-factor
+    covariance yields residual-level transfer.
+\end{itemize}
+
+\section{Final Verdict}
+
+\subsection{Is the problem formulation clear?}
+
+Mostly yes. The paper defines the sequential routing problem, the observables,
+the latent variables, the cost, and the one-step benchmark clearly. The main gap
+is that it does not define an online-learning benchmark such as regret.
+
+\subsection{Is the method mathematically sound?}
+
+The core state-space model and filter are mathematically coherent. The main
+approximation, namely the projection to a factorized posterior, is transparent
+and honestly described. The weakest mathematical points are the absence of
+identifiability discussion and the lack of any bound on approximation error or
+decision-quality loss from the projection.
+
+\subsection{Are the theoretical claims justified?}
+
+Only partially. The structural propositions are correct but limited. The paper
+does not justify stronger claims about online optimality, regret, or asymptotic
+performance.
+
+\subsection{Does the code faithfully implement the paper?}
+
+The core \code{FactorizedSLDS} implementation is substantially faithful to the
+paper's filtering and MCEM description. The \emph{experimental protocols} are
+not faithfully aligned. The major paper-code mismatches are:
+\begin{itemize}
+    \item the synthetic simulator,
+    \item the untrained random transition model in no-EM runs,
+    \item the FRED full-feedback offline EM plus masked evaluation,
+    \item the mislabeled NeuralUCB baseline.
+\end{itemize}
+
+\subsection{Top three risks that could invalidate the results}
+
+\begin{enumerate}
+    \item \textbf{Synthetic benchmark mismatch.} The code appears more
+    model-matched to L2D-SLDS than the paper discloses.
+    \item \textbf{Random transitions in no-EM experiments.} The claimed
+    context-aware switching mechanism is not meaningfully learned in synthetic
+    and Melbourne under the published configs.
+    \item \textbf{Protocol and baseline mismatches.} Full-feedback EM on FRED and
+    the mislabeled NeuralUCB baseline weaken the credibility of comparative
+    empirical claims.
+\end{enumerate}
+
+\paragraph{Bottom line.}
+As a modeling paper, the work has a coherent core. As a rigorous paper-code
+package, it currently has significant specification and evaluation problems that
+must be corrected before the empirical claims can be treated as fully reliable.
+
+\end{document}

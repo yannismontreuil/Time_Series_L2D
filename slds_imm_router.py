@@ -12,7 +12,11 @@ import sys
 from typing import Optional
 import numpy as np
 
-from environment.etth1_env import ETTh1TimeSeriesEnv, ensure_daily_temp_csv
+from environment.etth1_env import (
+    ETTh1TimeSeriesEnv,
+    ensure_daily_temp_csv,
+    ensure_jena_climate_csv,
+)
 
 from models.router_model import SLDSIMMRouter, feature_phi
 from models.router_model_em import SLDSIMMRouter_EM
@@ -22,6 +26,11 @@ from environment.synthetic_env import SyntheticTimeSeriesEnv
 from models.l2d_baseline import L2D, L2D_SW
 from models.linucb_baseline import LinUCB
 from models.neuralucb_baseline import NeuralUCB
+from models.shared_linear_bandits import (
+    LinearEnsembleSampling,
+    LinearThompsonSampling,
+    SharedLinUCB,
+)
 from models.factorized_slds import FactorizedSLDS
 
 from router_eval import set_transition_log_config, register_transition_log_label
@@ -206,8 +215,14 @@ def _evaluate_factorized_run_worker(payload: dict) -> None:
         l2d_sw_baseline=payload.get("l2d_sw_baseline", None),
         linucb_partial=payload.get("linucb_partial", None),
         linucb_full=payload.get("linucb_full", None),
+        shared_linucb_partial=payload.get("shared_linucb_partial", None),
+        shared_linucb_full=payload.get("shared_linucb_full", None),
         neuralucb_partial=payload.get("neuralucb_partial", None),
         neuralucb_full=payload.get("neuralucb_full", None),
+        lin_ts_partial=payload.get("lin_ts_partial", None),
+        lin_ts_full=payload.get("lin_ts_full", None),
+        ensemble_sampling_partial=payload.get("ensemble_sampling_partial", None),
+        ensemble_sampling_full=payload.get("ensemble_sampling_full", None),
         seed=int(payload.get("seed", 0)),
     )
 
@@ -359,7 +374,10 @@ if __name__ == "__main__":
     l2d_cfg = baselines_cfg.get("l2d", None)
     l2d_sw_cfg = baselines_cfg.get("l2d_sw", None)
     linucb_cfg = baselines_cfg.get("linucb", {})
+    shared_linucb_cfg = baselines_cfg.get("shared_linucb", {})
     neuralucb_cfg = baselines_cfg.get("neural_ucb", {})
+    lin_ts_cfg = baselines_cfg.get("lin_ts", {})
+    ensemble_sampling_cfg = baselines_cfg.get("ensemble_sampling", {})
     horizon_cfg = cfg.get("horizon_planning", {})
 
     # Model dimensions and core hyperparameters
@@ -367,7 +385,14 @@ if __name__ == "__main__":
     data_source = env_cfg.get("data_source", "synthetic")
     raw_M = env_cfg.get("num_regimes", None)
     raw_M_source = "environment.num_regimes"
-    if raw_M is None and data_source in ("etth1", "etth2", "merlbourne", "melbourne") and factorized_slds_enabled:
+    if raw_M is None and data_source in (
+        "etth1",
+        "etth2",
+        "merlbourne",
+        "melbourne",
+        "jena",
+        "jena_climate",
+    ) and factorized_slds_enabled:
         fact_M = factorized_slds_cfg.get("num_regimes", None)
         if fact_M is not None:
             raw_M = fact_M
@@ -1190,6 +1215,43 @@ if __name__ == "__main__":
                 context_dim=d,
             )
 
+    # Shared-feature linear UCB baseline (partial/full, configurable)
+    shared_linucb_partial = None
+    shared_linucb_full = None
+    if shared_linucb_cfg:
+        alpha_shared_ucb = float(shared_linucb_cfg.get("alpha_ucb", 1.0))
+        lambda_shared = float(shared_linucb_cfg.get("lambda_reg", 1.0))
+        include_shared_context = bool(
+            shared_linucb_cfg.get("include_shared_context", True)
+        )
+        include_arm_bias = bool(shared_linucb_cfg.get("include_arm_bias", True))
+        include_arm_interactions = bool(
+            shared_linucb_cfg.get("include_arm_interactions", True)
+        )
+        shared_mode = _resolve_feedback_mode(shared_linucb_cfg)
+        shared_kwargs = dict(
+            num_experts=N,
+            feature_fn=feature_phi,
+            alpha_ucb=alpha_shared_ucb,
+            lambda_reg=lambda_shared,
+            beta=beta,
+            context_dim=d,
+            include_shared_context=include_shared_context,
+            include_arm_bias=include_arm_bias,
+            include_arm_interactions=include_arm_interactions,
+            seed=seed,
+        )
+        if shared_mode in ("partial", "both"):
+            shared_linucb_partial = SharedLinUCB(
+                feedback_mode="partial",
+                **shared_kwargs,
+            )
+        if shared_mode in ("full", "both"):
+            shared_linucb_full = SharedLinUCB(
+                feedback_mode="full",
+                **shared_kwargs,
+            )
+
     # NeuralUCB baseline (partial/full, configurable)
     neuralucb_partial = None
     neuralucb_full = None
@@ -1226,6 +1288,84 @@ if __name__ == "__main__":
                 context_dim=d,
             )
 
+    # Linear Thompson sampling baseline (partial/full, configurable)
+    lin_ts_partial = None
+    lin_ts_full = None
+    if lin_ts_cfg:
+        lambda_ts = float(lin_ts_cfg.get("lambda_reg", 1.0))
+        posterior_scale = float(lin_ts_cfg.get("posterior_scale", 1.0))
+        include_shared_context_ts = bool(
+            lin_ts_cfg.get("include_shared_context", True)
+        )
+        include_arm_bias_ts = bool(lin_ts_cfg.get("include_arm_bias", True))
+        include_arm_interactions_ts = bool(
+            lin_ts_cfg.get("include_arm_interactions", True)
+        )
+        lin_ts_mode = _resolve_feedback_mode(lin_ts_cfg)
+        lin_ts_kwargs = dict(
+            num_experts=N,
+            feature_fn=feature_phi,
+            lambda_reg=lambda_ts,
+            beta=beta,
+            context_dim=d,
+            posterior_scale=posterior_scale,
+            include_shared_context=include_shared_context_ts,
+            include_arm_bias=include_arm_bias_ts,
+            include_arm_interactions=include_arm_interactions_ts,
+            seed=seed,
+        )
+        if lin_ts_mode in ("partial", "both"):
+            lin_ts_partial = LinearThompsonSampling(
+                feedback_mode="partial",
+                **lin_ts_kwargs,
+            )
+        if lin_ts_mode in ("full", "both"):
+            lin_ts_full = LinearThompsonSampling(
+                feedback_mode="full",
+                **lin_ts_kwargs,
+            )
+
+    # Linear ensemble sampling baseline (partial/full, configurable)
+    ensemble_sampling_partial = None
+    ensemble_sampling_full = None
+    if ensemble_sampling_cfg:
+        ensemble_size = int(ensemble_sampling_cfg.get("ensemble_size", 20))
+        lambda_es = float(ensemble_sampling_cfg.get("lambda_reg", 1.0))
+        obs_noise_std = float(ensemble_sampling_cfg.get("obs_noise_std", 1.0))
+        include_shared_context_es = bool(
+            ensemble_sampling_cfg.get("include_shared_context", True)
+        )
+        include_arm_bias_es = bool(
+            ensemble_sampling_cfg.get("include_arm_bias", True)
+        )
+        include_arm_interactions_es = bool(
+            ensemble_sampling_cfg.get("include_arm_interactions", True)
+        )
+        ensemble_mode = _resolve_feedback_mode(ensemble_sampling_cfg)
+        ensemble_kwargs = dict(
+            num_experts=N,
+            feature_fn=feature_phi,
+            ensemble_size=ensemble_size,
+            lambda_reg=lambda_es,
+            obs_noise_std=obs_noise_std,
+            beta=beta,
+            context_dim=d,
+            include_shared_context=include_shared_context_es,
+            include_arm_bias=include_arm_bias_es,
+            include_arm_interactions=include_arm_interactions_es,
+            seed=seed,
+        )
+        if ensemble_mode in ("partial", "both"):
+            ensemble_sampling_partial = LinearEnsembleSampling(
+                feedback_mode="partial",
+                **ensemble_kwargs,
+            )
+        if ensemble_mode in ("full", "both"):
+            ensemble_sampling_full = LinearEnsembleSampling(
+                feedback_mode="full",
+                **ensemble_kwargs,
+            )
+
     # Copies for horizon planning (avoid contamination from full-run evaluation).
     l2d_baseline_horizon = copy.deepcopy(l2d_baseline)
     l2d_sw_baseline_horizon = (
@@ -1242,6 +1382,30 @@ if __name__ == "__main__":
     )
     neuralucb_full_horizon = (
         copy.deepcopy(neuralucb_full) if neuralucb_full is not None else None
+    )
+    shared_linucb_partial_horizon = (
+        copy.deepcopy(shared_linucb_partial)
+        if shared_linucb_partial is not None
+        else None
+    )
+    shared_linucb_full_horizon = (
+        copy.deepcopy(shared_linucb_full) if shared_linucb_full is not None else None
+    )
+    lin_ts_partial_horizon = (
+        copy.deepcopy(lin_ts_partial) if lin_ts_partial is not None else None
+    )
+    lin_ts_full_horizon = (
+        copy.deepcopy(lin_ts_full) if lin_ts_full is not None else None
+    )
+    ensemble_sampling_partial_horizon = (
+        copy.deepcopy(ensemble_sampling_partial)
+        if ensemble_sampling_partial is not None
+        else None
+    )
+    ensemble_sampling_full_horizon = (
+        copy.deepcopy(ensemble_sampling_full)
+        if ensemble_sampling_full is not None
+        else None
     )
 
     # --------------------------------------------------------
@@ -1654,7 +1818,14 @@ if __name__ == "__main__":
     # --------------------------------------------------------
     
     # Environment: either synthetic or ETTh1, depending on env_cfg.
-    if data_source in ("etth1", "etth2", "merlbourne", "melbourne"):
+    if data_source in (
+        "etth1",
+        "etth2",
+        "merlbourne",
+        "melbourne",
+        "jena",
+        "jena_climate",
+    ):
         # Real-world CSV-backed experiment (ETTh or Melbourne daily temps).
         T_raw = env_cfg.get("T", None)
         T_env = None if T_raw is None else int(T_raw)
@@ -1664,6 +1835,12 @@ if __name__ == "__main__":
             if not os.path.exists(csv_path):
                 csv_path = ensure_daily_temp_csv(csv_path)
             target_column = env_cfg.get("target_column", "temp")
+        elif data_source in ("jena", "jena_climate"):
+            default_csv = "data/jena_climate_2009_2016.csv"
+            csv_path = env_cfg.get("csv_path", default_csv)
+            if not os.path.exists(csv_path):
+                csv_path = ensure_jena_climate_csv(csv_path)
+            target_column = env_cfg.get("target_column", "T (degC)")
         else:
             default_csv = "data/ETTh2.csv" if data_source == "etth2" else "data/ETTh1.csv"
             csv_path = env_cfg.get("csv_path", default_csv)
@@ -1683,6 +1860,7 @@ if __name__ == "__main__":
             arrival_intervals=env_cfg.get("arrival_intervals", None),
             context_columns=env_cfg.get("context_columns", None),
             context_lags=env_cfg.get("context_lags", None),
+            row_stride=env_cfg.get("row_stride", 1),
             include_time_features=env_cfg.get("include_time_features", False),
             time_features=env_cfg.get("time_features", None),
             normalize_context=env_cfg.get("normalize_context", False),
@@ -2287,10 +2465,26 @@ if __name__ == "__main__":
             _register_transition_logger(linucb_partial, "LinUCB partial")
         if linucb_full is not None:
             _register_transition_logger(linucb_full, "LinUCB full")
+        if shared_linucb_partial is not None:
+            _register_transition_logger(shared_linucb_partial, "SharedLinUCB partial")
+        if shared_linucb_full is not None:
+            _register_transition_logger(shared_linucb_full, "SharedLinUCB full")
         if neuralucb_partial is not None:
             _register_transition_logger(neuralucb_partial, "NeuralUCB partial")
         if neuralucb_full is not None:
             _register_transition_logger(neuralucb_full, "NeuralUCB full")
+        if lin_ts_partial is not None:
+            _register_transition_logger(lin_ts_partial, "LinTS partial")
+        if lin_ts_full is not None:
+            _register_transition_logger(lin_ts_full, "LinTS full")
+        if ensemble_sampling_partial is not None:
+            _register_transition_logger(
+                ensemble_sampling_partial, "EnsembleSampling partial"
+            )
+        if ensemble_sampling_full is not None:
+            _register_transition_logger(
+                ensemble_sampling_full, "EnsembleSampling full"
+            )
 
     em_force_full_feedback = bool(
         factorized_slds_cfg.get("em_offline_full_feedback", True)
@@ -2430,8 +2624,14 @@ if __name__ == "__main__":
                         "l2d_sw_baseline": l2d_sw_baseline,
                         "linucb_partial": linucb_partial,
                         "linucb_full": linucb_full,
+                        "shared_linucb_partial": shared_linucb_partial,
+                        "shared_linucb_full": shared_linucb_full,
                         "neuralucb_partial": neuralucb_partial,
                         "neuralucb_full": neuralucb_full,
+                        "lin_ts_partial": lin_ts_partial,
+                        "lin_ts_full": lin_ts_full,
+                        "ensemble_sampling_partial": ensemble_sampling_partial,
+                        "ensemble_sampling_full": ensemble_sampling_full,
                         "seed": seed,
                         "transition_log_cfg": transition_cfg,
                     }
@@ -2468,6 +2668,32 @@ if __name__ == "__main__":
                 neuralucb_full_run = (
                     copy.deepcopy(neuralucb_full) if neuralucb_full is not None else None
                 )
+                shared_linucb_partial_run = (
+                    copy.deepcopy(shared_linucb_partial)
+                    if shared_linucb_partial is not None
+                    else None
+                )
+                shared_linucb_full_run = (
+                    copy.deepcopy(shared_linucb_full)
+                    if shared_linucb_full is not None
+                    else None
+                )
+                lin_ts_partial_run = (
+                    copy.deepcopy(lin_ts_partial) if lin_ts_partial is not None else None
+                )
+                lin_ts_full_run = (
+                    copy.deepcopy(lin_ts_full) if lin_ts_full is not None else None
+                )
+                ensemble_sampling_partial_run = (
+                    copy.deepcopy(ensemble_sampling_partial)
+                    if ensemble_sampling_partial is not None
+                    else None
+                )
+                ensemble_sampling_full_run = (
+                    copy.deepcopy(ensemble_sampling_full)
+                    if ensemble_sampling_full is not None
+                    else None
+                )
 
                 snap_dict = planning_snapshots if run_idx == 0 else None
                 snap_t = planning_snapshot_t if run_idx == 0 else None
@@ -2488,8 +2714,14 @@ if __name__ == "__main__":
                     l2d_sw_baseline=l2d_sw_run,
                     linucb_partial=linucb_partial_run,
                     linucb_full=linucb_full_run,
+                    shared_linucb_partial=shared_linucb_partial_run,
+                    shared_linucb_full=shared_linucb_full_run,
                     neuralucb_partial=neuralucb_partial_run,
                     neuralucb_full=neuralucb_full_run,
+                    lin_ts_partial=lin_ts_partial_run,
+                    lin_ts_full=lin_ts_full_run,
+                    ensemble_sampling_partial=ensemble_sampling_partial_run,
+                    ensemble_sampling_full=ensemble_sampling_full_run,
                     seed=seed,
                     analysis_cfg=analysis_cfg,
                     planning_snapshot_t=snap_t,
@@ -2533,6 +2765,8 @@ if __name__ == "__main__":
                         router_full=run.get("fact_router_full"),
                         linucb_partial=linucb_partial_run,
                         linucb_full=linucb_full_run,
+                        shared_linucb_partial=shared_linucb_partial_run,
+                        shared_linucb_full=shared_linucb_full_run,
                         neuralucb_partial=neuralucb_partial_run,
                         neuralucb_full=neuralucb_full_run,
                         l2d_baseline=l2d_run,
@@ -2608,8 +2842,14 @@ if __name__ == "__main__":
             l2d_sw_baseline=l2d_sw_baseline,
             linucb_partial=linucb_partial,
             linucb_full=linucb_full,
+            shared_linucb_partial=shared_linucb_partial,
+            shared_linucb_full=shared_linucb_full,
             neuralucb_partial=neuralucb_partial,
             neuralucb_full=neuralucb_full,
+            lin_ts_partial=lin_ts_partial,
+            lin_ts_full=lin_ts_full,
+            ensemble_sampling_partial=ensemble_sampling_partial,
+            ensemble_sampling_full=ensemble_sampling_full,
             seed=seed,
             analysis_cfg=analysis_cfg,
             planning_snapshot_t=planning_snapshot_t,

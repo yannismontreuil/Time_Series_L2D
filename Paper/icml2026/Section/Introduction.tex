@@ -1,0 +1,47 @@
+\section{Introduction}
+
+Learning-to-defer (L2D) studies decision systems that \emph{route} each query to one of several experts and incur expert-dependent
+\emph{consultation costs} \citep{madras2018predict,mozannar2021consistent,Narasimhan,mao2023twostage, montreuil2025ask}.
+Most L2D work is offline: a router is trained on a fixed dataset (often under i.i.d.\ assumptions) using supervision that is typically unavailable online,
+such as access to all experts' predictions or losses for the same input.
+
+
+In sequential settings, decisions and observations are interleaved over time, making the offline assumptions above unrealistic.
+Such regimes arise, for instance, in streaming forecasting or triage pipelines where one must route each incoming instance to a single expert under limited and time-varying capacity.
+At round $t$, the router observes a context $\mathbf{x}_t$ and the currently available expert set $\mathcal{E}_t$, selects $I_t \in \mathcal{E}_t$, and then observes the outcome $\vy_t$ along with the queried prediction $\vhaty_{t,I_t}$.
+Feedback is \emph{partial}: predictions from $j\neq I_t$ are never revealed.
+The process is typically \emph{non-i.i.d.} and often non-stationary \citep{hamilton2020time, sezer2020financial}, so expert quality and cross-expert dependencies may drift or switch across regimes.
+In addition, $\mathcal{E}_t$ itself can evolve as experts arrive, depart, or become temporarily unavailable, and querying can consume scarce resources subject to operational constraints.
+Altogether, partial feedback, distribution shift, and a time-varying expert pool render standard offline L2D formulations inadequate and motivate online methods that explicitly track uncertainty over time.
+
+
+
+To address these challenges, we develop a probabilistic routing framework for non-stationary time series
+under partial feedback and a dynamic expert pool.
+We model expert residuals with a switching linear-Gaussian state-space
+\citep{ghahramani2000variational, linderman2016recurrent, hu2024modeling} model
+that couples a shared global factor with
+expert-specific idiosyncratic states and a discrete regime process, enabling time-varying cross-expert dependence.
+Faithful to practical settings, we support adding or removing experts without affecting the maintained marginals of retained experts.
+We also propose an information-directed sampling (IDS)-inspired exploration rule \citep{russo2014learning} that trades off predicted cost against information gained about the latent regime and shared factor.
+
+\textbf{Contributions.}
+Our main contributions are:
+\begin{itemize}[topsep=2pt,itemsep=1pt,parsep=0pt,leftmargin=1.2em]
+    \item We formalize \emph{online} expert routing for non-stationary time series with bandit feedback and time-varying expert availability (Section~\ref{sec:problem_formulation}).
+    \item We propose \textbf{L2D-SLDS}, a factorized switching linear-Gaussian state-space model for expert residuals with context-dependent regime transitions, a shared global factor enabling cross-expert information transfer, and per-expert idiosyncratic dynamics (Section~\ref{sec:generative_model}).
+    \item We derive an efficient Interacting Multiple Model (IMM)-style \citep{johnston2002improvement} filtering recursion under censoring together with dynamic registry management for expert entry and pruning; we show pruning leaves retained marginals unchanged (Sections~\ref{sec:generative_model} and~\ref{sec:registry}; Proposition~\ref{prop:invariance}).
+    \item We introduce an IDS-inspired routing rule \citep{russo2014learning} that trades off predicted cost against mutual information about the latent regime and shared factor, with a closed-form shared-factor term and a lightweight Monte Carlo mode-identification term (Section~\ref{sec:exploration}; Appendix~\ref{app:info_gain}).
+    \item We empirically evaluate on a synthetic correlated-regime simulator and on Temperature in Melbourne \citep{daily_min_temp_melbourne_kaggle} (plus FRED DGS10 in the appendix), comparing against contextual bandit baselines and a no-shared-factor ablation (Section~\ref{sec:experiments}; Appendix~\ref{sec:experiments-details}).
+\end{itemize}
+
+
+
+%\paragraph{Contributions.}
+%Our main contributions are:
+%\begin{itemize}
+%    \item A sequential expert-routing formulation for non-stationary time series with partial feedback and a time-varying expert pool (Section~\ref{sec:problem_formulation}).
+%    \item A factorized switching state-space model for expert residuals with context-dependent regime switching and a shared latent factor enabling cross-expert information transfer (Section~\ref{sec:generative_model}).
+%    \item A scalable IMM-style filtering recursion with dynamic registry management that updates only the queried expert jointly with the shared factor, while keeping per-expert marginals (Sections~\ref{sec:generative_model} and~\ref{sec:registry}).
+%    \item An information-directed routing rule based on mutual information about $(z_t,\mathbf{g}_t)$, together with a predictive scheduling layer that outputs on-call active sets under availability constraints (Sections~\ref{sec:exploration} and~\ref{sec:scheduling}).
+%\end{itemize}

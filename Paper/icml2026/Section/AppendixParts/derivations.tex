@@ -1,0 +1,66 @@
+% =========================
+% Additional Derivations
+% =========================
+\subsection{Cross-Covariance in the Exact Update}
+\label{app:cross_covariance}
+
+The Kalman update in Algorithm~\ref{alg:correct_reweight} is performed on the joint state
+\(\mathbf{s}_t \coloneqq (\mathbf{g}_t,\mathbf{u}_{t,I_t})\). For readability in this subsection, set
+\(\mathbf{u}_t\coloneqq \mathbf{u}_{t,I_t}\) and write \(\mathbf{s}_t=(\mathbf{g}_t,\mathbf{u}_t)\).
+Even if the predictive covariance is
+block-diagonal (our factorized predictive belief), the \emph{exact} posterior covariance after
+conditioning on the queried residual \(e_t\) generally has non-zero off-diagonal blocks:
+\[
+\Sigma^{(m)}_{s,t\mid t}
+=
+\begin{bmatrix}
+\Sigma^{(m)}_{g,t\mid t} & \Sigma^{(m)}_{g u,t\mid t} \\
+(\Sigma^{(m)}_{g u,t\mid t})^\top & \Sigma^{(m)}_{u,t\mid t}
+\end{bmatrix},
+\qquad
+\Sigma^{(m)}_{g u,t\mid t}\neq \mathbf{0}\ \text{in general}.
+\]
+These cross terms arise because the observation matrix
+\(H_t=[\Phi(\mathbf{x}_t)^\top\mathbf{B}_{I_t}\;\;\Phi(\mathbf{x}_t)^\top]\)
+couples \(\mathbf{g}_t\) and \(\mathbf{u}_{t,I_t}\). Retaining \(\Sigma^{(m)}_{g u,t\mid t}\) would
+propagate correlation into subsequent steps and into cross-expert predictive covariances.
+
+\paragraph{Closed-form cross-covariance.}
+Write the Kalman gain in block form
+\(
+K_t^{(m)}=\big[(K^{(m)}_{g,t})^\top\ (K^{(m)}_{u,t})^\top\big]^\top
+\),
+and let \(\Sigma_{t,I_t}^{\mathrm{pred},(m)}\) denote the innovation covariance of the queried residual
+as in Algorithm~\ref{alg:correct_reweight}:
+\(
+\Sigma_{t,I_t}^{\mathrm{pred},(m)} = H_t\Sigma^{(m)}_{s,t\mid t-1}H_t^\top + \mathbf{R}_{m,I_t}.
+\)
+Then the covariance update can be written as
+\(
+\Sigma^{(m)}_{s,t\mid t}
+=
+\Sigma^{(m)}_{s,t\mid t-1}
+-K_t^{(m)} \Sigma_{t,I_t}^{\mathrm{pred},(m)} (K_t^{(m)})^\top
+\).
+If the predictive covariance is block-diagonal, then the off-diagonal block is
+\[
+\Sigma^{(m)}_{g u,t\mid t}
+=
+-K^{(m)}_{g,t} \Sigma_{t,I_t}^{\mathrm{pred},(m)} (K^{(m)}_{u,t})^\top
+=
+-\Sigma^{(m)}_{g,t\mid t-1} H_{g,t}^\top (\Sigma_{t,I_t}^{\mathrm{pred},(m)})^{-1} H_{u,t}\Sigma^{(m)}_{u,t\mid t-1},
+\]
+where \(H_{g,t}=\Phi(\mathbf{x}_t)^\top\mathbf{B}_{I_t}\in\mathbb{R}^{d_y\times d_g}\) and
+\(H_{u,t}=\Phi(\mathbf{x}_t)^\top\in\mathbb{R}^{d_y\times d_\alpha}\).
+Unless one of these terms is zero, the cross-covariance is non-zero.
+
+\paragraph{Why we discard it.}
+Keeping \(\Sigma^{(m)}_{g u,t\mid t}\) is exact but undermines the factorized SLDS approximation that
+enables scalable inference under a growing expert registry. Once \(\mathbf{g}_t\) becomes correlated
+with \(\mathbf{u}_{t,I_t}\), future prediction steps introduce non-zero cross-covariances between
+\(\mathbf{g}_t\) and every \(\mathbf{u}_{t,k}\) that shares dynamics with \(\mathbf{u}_{t,I_t}\), and,
+through the shared factor, induce dependence across many experts. This breaks the stored-marginal
+structure, increases both compute and memory (scaling with the full registry size), and complicates
+closed-form quantities used in Section~\ref{sec:exploration} (e.g., the Gaussian channel form and
+information gain). For these reasons, we project back to a factorized belief after each update and
+retain only the diagonal blocks as in Algorithm~\ref{alg:correct_reweight}.
