@@ -40,6 +40,7 @@ class SyntheticTimeSeriesEnv:
         setting: str = "easy_setting",
         noise_scale: float | None = None,
         tri_cycle_cfg: dict | None = None,
+        availability_schedule: np.ndarray | None = None,
     ):
         # Use fixed seed for data generation so that time series and expert
         # behavior are reproducible regardless of the configurable seed.
@@ -155,6 +156,9 @@ class SyntheticTimeSeriesEnv:
                         t_end = min(T, t + block_len)
                         z[t:t_end] = k_eff
                         t = t_end
+            elif setting == "context_gate_corr":
+                # The context-gated setting generates z_t later, once x_t is known.
+                z[:] = 0
             elif setting == "sidekick_trap":
                 # Explicit two-regime pattern: first 1000 steps in regime 0,
                 # remaining steps in regime 1 (storm).
@@ -309,6 +313,12 @@ class SyntheticTimeSeriesEnv:
                     drift = drift_levels[k % len(drift_levels)]
                     y = 0.8 * y + drift + rng.normal(scale=noise)
                     self.y[t] = y
+            elif setting == "context_gate_corr":
+                ar = float(tri_cycle_cfg.get("context_ar", 0.85))
+                drift = float(tri_cycle_cfg.get("context_drift", 0.0))
+                for t in range(T):
+                    y = ar * y + drift + rng.normal(scale=noise)
+                    self.y[t] = y
             elif (setting == "noisy_forgetting" and M > 2) or (setting == "division_by_M" and M > 2):
                 # For noisy_forgetting or division_by_M with more than 2 regimes, assign a
                 # distinct drift level to each regime so that the time
@@ -392,6 +402,38 @@ class SyntheticTimeSeriesEnv:
         self.x[0] = 0.0
         if T > 1:
             self.x[1:] = self.y[:-1]
+
+        if setting == "context_gate_corr":
+            if M != 2:
+                raise ValueError("context_gate_corr currently expects num_regimes = 2.")
+            gate_threshold = float(tri_cycle_cfg.get("gate_threshold", 0.0))
+            pi_neg = np.asarray(
+                tri_cycle_cfg.get(
+                    "Pi_xneg",
+                    [[0.97, 0.03], [0.25, 0.75]],
+                ),
+                dtype=float,
+            )
+            pi_pos = np.asarray(
+                tri_cycle_cfg.get(
+                    "Pi_xpos",
+                    [[0.75, 0.25], [0.03, 0.97]],
+                ),
+                dtype=float,
+            )
+            if pi_neg.shape != (2, 2) or pi_pos.shape != (2, 2):
+                raise ValueError("context_gate_corr requires 2x2 Pi_xneg/Pi_xpos.")
+            z = np.zeros(T, dtype=int)
+            z[0] = 1 if float(self.x[0]) >= gate_threshold else 0
+            for t in range(1, T):
+                pi_t = pi_pos if float(self.x[t]) >= gate_threshold else pi_neg
+                prev = int(z[t - 1])
+                z[t] = int(rng.choice(2, p=pi_t[prev]))
+            self.z = z
+            self.Pi_true = 0.5 * (pi_neg + pi_pos)
+            self._context_gate_threshold = gate_threshold
+            self._context_gate_pi_neg = pi_neg
+            self._context_gate_pi_pos = pi_pos
 
         # Experts: different linear predictors y_hat = w_j x + b_j
         #   - Expert 0: slightly under-tuned to regime 0
@@ -580,6 +622,39 @@ class SyntheticTimeSeriesEnv:
                 self._tri_cycle_u = u
                 self._tri_cycle_shared_loadings = loadings
                 self._tri_cycle_residuals = residuals
+        elif setting == "context_gate_corr":
+            base_slope = float(tri_cycle_cfg.get("base_slope", 0.8))
+            slopes = np.full((M, num_experts), base_slope, dtype=float)
+            default_biases = [
+                [0.0, 0.1, 0.9, 1.0, 0.55],
+                [0.9, 1.0, 0.0, 0.1, 0.55],
+            ]
+            biases_cfg = tri_cycle_cfg.get("biases_by_regime", default_biases)
+            biases = np.zeros((M, num_experts), dtype=float)
+            for reg_idx in range(min(M, len(biases_cfg))):
+                reg_biases = biases_cfg[reg_idx]
+                for j_idx in range(min(num_experts, len(reg_biases))):
+                    biases[reg_idx, j_idx] = float(reg_biases[j_idx])
+            slopes_cfg = tri_cycle_cfg.get("slopes_by_regime", None)
+            if slopes_cfg is not None:
+                for reg_idx in range(min(M, len(slopes_cfg))):
+                    reg_slopes = slopes_cfg[reg_idx]
+                    for j_idx in range(min(num_experts, len(reg_slopes))):
+                        slopes[reg_idx, j_idx] = float(reg_slopes[j_idx])
+            self._context_gate_slopes = slopes
+            self._context_gate_biases = biases
+            rng_noise = np.random.default_rng(data_seed + 34567)
+            indiv_scale = float(tri_cycle_cfg.get("indiv_noise_scale", 0.04))
+            shared_scale = float(tri_cycle_cfg.get("shared_noise_scale", 0.10))
+            base_noise = rng_noise.normal(scale=indiv_scale, size=(T, num_experts))
+            for t_idx in range(T):
+                reg = int(self.z[t_idx])
+                pair = (0, 1) if reg == 0 else (2, 3)
+                shared = rng_noise.normal(scale=shared_scale)
+                for j_idx in pair:
+                    if 0 <= j_idx < num_experts:
+                        base_noise[t_idx, j_idx] += shared
+            self._expert_noise = base_noise
 
         # Expert availability over time.
         # By default:
@@ -754,6 +829,24 @@ class SyntheticTimeSeriesEnv:
                         if t_start < t_end:
                             self.availability[t_start:t_end, arrival_expert_idx] = 1
 
+        if availability_schedule is not None:
+            schedule = np.asarray(availability_schedule, dtype=int)
+            if schedule.shape != (T, self.num_experts):
+                raise ValueError(
+                    "availability_schedule must have shape (T, num_experts)."
+                )
+            if np.any((schedule != 0) & (schedule != 1)):
+                raise ValueError(
+                    "availability_schedule entries must be binary (0 or 1)."
+                )
+            row_sums = np.sum(schedule, axis=1)
+            if np.any(row_sums <= 0):
+                bad_t = int(np.where(row_sums <= 0)[0][0])
+                raise ValueError(
+                    f"availability_schedule has no available experts at t={bad_t}."
+                )
+            self.availability = schedule.copy()
+
         # Precompute deterministic expert predictions/losses so later calls
         # cannot be influenced by any incidental state changes.
         self._preds_cache = np.zeros((self.T, self.num_experts), dtype=float)
@@ -794,6 +887,11 @@ class SyntheticTimeSeriesEnv:
         # expert_predict can optionally condition on the current regime
         # in special synthetic settings (e.g., theoretical_trap).
         self._last_t = int(t)
+        if getattr(self, "setting", None) == "context_gate_corr":
+            x_val = float(self.x[t])
+            threshold = float(getattr(self, "_context_gate_threshold", 0.0))
+            gate = 1.0 if x_val >= threshold else -1.0
+            return np.array([x_val, gate], dtype=float)
         return np.array([self.x[t]], dtype=float)
 
     def expert_predict(self, j: int, x_t: np.ndarray) -> float:
@@ -857,6 +955,23 @@ class SyntheticTimeSeriesEnv:
                 noise_val = float(self._expert_noise[t, int(j)])
             return slope * x_val + bias + noise_val
 
+        if getattr(self, "setting", None) == "context_gate_corr" and self._last_t is not None:
+            t = int(self._last_t)
+            if not (0 <= t < self.T):
+                t = max(0, min(t, self.T - 1))
+            reg = int(self.z[t])
+            x_val = float(x_t[0])
+            slopes = getattr(self, "_context_gate_slopes", None)
+            biases = getattr(self, "_context_gate_biases", None)
+            if slopes is None or biases is None:
+                return float(self.expert_weights[j] * x_val + self.expert_biases[j])
+            slope = float(slopes[reg, int(j)])
+            bias = float(biases[reg, int(j)])
+            noise_val = 0.0
+            if self._expert_noise is not None:
+                noise_val = float(self._expert_noise[t, int(j)])
+            return slope * x_val + bias + noise_val
+
         # Default linear expert for all other settings.
         w = self.expert_weights[j]
         b = self.expert_biases[j]
@@ -901,3 +1016,12 @@ class SyntheticTimeSeriesEnv:
         """
         mask = self.availability[t].astype(bool)
         return np.where(mask)[0]
+
+    def true_transition_matrix(self, x_t: np.ndarray) -> np.ndarray:
+        if getattr(self, "setting", None) == "context_gate_corr":
+            x_val = float(np.asarray(x_t, dtype=float).reshape(-1)[0])
+            threshold = float(getattr(self, "_context_gate_threshold", 0.0))
+            if x_val >= threshold:
+                return np.asarray(self._context_gate_pi_pos, dtype=float).copy()
+            return np.asarray(self._context_gate_pi_neg, dtype=float).copy()
+        return np.asarray(self.Pi_true, dtype=float).copy()
