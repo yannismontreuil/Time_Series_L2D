@@ -23,4 +23,5 @@ export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export NUMEXPR_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 
-python scripts/tune_fred_gap.py --index "${SLURM_ARRAY_TASK_ID}" --out-dir out/fred_gap_sweep
+OUT_DIR="${FRED_GAP_OUT_DIR:-out/fred_gap_sweep}"
+python scripts/tune_fred_gap.py --index "${SLURM_ARRAY_TASK_ID}" --out-dir "${OUT_DIR}"
