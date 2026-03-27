@@ -115,7 +115,8 @@ def _candidate_specs() -> list[tuple[str, dict[str, Any], list[str]]]:
 
 def _parse_metrics(stdout: str) -> dict[str, float]:
     wanted = {
-        "L2D-SLDS w/": "ours",
+        "L2D-SLDS w/ $g_t$ attention": "ours",
+        "L2D SLDS w/ $g_t$ attention": "ours",
         "NeuralUCB (partial feedback)": "neural",
         "Always using expert 0": "expert0",
         "Always using expert 1": "expert1",
@@ -186,6 +187,7 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
     specs = _candidate_specs()
     name, overrides, transforms = specs[index]
     cfg = _prepare_cfg(name, overrides, transforms)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     with tempfile.NamedTemporaryFile(
         mode="w",
@@ -214,7 +216,6 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
     except OSError:
         pass
 
-    out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"{name}.stdout.txt").write_text(proc.stdout, encoding="utf-8")
     (out_dir / f"{name}.stderr.txt").write_text(proc.stderr, encoding="utf-8")
 
