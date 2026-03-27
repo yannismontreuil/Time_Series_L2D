@@ -1,0 +1,198 @@
+import copy
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import tempfile
+from argparse import ArgumentParser
+
+import yaml
+
+from environment.etth1_env import ETTh1TimeSeriesEnv
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+BASE = ROOT / "config" / "exp_FRED_rebuttal.yaml"
+RUNNER = ROOT / "slds_imm_router.py"
+
+
+def _parse_args():
+    parser = ArgumentParser(description="Run multi-seed FRED evaluation and summarize mean +/- SE.")
+    parser.add_argument(
+        "--config",
+        type=pathlib.Path,
+        default=BASE,
+        help="Config path to evaluate. Defaults to exp_FRED_rebuttal.yaml.",
+    )
+    parser.add_argument(
+        "--seeds",
+        nargs="+",
+        type=int,
+        default=[11, 12, 13, 14, 15],
+        help="Seeds to evaluate. Defaults to 11 12 13 14 15.",
+    )
+    return parser.parse_args()
+
+
+def _extract_metrics(stdout: str, prefixes: dict[str, str]) -> dict[str, float]:
+    found: dict[str, float] = {}
+    in_average_block = False
+    ordered_prefixes = sorted(prefixes.items(), key=lambda item: len(item[0]), reverse=True)
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip()
+        if line == "=== Average costs ===":
+            in_average_block = True
+            continue
+        if line.startswith("=== ") and in_average_block:
+            break
+        if not in_average_block or ":" not in line:
+            continue
+        label, _, value_str = line.partition(":")
+        label = label.strip()
+        value_str = value_str.strip()
+        for prefix, key in ordered_prefixes:
+            if key in found:
+                continue
+            if label.startswith(prefix):
+                match = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", value_str)
+                if match is None:
+                    continue
+                found[key] = float(match.group(0))
+                break
+    return found
+
+
+def _build_env_from_cfg(env_cfg: dict) -> ETTh1TimeSeriesEnv:
+    csv_path = env_cfg.get("csv_path", "data/FRED_DGS10.csv")
+    target_column = env_cfg.get("target_column", "DGS10")
+    T_raw = env_cfg.get("T", None)
+    T_env = None if T_raw is None else int(T_raw)
+    return ETTh1TimeSeriesEnv(
+        csv_path=csv_path,
+        target_column=target_column,
+        num_experts=int(env_cfg["num_experts"]),
+        num_regimes=int(env_cfg["num_regimes"]),
+        T=T_env,
+        seed=int(env_cfg.get("seed", 42)),
+        data_seed=env_cfg.get("data_seed", None),
+        unavailable_expert_idx=env_cfg.get("unavailable_expert_idx", None),
+        unavailable_intervals=env_cfg.get("unavailable_intervals", None),
+        arrival_expert_idx=env_cfg.get("arrival_expert_idx", None),
+        arrival_intervals=env_cfg.get("arrival_intervals", None),
+        context_columns=env_cfg.get("context_columns", None),
+        context_lags=env_cfg.get("context_lags", None),
+        row_stride=env_cfg.get("row_stride", 1),
+        include_time_features=env_cfg.get("include_time_features", False),
+        time_features=env_cfg.get("time_features", None),
+        normalize_context=env_cfg.get("normalize_context", False),
+        normalization_window=env_cfg.get("normalization_window", None),
+        normalization_eps=env_cfg.get("normalization_eps", 1e-6),
+        normalization_mode=env_cfg.get("normalization_mode", "zscore"),
+        feature_expansions=env_cfg.get("feature_expansions", None),
+        lag_diff_pairs=env_cfg.get("lag_diff_pairs", None),
+        expert_archs=env_cfg.get("expert_archs", None),
+        nn_expert_type=env_cfg.get("nn_expert_type", None),
+        rnn_hidden_dim=env_cfg.get("rnn_hidden_dim", 8),
+        rnn_spectral_radius=env_cfg.get("rnn_spectral_radius", 0.9),
+        rnn_ridge=env_cfg.get("rnn_ridge", 1e-3),
+        rnn_washout=env_cfg.get("rnn_washout", 5),
+        rnn_input_scale=env_cfg.get("rnn_input_scale", 0.5),
+        rnn_share_reservoir=env_cfg.get("rnn_share_reservoir", True),
+        rnn_hidden_dims=env_cfg.get("rnn_hidden_dims", None),
+        rnn_spectral_radii=env_cfg.get("rnn_spectral_radii", None),
+        rnn_ridges=env_cfg.get("rnn_ridges", None),
+        rnn_washouts=env_cfg.get("rnn_washouts", None),
+        rnn_input_scales=env_cfg.get("rnn_input_scales", None),
+        expert_pred_noise_std=env_cfg.get("expert_pred_noise_std", None),
+        expert_train_ranges=env_cfg.get("expert_train_ranges", None),
+        expert_train_date_ranges=env_cfg.get("expert_train_date_ranges", None),
+        arima_lags=env_cfg.get("arima_lags", None),
+        arima_diff_order=env_cfg.get("arima_diff_order", 0),
+    )
+
+
+def main() -> None:
+    args = _parse_args()
+    config_path = args.config.resolve()
+    with config_path.open("r", encoding="utf-8") as f:
+        base_cfg = yaml.safe_load(f)
+    env = _build_env_from_cfg(base_cfg["environment"])
+    horizon = int(env.T)
+
+    prefixes = {
+        "L2D-SLDS w/": "ours",
+        "L2D-SLDS w/o": "ablation",
+        "LinUCB (partial feedback)": "linucb",
+        "SharedLinUCB (partial fb)": "shared",
+        "NeuralUCB (partial feedback)": "neural",
+        "LinTS (partial feedback)": "lints",
+        "EnsembleSampling (partial fb)": "ensemble",
+        "Random baseline": "random",
+        "Oracle baseline": "oracle",
+        "Always using expert 0": "expert0",
+        "Always using expert 1": "expert1",
+        "Always using expert 2": "expert2",
+        "Always using expert 3": "expert3",
+    }
+    all_metrics = {k: [] for k in prefixes.values()}
+
+    for seed in args.seeds:
+        cfg = copy.deepcopy(base_cfg)
+        cfg["environment"]["seed"] = seed
+        cfg["routers"]["factorized_slds"]["seed"] = seed
+        with tempfile.NamedTemporaryFile(
+            "w",
+            suffix=".yaml",
+            prefix="fred_seed_",
+            delete=False,
+            dir=str(ROOT / "config"),
+            encoding="utf-8",
+        ) as tmp:
+            yaml.safe_dump(cfg, tmp, sort_keys=False)
+            tmp_path = tmp.name
+
+        env_vars = os.environ.copy()
+        env_vars["FACTOR_DISABLE_PLOT_SHOW"] = "1"
+        env_vars["MPLBACKEND"] = "Agg"
+        proc = subprocess.run(
+            [sys.executable, str(RUNNER), "--config", tmp_path],
+            cwd=str(ROOT),
+            env=env_vars,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        os.remove(tmp_path)
+        if proc.returncode != 0:
+            print(proc.stdout)
+            print(proc.stderr)
+            raise SystemExit(proc.returncode)
+
+        found = _extract_metrics(proc.stdout, prefixes)
+        print("seed", seed, found)
+        missing = [key for key in all_metrics if key not in found]
+        if missing:
+            print(proc.stdout)
+            raise KeyError(f"Missing parsed metrics for seed {seed}: {missing}")
+        for key in all_metrics:
+            all_metrics[key].append(found[key])
+
+    def mean_se(vals: list[float]) -> tuple[float, float]:
+        n = len(vals)
+        mean = sum(vals) / n
+        if n <= 1:
+            return mean, 0.0
+        var = sum((x - mean) ** 2 for x in vals) / (n - 1)
+        se = (var ** 0.5) / (n ** 0.5)
+        return mean, se
+
+    print("SUMMARY")
+    for key, vals in all_metrics.items():
+        mean, se = mean_se(vals)
+        mean_cum = mean * horizon
+        se_cum = se * horizon
+        print(key, f"avg={mean:.6f}", f"se={se:.6f}", f"cum={mean_cum:.4f}", f"cum_se={se_cum:.4f}")
+
+
+if __name__ == "__main__":
+    main()
