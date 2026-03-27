@@ -5,6 +5,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import time
 from argparse import ArgumentParser
 from math import sqrt
 
@@ -24,6 +25,12 @@ SEEDS = [11, 12, 13, 14, 15]
 def _candidate_specs():
     return [
         ("paper_base", {}, []),
+        ("tk3000", {"routers.factorized_slds.em_tk": 3000}, []),
+        ("tk4000", {"routers.factorized_slds.em_tk": 4000}, []),
+        ("em_n25", {"routers.factorized_slds.em_n": 25}, []),
+        ("em_n40", {"routers.factorized_slds.em_n": 40}, []),
+        ("samples80", {"routers.factorized_slds.em_samples": 80}, []),
+        ("samples100", {"routers.factorized_slds.em_samples": 100}, []),
         (
             "tk3000_n25",
             {"routers.factorized_slds.em_tk": 3000, "routers.factorized_slds.em_n": 25},
@@ -58,6 +65,16 @@ def _candidate_specs():
             },
             [],
         ),
+        (
+            "tk4000_n25_s80_noval",
+            {
+                "routers.factorized_slds.em_tk": 4000,
+                "routers.factorized_slds.em_n": 25,
+                "routers.factorized_slds.em_samples": 80,
+                "routers.factorized_slds.em_use_validation": False,
+            },
+            [],
+        ),
     ]
 
 
@@ -77,6 +94,7 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
     ours_vals = []
     neural_vals = []
     gaps = []
+    wall_secs = []
     max_static_diff = 0.0
     static_ok_all = True
 
@@ -99,6 +117,7 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
         env = os.environ.copy()
         env["FACTOR_DISABLE_PLOT_SHOW"] = "1"
         env["MPLBACKEND"] = "Agg"
+        t_start = time.perf_counter()
         proc = subprocess.run(
             [sys.executable, str(RUNNER), "--config", tmp_path],
             cwd=str(ROOT),
@@ -107,6 +126,7 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
             text=True,
             check=False,
         )
+        wall_sec = float(time.perf_counter() - t_start)
         try:
             os.remove(tmp_path)
         except OSError:
@@ -140,12 +160,14 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
         ours_vals.append(ours)
         neural_vals.append(neural)
         gaps.append(gap)
+        wall_secs.append(wall_sec)
         rows.append(
             {
                 "seed": seed,
                 "ours": ours,
                 "neural": neural,
                 "gap_vs_neural": gap,
+                "wall_sec": wall_sec,
                 "expert0": float(metrics["expert0"]),
                 "expert1": float(metrics["expert1"]),
                 "expert2": float(metrics["expert2"]),
@@ -165,6 +187,8 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
         "neural_se": _stderr(neural_vals),
         "gap_mean": float(np.mean(gaps)),
         "gap_se": _stderr(gaps),
+        "wall_sec_mean": float(np.mean(wall_secs)),
+        "wall_sec_se": _stderr(wall_secs),
         "static_ok_all": int(static_ok_all),
         "max_static_diff": max_static_diff,
     }
@@ -183,6 +207,7 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
         f"{name}: ours={summary['ours_mean']:.6f}±{summary['ours_se']:.6f}, "
         f"neural={summary['neural_mean']:.6f}±{summary['neural_se']:.6f}, "
         f"gap={summary['gap_mean']:.6f}±{summary['gap_se']:.6f}, "
+        f"wall={summary['wall_sec_mean']:.1f}s±{summary['wall_sec_se']:.1f}s, "
         f"static_ok_all={bool(summary['static_ok_all'])}, "
         f"max_static_diff={summary['max_static_diff']:.6g}"
     )
@@ -190,7 +215,7 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
 
 def main() -> None:
     parser = ArgumentParser(description="Five-seed full-horizon FRED gap search against NeuralUCB.")
-    parser.add_argument("--index", type=int, required=True, help="Candidate index in [0, 4].")
+    parser.add_argument("--index", type=int, required=True, help="Candidate index in [0, 11].")
     parser.add_argument(
         "--out-dir",
         type=pathlib.Path,
