@@ -102,11 +102,13 @@ def _build_factorized_pair(cfg: dict, env: ETTh1TimeSeriesEnv):
         Q_g=Q_g,
         **common,
     )
+    common_no_g = dict(common)
+    common_no_g["B_dict"] = {}
     no_g = FactorizedSLDS(
         d_g=0,
         A_g=None,
         Q_g=None,
-        **common,
+        **common_no_g,
     )
     _apply_factorized_init(env, [ours, no_g], factor_cfg)
     return ours, no_g
