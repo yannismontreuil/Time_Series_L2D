@@ -9,9 +9,12 @@ from argparse import ArgumentParser
 
 import yaml
 
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from environment.etth1_env import ETTh1TimeSeriesEnv
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE = ROOT / "config" / "exp_FRED_rebuttal.yaml"
 RUNNER = ROOT / "slds_imm_router.py"
 

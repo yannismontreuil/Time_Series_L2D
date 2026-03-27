@@ -29,7 +29,87 @@ from router_eval import (
     run_random_on_env,
     run_shared_linucb_on_env,
 )
-from scripts.measure_jena_runtime import _apply_factorized_init, _build_factorized_pair, _diag_stack
+from scripts.measure_jena_runtime import _apply_factorized_init
+
+
+def _diag_stack_broadcast(scales, d: int, M: int) -> np.ndarray:
+    arr = np.asarray(scales, dtype=float).reshape(-1)
+    if arr.size == 1:
+        arr = np.full(M, float(arr[0]), dtype=float)
+    elif arr.size != M:
+        raise ValueError(f"Expected scalar or length-{M} scales, got shape {arr.shape}.")
+    out = np.zeros((M, d, d), dtype=float)
+    for m, val in enumerate(arr):
+        out[m] = float(val) * np.eye(d, dtype=float)
+    return out
+
+
+def _build_factorized_pair(cfg: dict, env: ETTh1TimeSeriesEnv):
+    env_cfg = cfg["environment"]
+    routers_cfg = cfg["routers"]
+    factor_cfg = routers_cfg["factorized_slds"]
+    N = int(env_cfg["num_experts"])
+    M = int(factor_cfg["num_regimes"])
+    d_phi = int(factor_cfg["idiosyncratic_dim"])
+    d_g = int(factor_cfg["shared_dim"])
+    beta = np.zeros(N, dtype=float)
+    A_g = np.asarray(factor_cfg["A_g"], dtype=float)
+    A_u = _diag_stack_broadcast(factor_cfg["A_u_scale"], d_phi, M)
+    Q_g = _diag_stack_broadcast(factor_cfg["Q_g_scales"], d_g, M)
+    Q_u = _diag_stack_broadcast(factor_cfg["Q_u_scales"], d_phi, M)
+    B_dict_cfg = factor_cfg.get("B_dict", {})
+    B_dict = {
+        int(k): np.asarray(v, dtype=float)
+        for k, v in B_dict_cfg.items()
+    }
+    common = dict(
+        M=M,
+        d_phi=d_phi,
+        feature_fn=feature_phi,
+        beta=beta,
+        Delta_max=int(factor_cfg["delta_max"]),
+        R=float(factor_cfg.get("R_scalar", 1.0)),
+        R_mode="scalar",
+        num_experts=N,
+        B_dict=B_dict,
+        B_intercept_load=float(factor_cfg.get("B_intercept_load", 1.0)),
+        attn_dim=int(factor_cfg.get("attn_dim", d_phi)),
+        A_u=A_u,
+        Q_u=Q_u,
+        eps=float(factor_cfg.get("eps", 1e-8)),
+        exploration=str(factor_cfg.get("exploration", ["g"])[0]),
+        exploration_mc_samples=int(factor_cfg.get("exploration_mc_samples", 25)),
+        exploration_ucb_samples=int(factor_cfg.get("exploration_ucb_samples", 200)),
+        exploration_ucb_alpha=factor_cfg.get("exploration_ucb_alpha", None),
+        exploration_ucb_schedule=str(factor_cfg.get("exploration_ucb_schedule", "inverse_t")),
+        exploration_sampling_deterministic=bool(
+            factor_cfg.get("exploration_sampling_deterministic", False)
+        ),
+        exploration_diag_enabled=False,
+        exploration_diag_stride=int(factor_cfg.get("exploration_diag_stride", 100)),
+        exploration_diag_samples=int(factor_cfg.get("exploration_diag_samples", 50)),
+        exploration_diag_print=False,
+        exploration_diag_max_records=int(factor_cfg.get("exploration_diag_max_records", 2000)),
+        observation_mode="residual",
+        transition_init=str(factor_cfg.get("transition_init", "uniform")),
+        transition_mode=str(factor_cfg.get("transition_mode", "attention")),
+        feedback_mode="partial",
+        seed=int(factor_cfg.get("seed", 42)),
+    )
+    ours = FactorizedSLDS(
+        d_g=d_g,
+        A_g=A_g,
+        Q_g=Q_g,
+        **common,
+    )
+    no_g = FactorizedSLDS(
+        d_g=0,
+        A_g=None,
+        Q_g=None,
+        **common,
+    )
+    _apply_factorized_init(env, [ours, no_g], factor_cfg)
+    return ours, no_g
 
 
 def _load_cfg(path: pathlib.Path) -> dict:
