@@ -21,5 +21,6 @@ export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
 export NUMEXPR_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
+export TORCHDYNAMO_DISABLE=1
 
 python scripts/fred_seed_eval.py --config config/exp_FRED_rebuttal.yaml --seeds 11 12 13 14 15
