@@ -62,20 +62,6 @@ def _collapse_shared_dim_to_one(cfg: dict[str, Any]) -> None:
 def _candidate_specs() -> list[tuple[str, dict[str, Any], list[str]]]:
     return [
         ("paper_base", {}, []),
-        ("tk3000", {"routers.factorized_slds.em_tk": 3000}, []),
-        ("tk4000", {"routers.factorized_slds.em_tk": 4000}, []),
-        ("em_n25", {"routers.factorized_slds.em_n": 25}, []),
-        ("samples80", {"routers.factorized_slds.em_samples": 80}, []),
-        (
-            "tk3000_n25",
-            {"routers.factorized_slds.em_tk": 3000, "routers.factorized_slds.em_n": 25},
-            [],
-        ),
-        (
-            "tk3000_s80",
-            {"routers.factorized_slds.em_tk": 3000, "routers.factorized_slds.em_samples": 80},
-            [],
-        ),
         (
             "tk3000_n25_s80",
             {
@@ -86,29 +72,120 @@ def _candidate_specs() -> list[tuple[str, dict[str, Any], list[str]]]:
             [],
         ),
         (
-            "tk3000_n25_s80_b10",
+            "tk3000_n25_s80_noval",
+            {
+                "routers.factorized_slds.em_tk": 3000,
+                "routers.factorized_slds.em_n": 25,
+                "routers.factorized_slds.em_samples": 80,
+                "routers.factorized_slds.em_use_validation": False,
+            },
+            [],
+        ),
+        (
+            "tk3000_n25_s80_b10_noval",
             {
                 "routers.factorized_slds.em_tk": 3000,
                 "routers.factorized_slds.em_n": 25,
                 "routers.factorized_slds.em_samples": 80,
                 "routers.factorized_slds.em_burn_in": 10,
+                "routers.factorized_slds.em_use_validation": False,
             },
             [],
         ),
         (
-            "m2_tk3000_n25",
-            {"routers.factorized_slds.em_tk": 3000, "routers.factorized_slds.em_n": 25},
+            "tk4000_n25_s80_noval",
+            {
+                "routers.factorized_slds.em_tk": 4000,
+                "routers.factorized_slds.em_n": 25,
+                "routers.factorized_slds.em_samples": 80,
+                "routers.factorized_slds.em_use_validation": False,
+            },
+            [],
+        ),
+        (
+            "tk3000_n40_s80_noval",
+            {
+                "routers.factorized_slds.em_tk": 3000,
+                "routers.factorized_slds.em_n": 40,
+                "routers.factorized_slds.em_samples": 80,
+                "routers.factorized_slds.em_use_validation": False,
+            },
+            [],
+        ),
+        (
+            "tk3000_n25_s100_noval",
+            {
+                "routers.factorized_slds.em_tk": 3000,
+                "routers.factorized_slds.em_n": 25,
+                "routers.factorized_slds.em_samples": 100,
+                "routers.factorized_slds.em_use_validation": False,
+            },
+            [],
+        ),
+        (
+            "attn_tk3000_n25_s80_th20",
+            {
+                "routers.factorized_slds.em_tk": 3000,
+                "routers.factorized_slds.em_n": 25,
+                "routers.factorized_slds.em_samples": 80,
+                "routers.factorized_slds.em_use_validation": False,
+                "routers.factorized_slds.em_theta_steps": 20,
+            },
+            [],
+        ),
+        (
+            "attn_tk3000_n25_s80_lr5e3",
+            {
+                "routers.factorized_slds.em_tk": 3000,
+                "routers.factorized_slds.em_n": 25,
+                "routers.factorized_slds.em_samples": 80,
+                "routers.factorized_slds.em_use_validation": False,
+                "routers.factorized_slds.em_theta_lr": 0.005,
+            },
+            [],
+        ),
+        (
+            "linear_tk3000_n25_s80_noval",
+            {
+                "routers.factorized_slds.em_tk": 3000,
+                "routers.factorized_slds.em_n": 25,
+                "routers.factorized_slds.em_samples": 80,
+                "routers.factorized_slds.em_use_validation": False,
+                "routers.factorized_slds.transition_mode": "linear",
+            },
+            [],
+        ),
+        (
+            "linear_tk3000_n40_s80_noval",
+            {
+                "routers.factorized_slds.em_tk": 3000,
+                "routers.factorized_slds.em_n": 40,
+                "routers.factorized_slds.em_samples": 80,
+                "routers.factorized_slds.em_use_validation": False,
+                "routers.factorized_slds.transition_mode": "linear",
+            },
+            [],
+        ),
+        (
+            "m2_tk3000_n25_s80_noval",
+            {
+                "routers.factorized_slds.em_tk": 3000,
+                "routers.factorized_slds.em_n": 25,
+                "routers.factorized_slds.em_samples": 80,
+                "routers.factorized_slds.em_use_validation": False,
+            },
             ["trim_M2"],
         ),
         (
-            "dg1_tk3000_n25",
-            {"routers.factorized_slds.em_tk": 3000, "routers.factorized_slds.em_n": 25},
-            ["dg1"],
-        ),
-        (
-            "m2_dg1_tk3000_n25",
-            {"routers.factorized_slds.em_tk": 3000, "routers.factorized_slds.em_n": 25},
-            ["trim_M2", "dg1"],
+            "m2_tk3000_n25_s80_linear",
+            {
+                "routers.factorized_slds.em_tk": 3000,
+                "routers.factorized_slds.em_n": 25,
+                "routers.factorized_slds.em_samples": 80,
+                "routers.factorized_slds.em_use_validation": False,
+                "routers.factorized_slds.transition_mode": "linear",
+            },
+            ["trim_M2"],
         ),
     ]
 
@@ -217,6 +294,8 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
     env = os.environ.copy()
     env["FACTOR_DISABLE_PLOT_SHOW"] = "1"
     env["MPLBACKEND"] = "Agg"
+    import time
+    t0 = time.perf_counter()
     proc = subprocess.run(
         [sys.executable, str(RUNNER), "--config", tmp_path],
         cwd=str(ROOT),
@@ -225,6 +304,7 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
         text=True,
         check=False,
     )
+    wall_sec = time.perf_counter() - t0
     try:
         os.remove(tmp_path)
     except OSError:
@@ -263,6 +343,7 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
         "oracle": metrics["oracle"],
         "static_ok": int(static_ok),
         "max_static_diff": max_static_diff,
+        "wall_sec": wall_sec,
     }
     with (out_dir / f"{name}.csv").open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(row.keys()))
@@ -271,7 +352,8 @@ def run_candidate(index: int, out_dir: pathlib.Path) -> None:
 
     print(
         f"{name}: ours={metrics['ours']:.6f}, neural={metrics['neural']:.6f}, "
-        f"gap={gap:.6f}, static_ok={static_ok}, max_static_diff={max_static_diff:.6g}"
+        f"gap={gap:.6f}, wall_sec={wall_sec:.2f}, "
+        f"static_ok={static_ok}, max_static_diff={max_static_diff:.6g}"
     )
 
 
