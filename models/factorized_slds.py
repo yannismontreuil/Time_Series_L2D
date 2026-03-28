@@ -546,6 +546,18 @@ class FactorizedSLDS(SLDSIMMRouter):
             return R_arr[m, k]
         raise ValueError("Unsupported R shape.")
 
+    def _get_R_scalars_for_expert(self, k: int) -> np.ndarray:
+        if np.ndim(self.R) == 0:
+            return np.full(self.M, float(self.R), dtype=float)
+        R_arr = np.asarray(self.R, dtype=float)
+        if R_arr.ndim == 2 and self.N is not None and R_arr.shape == (self.M, self.N):
+            return np.asarray(R_arr[:, k], dtype=float).reshape(self.M)
+        if R_arr.ndim == 4 and R_arr.shape[0] == self.M:
+            return np.asarray(R_arr[:, k, 0, 0], dtype=float).reshape(self.M)
+        if R_arr.ndim == 3 and R_arr.shape[0] == self.M and R_arr.shape[1:] == (1, 1):
+            return np.asarray(R_arr[:, 0, 0], dtype=float).reshape(self.M)
+        raise ValueError("Scalar-R view is only available for scalar-output observations.")
+
     def _ensure_full_R(self, d_y: int) -> None:
         if np.ndim(self.R) == 4:
             return
@@ -2139,6 +2151,16 @@ class FactorizedSLDS(SLDSIMMRouter):
         if mean.shape[0] != d:
             raise ValueError("Mean dimension mismatch in multivariate logpdf.")
         cov = np.asarray(cov, dtype=float)
+        if d == 1:
+            if cov.shape == ():
+                var = float(cov)
+            elif cov.shape == (1, 1):
+                var = float(cov[0, 0])
+            else:
+                raise ValueError("Covariance dimension mismatch in multivariate logpdf.")
+            var = max(float(var), self.eps)
+            diff = float(x[0] - mean[0])
+            return -0.5 * (np.log(2.0 * np.pi * var) + (diff * diff) / var)
         if cov.shape != (d, d):
             raise ValueError("Covariance dimension mismatch in multivariate logpdf.")
         cov = 0.5 * (cov + cov.T)
@@ -2172,6 +2194,16 @@ class FactorizedSLDS(SLDSIMMRouter):
         if mean_arr.shape[0] != d:
             raise ValueError("Mean dimension mismatch in batched multivariate logpdf.")
         cov_arr = np.asarray(cov, dtype=float)
+        if d == 1:
+            if cov_arr.shape == ():
+                var = float(cov_arr)
+            elif cov_arr.shape == (1, 1):
+                var = float(cov_arr[0, 0])
+            else:
+                raise ValueError("Covariance dimension mismatch in batched multivariate logpdf.")
+            var = max(float(var), self.eps)
+            diff = x_arr[:, 0] - float(mean_arr[0])
+            return -0.5 * (np.log(2.0 * np.pi * var) + (diff * diff) / var)
         if cov_arr.shape != (d, d):
             raise ValueError("Covariance dimension mismatch in batched multivariate logpdf.")
         cov_arr = 0.5 * (cov_arr + cov_arr.T)
@@ -3438,6 +3470,27 @@ class FactorizedSLDS(SLDSIMMRouter):
                     n_obs = int(H_t.shape[0])
                     if y_vec.shape[0] != n_obs:
                         raise ValueError("Observation dimension mismatch in Kalman update.")
+                    if n_obs == 1:
+                        h = H_t.reshape(-1)
+                        R_t = R_seq[t]
+                        if np.ndim(R_t) == 0:
+                            r = float(R_t)
+                        else:
+                            R_arr = np.asarray(R_t, dtype=float)
+                            if R_arr.shape == (1,):
+                                r = float(R_arr[0])
+                            elif R_arr.shape == (1, 1):
+                                r = float(R_arr[0, 0])
+                            else:
+                                raise ValueError("R dimension mismatch in Kalman update.")
+                        S = float(h @ P_pred[t] @ h.T + r)
+                        S = max(S, self.eps)
+                        K = (P_pred[t] @ h.T) / S
+                        innovation = float(y_vec[0] - h @ m_pred[t])
+                        m_filt[t] = m_pred[t] + (K.flatten() * innovation)
+                        P_filt[t] = P_pred[t] - np.outer(K, h) @ P_pred[t]
+                        P_filt[t] = 0.5 * (P_filt[t] + P_filt[t].T) + self.eps * np.eye(d)
+                        continue
                     R_t = R_seq[t]
                     if np.ndim(R_t) == 0:
                         R_mat = np.eye(n_obs, dtype=float) * float(R_t)
@@ -3587,6 +3640,25 @@ class FactorizedSLDS(SLDSIMMRouter):
                 continue
             if H_t.ndim == 1:
                 H_t = H_t.reshape(1, -1)
+            if H_t.shape[0] == 1:
+                h = H_t.reshape(-1)
+                R_t = np.asarray(R_seq[t], dtype=float)
+                if R_t.ndim == 0:
+                    r = float(R_t)
+                elif R_t.shape == (1,):
+                    r = float(R_t[0])
+                elif R_t.shape == (1, 1):
+                    r = float(R_t[0, 0])
+                else:
+                    raise ValueError("R dimension mismatch in Kalman update.")
+                S = float(h @ P_pred[t] @ h.T + r)
+                S = max(S, self.eps)
+                K = (P_pred[t] @ h.T) / S
+                innovation = float(y_t[0] - h @ m_pred[t])
+                m_filt[t] = m_pred[t] + (K.flatten() * innovation)
+                P_filt[t] = P_pred[t] - np.outer(K, h) @ P_pred[t]
+                P_filt[t] = 0.5 * (P_filt[t] + P_filt[t].T) + self.eps * np.eye(d)
+                continue
             R_t = np.asarray(R_seq[t], dtype=float)
             if R_t.ndim == 0:
                 R_mat = np.eye(int(y_t.shape[0]), dtype=float) * float(R_t)
@@ -3668,6 +3740,7 @@ class FactorizedSLDS(SLDSIMMRouter):
             phi_t = phi_seq[t]
             phi_T = phi_t.T
             d_y = int(phi_T.shape[0])
+            scalar_obs = d_y == 1
             if full_feedback:
                 residuals_full_t = self._as_residual_matrix(residuals_full[t])
                 for k in available_sets[t]:
@@ -3675,21 +3748,35 @@ class FactorizedSLDS(SLDSIMMRouter):
                     Bk = self._ensure_B(k)
                     mean_shared = phi_T @ (Bk @ g_prev[t] + u_prev[k][t])
                     resid_vec = self._as_residual_vector(residuals_full_t[k])
-                    for m in range(self.M):
-                        R_mat = self._get_R_matrix(m, k, d_y)
-                        log_emission[t, m] += self._gaussian_logpdf_mvn(
-                            resid_vec, mean_shared, R_mat
+                    if scalar_obs:
+                        diff = float(resid_vec[0] - mean_shared.reshape(-1)[0])
+                        R_vals = np.maximum(self._get_R_scalars_for_expert(k), self.eps)
+                        log_emission[t] += -0.5 * (
+                            np.log(2.0 * np.pi * R_vals) + (diff * diff) / R_vals
                         )
+                    else:
+                        for m in range(self.M):
+                            R_mat = self._get_R_matrix(m, k, d_y)
+                            log_emission[t, m] += self._gaussian_logpdf_mvn(
+                                resid_vec, mean_shared, R_mat
+                            )
             else:
                 k = int(actions[t])
                 Bk = self._ensure_B(k)
                 mean_shared = phi_T @ (Bk @ g_prev[t] + u_prev[k][t])
                 resid_vec = self._as_residual_vector(residuals[t])
-                for m in range(self.M):
-                    R_mat = self._get_R_matrix(m, k, d_y)
-                    log_emission[t, m] = self._gaussian_logpdf_mvn(
-                        resid_vec, mean_shared, R_mat
+                if scalar_obs:
+                    diff = float(resid_vec[0] - mean_shared.reshape(-1)[0])
+                    R_vals = np.maximum(self._get_R_scalars_for_expert(k), self.eps)
+                    log_emission[t] = -0.5 * (
+                        np.log(2.0 * np.pi * R_vals) + (diff * diff) / R_vals
                     )
+                else:
+                    for m in range(self.M):
+                        R_mat = self._get_R_matrix(m, k, d_y)
+                        log_emission[t, m] = self._gaussian_logpdf_mvn(
+                            resid_vec, mean_shared, R_mat
+                        )
             for m in range(self.M):
                 if self.d_g > 0:
                     if t == 0:
@@ -3968,6 +4055,9 @@ class FactorizedSLDS(SLDSIMMRouter):
             u_samples = {k: [] for k in expert_ids}
 
             phi_seq = [self._compute_phi(x) for x in train_ctx]
+            phi_vec_seq = None
+            if phi_seq and int(phi_seq[0].shape[1]) == 1:
+                phi_vec_seq = np.stack([phi[:, 0] for phi in phi_seq], axis=0)
             total_samples = n_samples + burn_in
             for s in range(total_samples):
                 z_seq = self._sample_z_sequence(
@@ -4153,43 +4243,37 @@ class FactorizedSLDS(SLDSIMMRouter):
                 g_cond_mean = g_sum / denom[..., None]
             u_cond_mean = {k: u_sum[k] / denom[..., None] for k in expert_ids}
 
+            z_next_flat = z_samples[:, 1:].reshape(-1) if T_train > 1 else None
+            if self.d_g > 0 and T_train > 1:
+                g_curr_flat = g_samples[:, 1:, :].reshape(-1, self.d_g)
+                g_prev_flat = g_samples[:, :-1, :].reshape(-1, self.d_g)
+            else:
+                g_curr_flat = None
+                g_prev_flat = None
+
             # M-step: A_g, Q_g
             for m in range(self.M):
                 if self.d_g == 0:
                     continue
-                sum_gg = np.zeros((self.d_g, self.d_g), dtype=float)
-                sum_gprev = np.zeros((self.d_g, self.d_g), dtype=float)
-                count = 0.0
-                for s in range(z_samples.shape[0]):
-                    z_seq = z_samples[s]
-                    g_seq = g_samples[s]
-                    for t in range(1, T_train):
-                        if z_seq[t] != m:
-                            continue
-                        sum_gg += np.outer(g_seq[t], g_seq[t - 1])
-                        sum_gprev += np.outer(g_seq[t - 1], g_seq[t - 1])
-                        count += 1.0
-                sum_gg /= S
-                sum_gprev /= S
-                count /= S
+                if z_next_flat is None or g_curr_flat is None or g_prev_flat is None:
+                    continue
+                mask = z_next_flat == m
+                count_raw = int(np.count_nonzero(mask))
+                count = float(count_raw) / S
                 if count <= epsilon_N:
                     continue
+                Gc = g_curr_flat[mask]
+                Gp = g_prev_flat[mask]
+                sum_gg = (Gc.T @ Gp) / S
+                sum_gprev = (Gp.T @ Gp) / S
                 reg = lambda_A_g * np.eye(self.d_g)
                 # Use solve for numerical stability: A = X @ Y^{-1} => A^T = solve(Y, X^T)
                 self.A_g[m] = np.linalg.solve(
                     sum_gprev + reg,
                     (sum_gg + lambda_A_g * M_A_g).T
                 ).T
-                sum_gres = np.zeros((self.d_g, self.d_g), dtype=float)
-                for s in range(z_samples.shape[0]):
-                    z_seq = z_samples[s]
-                    g_seq = g_samples[s]
-                    for t in range(1, T_train):
-                        if z_seq[t] != m:
-                            continue
-                        diff = g_seq[t] - self.A_g[m] @ g_seq[t - 1]
-                        sum_gres += np.outer(diff, diff)
-                sum_gres /= S
+                diff = Gc - (Gp @ self.A_g[m].T)
+                sum_gres = (diff.T @ diff) / S
                 self.Q_g[m] = (Psi_g + sum_gres) / max(
                     nu_g + count + self.d_g + 1.0, self.eps
                 )
@@ -4203,15 +4287,19 @@ class FactorizedSLDS(SLDSIMMRouter):
                 count = 0.0
                 for k in expert_ids:
                     u_samp = u_samples[k]
-                    for s in range(z_samples.shape[0]):
-                        z_seq = z_samples[s]
-                        u_seq = u_samp[s]
-                        for t in range(1, T_train):
-                            if z_seq[t] != m:
-                                continue
-                            sum_uu += np.outer(u_seq[t], u_seq[t - 1])
-                            sum_uprev += np.outer(u_seq[t - 1], u_seq[t - 1])
-                            count += 1.0
+                    if T_train <= 1:
+                        continue
+                    u_curr = u_samp[:, 1:, :].reshape(-1, self.d_phi)
+                    u_prev_flat_k = u_samp[:, :-1, :].reshape(-1, self.d_phi)
+                    mask = z_next_flat == m
+                    count_raw = int(np.count_nonzero(mask))
+                    if count_raw == 0:
+                        continue
+                    Uc = u_curr[mask]
+                    Up = u_prev_flat_k[mask]
+                    sum_uu += Uc.T @ Up
+                    sum_uprev += Up.T @ Up
+                    count += float(count_raw)
                 sum_uu /= S
                 sum_uprev /= S
                 count /= S
@@ -4226,14 +4314,15 @@ class FactorizedSLDS(SLDSIMMRouter):
                 sum_ures = np.zeros((self.d_phi, self.d_phi), dtype=float)
                 for k in expert_ids:
                     u_samp = u_samples[k]
-                    for s in range(z_samples.shape[0]):
-                        z_seq = z_samples[s]
-                        u_seq = u_samp[s]
-                        for t in range(1, T_train):
-                            if z_seq[t] != m:
-                                continue
-                            diff = u_seq[t] - self.A_u[m] @ u_seq[t - 1]
-                            sum_ures += np.outer(diff, diff)
+                    if T_train <= 1:
+                        continue
+                    u_curr = u_samp[:, 1:, :].reshape(-1, self.d_phi)
+                    u_prev_flat_k = u_samp[:, :-1, :].reshape(-1, self.d_phi)
+                    mask = z_next_flat == m
+                    if not np.any(mask):
+                        continue
+                    diff = u_curr[mask] - (u_prev_flat_k[mask] @ self.A_u[m].T)
+                    sum_ures += diff.T @ diff
                 sum_ures /= S
                 self.Q_u[m] = (Psi_u + sum_ures) / max(
                     nu_u + count + self.d_phi + 1.0, self.eps
@@ -4242,56 +4331,71 @@ class FactorizedSLDS(SLDSIMMRouter):
             # Update B_k via ridge regression (mode-conditional)
             if self.d_g > 0 and self.d_phi > 0:
                 for k in expert_ids:
-                    obs_count = 0
-                    for t in range(T_train):
-                        if full_feedback:
-                            if k not in train_avail[t]:
-                                continue
-                        else:
-                            if int(train_actions[t]) != k:
-                                continue
-                        obs_count += d_y
+                    if full_feedback:
+                        obs_idx = np.array(
+                            [t for t in range(T_train) if k in train_avail[t]], dtype=int
+                        )
+                    else:
+                        obs_idx = np.flatnonzero(train_actions == k)
+                    obs_count = int(obs_idx.size * d_y)
                     if obs_count <= epsilon_N:
                         continue
-
-                    XTX = np.zeros(
-                        (self.d_phi * self.d_g, self.d_phi * self.d_g), dtype=float
-                    )
+                    XTX = np.zeros((self.d_phi * self.d_g, self.d_phi * self.d_g), dtype=float)
                     XTy = np.zeros(self.d_phi * self.d_g, dtype=float)
-                    for t in range(T_train):
+                    if d_y == 1 and phi_vec_seq is not None and obs_idx.size > 0:
+                        phi_obs = phi_vec_seq[obs_idx]
                         if full_feedback:
-                            if k not in train_avail[t]:
-                                continue
-                            resid_val = self._as_residual_vector(
-                                self._as_residual_matrix(train_residuals_full[t])[k]
+                            resid_obs = np.array(
+                                [
+                                    float(self._as_residual_matrix(train_residuals_full[t])[k].reshape(-1)[0])
+                                    for t in obs_idx
+                                ],
+                                dtype=float,
                             )
                         else:
-                            if int(train_actions[t]) != k:
-                                continue
-                            resid_val = self._as_residual_vector(train_residuals[t])
-                        phi_t = phi_seq[t]
-                        phi_T = phi_t.T
-                        for s in range(z_samples.shape[0]):
-                            m = int(z_samples[s, t])
-                            g_t = g_samples[s, t]
-                            u_t = u_samples[k][s, t]
-                            R_mat = self._get_R_matrix(m, k, d_y)
-                            R_mat = 0.5 * (R_mat + R_mat.T) + self.eps * np.eye(d_y)
-                            y_vec = resid_val - phi_T @ u_t
-                            X = np.stack(
-                                [np.kron(phi_t[:, r], g_t) for r in range(d_y)],
-                                axis=0,
-                            )
-                            try:
-                                X_weighted = np.linalg.solve(R_mat, X)
-                                y_weighted = np.linalg.solve(R_mat, y_vec)
-                            except np.linalg.LinAlgError:
-                                R_mat = R_mat + self.eps * np.eye(d_y)
-                                X_weighted = np.linalg.solve(R_mat, X)
-                                y_weighted = np.linalg.solve(R_mat, y_vec)
-                            weight = 1.0 / S
-                            XTX += weight * (X.T @ X_weighted)
-                            XTy += weight * (X.T @ y_weighted)
+                            resid_obs = np.asarray(train_residuals[obs_idx], dtype=float).reshape(-1)
+                        g_obs = g_samples[:, obs_idx, :]
+                        u_obs = u_samples[k][:, obs_idx, :]
+                        z_obs = z_samples[:, obs_idx]
+                        Bk = self._ensure_B(k)
+                        Bg = np.einsum("ij,stj->sti", Bk, g_obs)
+                        y_flat = (resid_obs[None, :] - np.einsum("ti,sti->st", phi_obs, u_obs)).reshape(-1)
+                        X = np.einsum("ti,stj->stij", phi_obs, g_obs).reshape(-1, self.d_phi * self.d_g)
+                        R_flat = np.maximum(self._get_R_scalars_for_expert(k)[z_obs.reshape(-1)], self.eps)
+                        w_flat = 1.0 / R_flat
+                        XTX += (X.T @ (X * w_flat[:, None])) / S
+                        XTy += (X.T @ (y_flat * w_flat)) / S
+                    else:
+                        for t in obs_idx:
+                            if full_feedback:
+                                resid_val = self._as_residual_vector(
+                                    self._as_residual_matrix(train_residuals_full[t])[k]
+                                )
+                            else:
+                                resid_val = self._as_residual_vector(train_residuals[t])
+                            phi_t = phi_seq[t]
+                            phi_T = phi_t.T
+                            for s in range(z_samples.shape[0]):
+                                m = int(z_samples[s, t])
+                                g_t = g_samples[s, t]
+                                u_t = u_samples[k][s, t]
+                                R_mat = self._get_R_matrix(m, k, d_y)
+                                R_mat = 0.5 * (R_mat + R_mat.T) + self.eps * np.eye(d_y)
+                                y_vec = resid_val - phi_T @ u_t
+                                X = np.stack(
+                                    [np.kron(phi_t[:, r], g_t) for r in range(d_y)],
+                                    axis=0,
+                                )
+                                try:
+                                    X_weighted = np.linalg.solve(R_mat, X)
+                                    y_weighted = np.linalg.solve(R_mat, y_vec)
+                                except np.linalg.LinAlgError:
+                                    R_mat = R_mat + self.eps * np.eye(d_y)
+                                    X_weighted = np.linalg.solve(R_mat, X)
+                                    y_weighted = np.linalg.solve(R_mat, y_vec)
+                                weight = 1.0 / S
+                                XTX += weight * (X.T @ X_weighted)
+                                XTy += weight * (X.T @ y_weighted)
                     reg = lambda_B * np.eye(self.d_phi * self.d_g)
                     vec_M = M_B.reshape(-1)
                     vec_B = np.linalg.solve(XTX + reg, XTy + lambda_B * vec_M)
@@ -4344,28 +4448,59 @@ class FactorizedSLDS(SLDSIMMRouter):
                     for k in expert_ids:
                         num = 0.0
                         denom = 0.0
-                        for t in range(T_train):
+                        if d_y == 1 and phi_vec_seq is not None:
                             if full_feedback:
-                                if k not in train_avail[t]:
-                                    continue
-                                resid_val = self._as_residual_vector(
-                                    self._as_residual_matrix(train_residuals_full[t])[k]
+                                obs_idx = np.array(
+                                    [t for t in range(T_train) if k in train_avail[t]], dtype=int
+                                )
+                                resid_obs = np.array(
+                                    [
+                                        float(self._as_residual_matrix(train_residuals_full[t])[k].reshape(-1)[0])
+                                        for t in obs_idx
+                                    ],
+                                    dtype=float,
                                 )
                             else:
-                                if int(train_actions[t]) != k:
-                                    continue
-                                resid_val = self._as_residual_vector(train_residuals[t])
-                            phi_t = phi_seq[t]
-                            phi_T = phi_t.T
-                            Bk = self._ensure_B(k)
-                            for s in range(z_samples.shape[0]):
-                                if int(z_samples[s, t]) != m:
-                                    continue
-                                g_t = g_samples[s, t]
-                                u_t = u_samples[k][s, t]
-                                resid_vec = resid_val - phi_T @ (Bk @ g_t + u_t)
-                                num += float(resid_vec @ resid_vec) / S
-                                denom += float(d_y) / S
+                                obs_idx = np.flatnonzero(train_actions == k)
+                                resid_obs = np.asarray(train_residuals[obs_idx], dtype=float).reshape(-1)
+                            if obs_idx.size > 0:
+                                phi_obs = phi_vec_seq[obs_idx]
+                                Bk = self._ensure_B(k)
+                                g_obs = g_samples[:, obs_idx, :]
+                                u_obs = u_samples[k][:, obs_idx, :]
+                                pred = np.einsum(
+                                    "ti,sti->st",
+                                    phi_obs,
+                                    np.einsum("ij,stj->sti", Bk, g_obs) + u_obs,
+                                )
+                                diff_sq = (resid_obs[None, :] - pred) ** 2
+                                z_flat = z_samples[:, obs_idx].reshape(-1)
+                                diff_sq_flat = diff_sq.reshape(-1)
+                                num = float(np.sum(diff_sq_flat[z_flat == m])) / S
+                                denom = float(np.count_nonzero(z_flat == m)) / S
+                        else:
+                            for t in range(T_train):
+                                if full_feedback:
+                                    if k not in train_avail[t]:
+                                        continue
+                                    resid_val = self._as_residual_vector(
+                                        self._as_residual_matrix(train_residuals_full[t])[k]
+                                    )
+                                else:
+                                    if int(train_actions[t]) != k:
+                                        continue
+                                    resid_val = self._as_residual_vector(train_residuals[t])
+                                phi_t = phi_seq[t]
+                                phi_T = phi_t.T
+                                Bk = self._ensure_B(k)
+                                for s in range(z_samples.shape[0]):
+                                    if int(z_samples[s, t]) != m:
+                                        continue
+                                    g_t = g_samples[s, t]
+                                    u_t = u_samples[k][s, t]
+                                    resid_vec = resid_val - phi_T @ (Bk @ g_t + u_t)
+                                    num += float(resid_vec @ resid_vec) / S
+                                    denom += float(d_y) / S
                         if denom <= epsilon_N:
                             continue
                         self.R[m, k] = (b_R + 0.5 * num) / (a_R + 0.5 * denom)
