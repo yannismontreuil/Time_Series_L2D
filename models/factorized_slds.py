@@ -1774,8 +1774,8 @@ class FactorizedSLDS(SLDSIMMRouter):
             weight = float(w_pred[m])
             if weight <= 0.0:
                 continue
-            samples = self._rng.multivariate_normal(
-                mean_arr[m], cov_arr[m], size=int(n_samples)
+            samples = self._sample_gaussian_batch(
+                mean_arr[m], cov_arr[m], int(n_samples), self._rng
             )
             log_p_m = self._gaussian_logpdf_mvn_batch(samples, mean_arr[m], cov_arr[m])
             log_p_all = np.zeros((M, int(n_samples)), dtype=float)
@@ -3882,6 +3882,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         Pi_seq = np.zeros((T, self.M, self.M), dtype=float)
         for t in range(T):
             Pi_seq[t] = self._context_transition(contexts[t])
+        log_Pi_seq = np.log(np.maximum(Pi_seq, self.eps))
 
         alpha = np.zeros((T, self.M), dtype=float)
         if w0 is None:
@@ -3895,9 +3896,8 @@ class FactorizedSLDS(SLDSIMMRouter):
         alpha[0] = np.log(w_init) + log_emission[0]
         alpha[0] -= self._logsumexp(alpha[0])
         for t in range(1, T):
-            for j in range(self.M):
-                prev = alpha[t - 1] + np.log(np.maximum(Pi_seq[t][..., j], self.eps))
-                alpha[t, j] = log_emission[t, j] + self._logsumexp(prev)
+            prev_terms = alpha[t - 1][:, None] + log_Pi_seq[t]
+            alpha[t] = log_emission[t] + self._logsumexp_vec(prev_terms, axis=0)
             alpha[t] -= self._logsumexp(alpha[t])
 
         if rng is None:
@@ -3907,7 +3907,7 @@ class FactorizedSLDS(SLDSIMMRouter):
         probs = probs / probs.sum()
         z[T - 1] = int(rng.choice(self.M, p=probs))
         for t in range(T - 2, -1, -1):
-            trans = np.log(np.maximum(Pi_seq[t + 1][:, z[t + 1]], self.eps))
+            trans = log_Pi_seq[t + 1][:, z[t + 1]]
             logp = alpha[t] + trans
             logp -= self._logsumexp(logp)
             p = np.exp(logp)
