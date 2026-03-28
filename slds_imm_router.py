@@ -2278,7 +2278,10 @@ if __name__ == "__main__":
             )
         finally:
             router.feedback_mode = prev_feedback_mode
-        router.em_tk = int(em_tk)
+        record_em_tk_for_eval = bool(
+            factorized_slds_cfg.get("record_em_tk_for_eval", True)
+        )
+        router.em_tk = int(em_tk) if record_em_tk_for_eval else None
         router.reset_beliefs()
 
     def _copy_factorized_params(

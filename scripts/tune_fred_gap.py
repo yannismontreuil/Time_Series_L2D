@@ -159,12 +159,26 @@ def _prepare_cfg(name: str, overrides: dict[str, Any], transforms: list[str]) ->
     neural_cfg = copy.deepcopy(cfg["baselines"]["neural_ucb"])
     cfg["baselines"] = {"neural_ucb": neural_cfg}
 
-    # Turn off diagnostics for speed; does not affect routing costs.
+    # Keep this sweep focused on partial-feedback L2D-SLDS vs NeuralUCB only.
+    factor = cfg["routers"]["factorized_slds"]
+    factor["feedback_mode"] = "partial"
+    factor["include_no_g"] = False
+    factor["exploration_diag_enabled"] = False
+    factor["record_em_tk_for_eval"] = False
+
+    # Turn off diagnostics/plots/planning for speed; does not affect routing costs.
     if "analysis" in cfg:
+        cfg["analysis"]["selection_plot"] = False
         cfg["analysis"]["pred_target_corr"] = {"enabled": False}
         cfg["analysis"]["tri_cycle_corr"] = {"enabled": False}
         cfg["analysis"]["pruning"] = {"enabled": False}
+    cfg["plot_synth_preview"] = False
+    cfg["plot_time_series_pdf"] = False
+    cfg["plot_time_series_png"] = False
+    cfg["horizon_planning"] = {}
     cfg["transition_log"]["enabled"] = False
+    cfg["transition_log"]["plot"] = False
+    cfg["transition_log"]["print"] = False
 
     for transform in transforms:
         if transform == "trim_M2":
