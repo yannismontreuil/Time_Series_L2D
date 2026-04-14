@@ -50,7 +50,6 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     yaml = None
 
-
 def _load_config(path: str = "config/config.yaml") -> dict:
     if not os.path.exists(path):
         raise FileNotFoundError(f"Config file not found: {path}")
