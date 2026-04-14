@@ -1,0 +1,268 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{amsmath,amssymb}
+\usepackage[T1]{fontenc}
+
+\newcommand{\resolved}{\textbf{Resolved}}
+\newcommand{\partialresolved}{\textbf{Partially Resolved}}
+\newcommand{\openissue}{\textbf{Open}}
+
+\title{Response Sheet for \texttt{reviews.tex}}
+\author{}
+\date{March 26, 2026}
+
+\begin{document}
+\maketitle
+
+\paragraph{Scope.}
+This document records \emph{only completed actions} taken in response to the concerns raised in \texttt{Paper/reviews.tex}. It does not claim work that is still in progress. In particular, the items below reflect what has already been implemented, run, and verified in the current repository as of March 25, 2026.
+
+\paragraph{High-level status.}
+The main completed changes are empirical: we added three stronger reviewer-requested baselines, added a new real-world univariate benchmark on Jena Climate, produced empirical runtime comparisons, completed cluster sweeps that identify faster operating points for the proposed method on both Jena and Melbourne, and ran the expanded baseline set on Melbourne under the same full-horizon protocol as the paper. The main unresolved items are theoretical: we have not added regret bounds, minimax guarantees, or information-theoretic lower bounds, and we have not yet completed a full rewrite of the exposition in the submitted manuscript.
+
+\section*{1. Status Summary}
+
+\begin{longtable}{p{0.31\linewidth} p{0.16\linewidth} p{0.16\linewidth} p{0.29\linewidth}}
+\toprule
+\textbf{Reviewer concern} & \textbf{Reviewer(s)} & \textbf{Status} & \textbf{What has been completed} \\
+\midrule
+Need stronger baselines beyond LinUCB / NeuralUCB & QbaF, W5VY & \resolved & Implemented and tested Shared-Parameter LinUCB, Linear Thompson Sampling, and Ensemble Sampling. \\
+Need a shared-parameter LinUCB comparator & QbaF & \resolved & Implemented a single-parameter joint-feature LinUCB with one global parameter vector across experts. \\
+Need broader empirical validation & iNRb, W5VY, QbaF & \resolved & Added a new real-world univariate Jena Climate benchmark, ran the new baselines there, and ran the expanded baseline set on Melbourne under the full-horizon paper protocol. \\
+Need runtime / computational cost comparison & QbaF & \partialresolved & Added empirical online runtime comparisons on Jena and completed cluster runtime--accuracy sweeps for both Jena and Melbourne. \\
+Need stronger discussion of estimation / model complexity & iNRb & \openissue & No new main-text estimation rewrite has been completed yet. \\
+Need regret / minimax / lower-bound style theory & W5VY, iNRb & \openissue & No new theoretical guarantee has been completed yet. \\
+Need notation, presentation, and accessibility cleanup & W5VY & \openissue & No full exposition rewrite has been completed yet. \\
+Need explicit limitations discussion & W5VY & \openissue & No new limitations section has been completed yet. \\
+\bottomrule
+\end{longtable}
+
+\section*{2. Completed Empirical Additions}
+
+\paragraph{New baselines.}
+We added the following baselines to the full pipeline.
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Shared-Parameter LinUCB}: a single global linear parameter vector over expert-conditioned features,
+    \[
+    \psi(x_t,k) = \big[\phi(x_t), e_k, e_k \otimes \phi(x_t)\big],
+    \]
+    so the predictive model is
+    \[
+    \ell_{t,k} \approx \theta^\top \psi(x_t,k),
+    \]
+    with one common parameter $\theta$ across all experts.
+    \item \textbf{Linear Thompson Sampling}: posterior sampling in the same shared linear feature space.
+    \item \textbf{Ensemble Sampling}: a linear-Gaussian ensemble posterior approximation in the style suggested by the reviewer.
+\end{itemize}
+
+\paragraph{Why this shared-parameter implementation is the correct response to Reviewer QbaF.}
+A literal model of the form $\ell_{t,k} \approx \theta^\top \phi(x_t)$ with the \emph{same} context feature vector for every expert would assign the same predicted loss to all experts and would therefore be degenerate for routing. The correct non-degenerate shared-parameter comparator is a model with one global parameter vector and expert-conditioned features, which is exactly what we implemented.
+
+\paragraph{New dataset.}
+We added a new \textbf{univariate} real-world benchmark based on \texttt{tf-keras-datasets/jena\_climate\_2009\_2016}. The target is scalar temperature, and the experiment is run under the same partial-feedback routing protocol as the rest of the paper.
+
+\paragraph{Completed Jena result.}
+On the completed Jena run, the proposed method still outperformed all newly added baselines. The strongest new baseline was Shared-Parameter LinUCB.
+
+\begin{table}[h]
+\centering
+\caption{Completed Jena Climate results and online runtime. Lower is better for all numeric columns. The mean and variance are computed from the completed five-seed run; methods that are deterministic for this fixed dataset/expert pool have zero reported variance. The experiment is univariate.}
+\label{tab:jena_response}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Method} & \textbf{Mean cost} & \textbf{Variance} & \textbf{Runtime (ms/step)} \\
+\midrule
+L2D-SLDS & 3.6100 & 0.000000 & 8.058 \\
+L2D-SLDS w/o shared factor $g_t$ & 3.6633 & 0.000000 & 7.738 \\
+Shared-Parameter LinUCB & 3.9220 & 0.000000 & 8.643 \\
+NeuralUCB & 3.9755 & 0.033164 & 0.449 \\
+Ensemble Sampling & 4.0977 & 0.026189 & 4.670 \\
+Linear Thompson Sampling & 4.1197 & 0.056853 & 5.713 \\
+LinUCB & 5.1433 & 0.000000 & 0.257 \\
+Random & 7.5803 & 0.003302 & -- \\
+Oracle & 1.5650 & 0.000000 & -- \\
+\midrule
+Always expert 0 & 4.1148 & 0.000000 & -- \\
+Always expert 1 & 4.1149 & 0.000000 & -- \\
+Always expert 2 & 10.8300 & 0.000000 & -- \\
+Always expert 3 & 11.6949 & 0.000000 & -- \\
+Always expert 4 & 8.2196 & 0.000000 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Interpretation of Table~\ref{tab:jena_response}.}
+The new results resolve the most direct empirical criticism: the comparison is no longer restricted to LinUCB and NeuralUCB. The strongest added baseline, Shared-Parameter LinUCB, achieves mean cost $3.9220$, while the proposed method achieves $3.6100$, an absolute improvement of $0.3120$ and a relative improvement of approximately $7.95\%$. Runtime-wise, the proposed method is slower than the cheapest discriminative baselines, but it remains in the single-digit millisecond regime and is comparable to the strongest added shared-structure baseline (8.058 ms/step versus 8.643 ms/step).
+The auxiliary expert rows show that the best fixed expert on Jena has mean cost approximately $4.1148$, so the proposed adaptive router also improves over the best static expert under the same environment.
+
+\paragraph{Completed Melbourne result with the expanded baseline set.}
+We also reran Melbourne under the same full-horizon paper protocol, but now with the stronger baseline set included. This uses the tuned operating point selected from the completed Melbourne cluster sweep.
+
+\begin{table}[h]
+\centering
+\caption{Completed Melbourne results under the full-horizon paper protocol with the expanded baseline set. Lower is better. We report mean $\pm$ standard error over five seeds for adaptive methods. The fixed-expert rows are the full-horizon means from the tuned Melbourne evaluation under the same environment.}
+\label{tab:melbourne_response}
+\begin{tabular}{lc}
+\toprule
+\textbf{Method} & \textbf{Mean cost} \\
+\midrule
+L2D-SLDS & $5.6959 \pm 0.0000$ \\
+L2D-SLDS w/o shared factor $g_t$ & $5.7540 \pm 0.0000$ \\
+LinTS & $5.9097 \pm 0.0237$ \\
+NeuralUCB & $5.9279 \pm 0.0342$ \\
+Ensemble Sampling & $5.9290 \pm 0.0191$ \\
+Shared-Parameter LinUCB & $5.9582 \pm 0.0000$ \\
+LinUCB & $6.0998 \pm 0.0000$ \\
+Random & $6.6947 \pm 0.0251$ \\
+Oracle & $4.2119 \pm 0.0000$ \\
+\midrule
+Always expert 0 & $5.7296$ \\
+Always expert 1 & $5.7253$ \\
+Always expert 2 & $7.3113$ \\
+Always expert 3 & $7.3008$ \\
+Always expert 4 & $7.2906$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Interpretation of Table~\ref{tab:melbourne_response}.}
+The strongest adaptive baseline on Melbourne is now Linear Thompson Sampling at $5.9097 \pm 0.0237$. The proposed method achieves $5.6959$, an absolute improvement of $0.2138$ and a relative improvement of approximately $3.62\%$. This matters for the rebuttal because it shows that the stronger shared-structure and sampling baselines are not only beaten on the newly added Jena dataset; they are also beaten on an existing paper dataset under the same full-horizon evaluation protocol. The ablation without the shared factor is again worse, by $0.0581$, so the shared component remains useful on Melbourne as well. The auxiliary expert rows show that the best fixed expert on Melbourne is expert 1 at mean cost $5.7253$, so the adaptive router also improves over the best static expert under the same environment.
+
+\paragraph{Completed cluster-selected operating points for the proposed method.}
+After the baseline-integrated Jena run was completed, we performed a focused cluster sweep over the proposed method's own operating-point parameters to improve runtime without materially degrading performance. The tested knobs were the number of regimes, shared latent dimension, and the exploration approximation budget. Table~\ref{tab:operating_points_response} reports the best completed settings among the tested configurations.
+
+\begin{table}[h]
+\centering
+\caption{Completed cluster-selected operating points for the proposed method. ``Paper-style baseline'' denotes the original configuration used before the runtime-focused sweep on that dataset. Lower is better for all numeric columns.}
+\label{tab:operating_points_response}
+\begin{tabular}{llccc}
+\toprule
+\textbf{Dataset} & \textbf{Selected config} & \textbf{Mean cost} & \textbf{Cumulative cost} & \textbf{Runtime (ms/step)} \\
+\midrule
+Jena (best raw) & $M=4$, $d_g=1$, exploration $g$ & 3.6100 & 21656.56 & 1.479 \\
+Jena (best tradeoff) & $M=3$, $d_g=1$, exploration $g$ & 3.6320 & 21788.40 & 1.331 \\
+Jena (paper-style baseline) & $M=4$, $d_g=2$, exploration $g\_z$, 25 MC samples & 3.6100 & 21656.56 & 3.225 \\
+\midrule
+Melbourne (best raw / tradeoff) & $M=2$, $d_g=1$, exploration $g\_z$, 12 MC samples & 5.6959 & 20767.27 & 1.688 \\
+Melbourne (paper-style baseline) & $M=4$, $d_g=2$, exploration $g\_z$, 25 MC samples & 5.7093 & 20815.95 & 3.223 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Interpretation of Table~\ref{tab:operating_points_response}.}
+These completed sweeps show that the runtime of the proposed method can be reduced substantially without sacrificing the best observed performance. On Jena, replacing the original $M=4$, $d_g=2$, $g_z$ configuration by the tested $M=4$, $d_g=1$, $g$ configuration preserves the same mean cost ($3.6100$) while reducing runtime from $3.225$ to $1.479$ ms/step, approximately a $2.18\times$ speedup. A further speed-oriented tradeoff point with $M=3$, $d_g=1$, $g$ reaches $1.331$ ms/step with only a small mean-cost change to $3.6320$. On Melbourne, the best tested setting is also the fastest useful one: reducing to $M=2$, $d_g=1$, and 12 Monte Carlo samples improves the mean cost from $5.7093$ to $5.6959$ and reduces runtime from $3.223$ to $1.688$ ms/step, approximately a $1.91\times$ speedup.
+
+\section*{3. Reviewer-by-Reviewer Responses}
+
+\subsection*{Reviewer QbaF}
+
+\paragraph{Response to the concern on limited baselines.}
+\textbf{Status: \resolved.}
+We have directly addressed this point by expanding the baseline set beyond the original LinUCB / NeuralUCB comparison. Concretely, we added:
+\begin{itemize}[leftmargin=1.5em]
+    \item Shared-Parameter LinUCB,
+    \item Linear Thompson Sampling,
+    \item Ensemble Sampling.
+\end{itemize}
+These baselines are fully integrated into the pipeline and have already been run on the new Jena benchmark. Table~\ref{tab:jena_response} shows that the proposed method remains better than all of them on the completed run.
+
+\paragraph{Response to the question about shared-parameter LinUCB.}
+\textbf{Status: \resolved.}
+We now do compare against a shared-parameter linear baseline. The implementation uses one global parameter vector over expert-conditioned features. This is the correct common-parameter analogue in the present routing problem. A literal common parameter using only context features would be degenerate because it would assign identical predictions to all experts and therefore would not provide a meaningful routing comparator.
+
+\paragraph{Response to the computational-cost question.}
+\textbf{Status: \partialresolved.}
+We have completed the empirical part of this request by adding an online runtime comparison on Jena and by running cluster operating-point sweeps on both Jena and Melbourne. Table~\ref{tab:jena_response} shows that the proposed method remains competitive against stronger baselines, while Table~\ref{tab:operating_points_response} shows that its own runtime can be reduced substantially without degrading its best observed accuracy on Jena and while slightly improving accuracy on Melbourne. What remains open is a clean asymptotic complexity write-up in the manuscript itself.
+
+\paragraph{Task checklist for Reviewer QbaF.}
+\begin{itemize}[leftmargin=1.5em]
+    \item Add Thompson / ensemble baselines: \resolved
+    \item Add a shared-parameter LinUCB comparator: \resolved
+    \item Add runtime comparison: \partialresolved
+    \item Add a formal complexity discussion in the text: \openissue
+\end{itemize}
+
+\subsection*{Reviewer iNRb}
+
+\paragraph{Response to the request for stronger empirical support.}
+\textbf{Status: \partialresolved.}
+We addressed the empirical part of this concern by adding a new real-world univariate Jena Climate benchmark, by broadening the baseline set substantially, by completing runtime--accuracy operating-point sweeps for the proposed method on both Jena and Melbourne, and by rerunning Melbourne with the expanded baseline set under the same full-horizon protocol used in the paper. This is a genuine expansion of the empirical section rather than a cosmetic change: it adds both a new dataset and materially stronger comparators, and it shows the stronger baselines on more than one real dataset.
+
+\paragraph{Response to the concern about estimation and training.}
+\textbf{Status: \openissue.}
+We have not yet completed the corresponding manuscript rewrite. No claim is made here that this concern has already been resolved.
+
+\paragraph{Response to the concern about model complexity.}
+\textbf{Status: \partialresolved.}
+We now have empirical cost--runtime comparisons on Jena and Melbourne, which partially inform the complexity question. In particular, the completed cluster sweeps show that a substantial fraction of the runtime can be recovered by selecting better operating points for the proposed method, while keeping essentially the same Jena accuracy and slightly improving Melbourne accuracy. However, we have not yet completed a manuscript-level argument explaining when the switching and shared-factor structure is justified relative to simpler alternatives.
+
+\paragraph{Task checklist for Reviewer iNRb.}
+\begin{itemize}[leftmargin=1.5em]
+    \item Strengthen empirical validation: \partialresolved
+    \item Explain estimation / training more clearly: \openissue
+    \item Add clearer model-complexity discussion: \partialresolved
+    \item Rework exposition around the linear-Gaussian core: \openissue
+\end{itemize}
+
+\subsection*{Reviewer W5VY}
+
+\paragraph{Response to the concern about limited empirical validation.}
+\textbf{Status: \partialresolved.}
+We have strengthened the empirical side in three concrete ways already completed:
+\begin{itemize}[leftmargin=1.5em]
+    \item a new real-world univariate Jena benchmark,
+    \item three stronger baselines beyond the original LinUCB / NeuralUCB pair,
+    \item a full-horizon Melbourne rerun with the expanded baseline set.
+\end{itemize}
+This does not resolve the theoretical part of the concern, but it does materially strengthen the empirical case.
+
+\paragraph{Response to the notation question about $C_I$.}
+\textbf{Status: \partialresolved.}
+The intended meaning is that $I$ denotes the selected expert index, not a set-valued action. The clean notation is therefore $C_{I_t}(x_t,y_t)$ with $I_t \in \mathcal{E}_t$, or equivalently $C_k(x_t,y_t)$ for a chosen expert $k$. This clarification can be stated precisely now, but the manuscript notation has not yet been cleaned up everywhere.
+
+\paragraph{Response to the request for stronger theory.}
+\textbf{Status: \openissue.}
+No new lower bound, regret theorem, or minimax analysis has been completed.
+
+\paragraph{Response to the presentation concern.}
+\textbf{Status: \openissue.}
+We have not yet completed the corresponding revision of abbreviations, motivation, and section ordering.
+
+\paragraph{Response to the limitations concern.}
+\textbf{Status: \openissue.}
+We have not yet written a new limitations section.
+
+\paragraph{Task checklist for Reviewer W5VY.}
+\begin{itemize}[leftmargin=1.5em]
+    \item Broaden empirical validation: \partialresolved
+    \item Clarify the meaning of $C_I$: \partialresolved
+    \item Add lower bounds / regret theory: \openissue
+    \item Improve readability and notation: \openissue
+    \item Add limitations discussion: \openissue
+\end{itemize}
+
+\section*{4. What Is Actually Resolved So Far}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item The paper is no longer limited, in terms of completed experiments, to LinUCB and NeuralUCB only.
+    \item The reviewer request for a shared-parameter linear comparator has been implemented and tested.
+    \item A new real-world \emph{univariate} dataset has been added to broaden empirical support.
+    \item The stronger baseline set has now also been run on Melbourne under the same full-horizon protocol as the paper.
+    \item Runtime is now reported empirically on Jena, and faster operating points have been identified on both Jena and Melbourne.
+\end{itemize}
+
+\section*{5. What Remains Open}
+
+\begin{itemize}[leftmargin=1.5em]
+    \item No new regret, minimax, or lower-bound theorem has been added.
+    \item No full manuscript rewrite of the training / estimation discussion has been completed yet.
+    \item No full notation and presentation cleanup has been completed yet.
+    \item No new limitations section has been completed yet.
+\end{itemize}
+
+\end{document}

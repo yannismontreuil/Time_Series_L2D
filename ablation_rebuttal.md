@@ -261,15 +261,15 @@ The intended point is narrow:
 - our method stores expert-specific latent state only for the maintained registry $\mathcal K_t$;
 - shared baselines that keep catalog-dependent state do not enjoy that same built-in pruning mechanism.
 
-We therefore focus on the methods that make this contrast cleanest:
+We report all of the main rebuttal baselines:
 
 - `L2D-SLDS`
 - `SharedLinUCB`
-- `NeuralUCB`
 - `LinTS`
 - `Ensemble Sampling`
+- `NeuralUCB`
 
-Here the relevant quantity is the maintained online state. For `LinTS`, this is the same joint precision/state allocation as `SharedLinUCB`. For `Ensemble Sampling`, it is that same joint model plus the ensemble-specific parameter copies.
+The main scaling table focuses on the quantities that matter most for the pruning argument: the maintained registry size and the maintained online state.
 
 ## Setup
 
@@ -294,7 +294,43 @@ We use the paper synthetic with a fixed active set of four experts and a growing
 | `32` | `14.1303` | `6.23` | `38.9` | `4290` | `4290` | `7410` | `8736` |
 | `64` | `12.4214` | `8.80` | `49.2` | `16770` | `16770` | `22962` | `17440` |
 
-Here `Avg. state` means the time-average number of stored scalar entries in the method's maintained online state during the run. For `LinTS` and `Ensemble Sampling`, these values come from the exact allocated model state implied by their joint feature dimension and ensemble size.
+Here `Avg. state` means the time-average number of stored scalar entries in the method's maintained online state during the run.
+
+## Largest-catalog snapshot
+
+To show that the state-scaling story is not hiding the routing outcomes, we also report the full `R=64` snapshot below.
+
+| Method | Mean cost at `R=64` | Runtime at `R=64` (ms/step) | Avg. state at `R=64` |
+| --- | ---: | ---: | ---: |
+| `L2D-SLDS` | `12.4214` | `1.8907` | `49.2` |
+| `SharedLinUCB` | `17.4646` | `4.9789` | `16770` |
+| `LinTS` | `19.1910` | `2.9312` | `16770` |
+| `Ensemble Sampling` | `20.5454` | `2.6110` | `22962` |
+| `NeuralUCB` | `19.2210` | `0.7496` | `17440` |
+
+## Full per-catalog snapshot
+
+For completeness, we also report the measured mean cost and average maintained state for every evaluated catalog size.
+
+### Mean cost by catalog size
+
+| `R` | `L2D-SLDS` | `SharedLinUCB` | `LinTS` | `Ensemble Sampling` | `NeuralUCB` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `4` | `13.2496` | `22.9579` | `22.9736` | `23.7692` | `18.9416` |
+| `8` | `13.8762` | `20.6917` | `24.9229` | `23.8949` | `20.7307` |
+| `16` | `12.8760` | `21.8244` | `22.8350` | `20.6846` | `20.1360` |
+| `32` | `14.1303` | `21.1061` | `24.4606` | `24.1827` | `26.7560` |
+| `64` | `12.4214` | `17.4646` | `19.1910` | `20.5454` | `19.2210` |
+
+### Average maintained state by catalog size
+
+| `R` | `L2D-SLDS` | `SharedLinUCB` | `LinTS` | `Ensemble Sampling` | `NeuralUCB` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `4` | `30.0` | `90` | `90` | `522` | `1120` |
+| `8` | `31.3` | `306` | `306` | `1122` | `2208` |
+| `16` | `33.8` | `1122` | `1122` | `2706` | `4384` |
+| `32` | `38.9` | `4290` | `4290` | `7410` | `8736` |
+| `64` | `49.2` | `16770` | `16770` | `22962` | `17440` |
 
 ## Key readout
 
@@ -307,6 +343,15 @@ Here `Avg. state` means the time-average number of stored scalar entries in the 
   - `LinTS`: from `90` to `16770`
   - `Ensemble Sampling`: from `522` to `22962`
   - `NeuralUCB`: from `1120` to `17440`
+- This is not masking a cost collapse at large catalog size:
+  - at `R=64`, `L2D-SLDS` is also the lowest-cost method at `12.4214`
+  - the strongest baseline there is `SharedLinUCB` at `17.4646`
+- At the same largest catalog size, the runtime picture remains practical:
+  - `L2D-SLDS`: `1.8907` ms/step
+  - `SharedLinUCB`: `4.9789`
+  - `LinTS`: `2.9312`
+  - `Ensemble Sampling`: `2.6110`
+  - `NeuralUCB`: `0.7496`
 
 ## Interpretation
 
@@ -322,8 +367,59 @@ We deliberately do not use this experiment as the main runtime comparison in the
 
 > As a supporting complexity check, we also ran a bounded-active-set, growing-catalog synthetic experiment. The active set is always four experts, but the cumulative catalog grows from `R=4` to `R=64` under expert churn. The key result is that the maintained SLDS registry stays small: the average registry size grows only from `4.00` to `8.80`, and the maintained online state grows only from `30.0` to `49.2` average scalar entries. By contrast, the catalog-dependent baselines grow by orders of magnitude over the same sweep (`SharedLinUCB`: `90` to `16770`; `LinTS`: `90` to `16770`; `Ensemble Sampling`: `522` to `22962`; `NeuralUCB`: `1120` to `17440`). This supports the intended complexity claim that the proposed method's maintained online state scales with the registry $\mathcal K_t$, not the full cumulative catalog of expert identities.
 
+> To show that this is not only a state-size effect, we also report the largest-catalog snapshot at `R=64`. There, the proposed method remains the lowest-cost method (`12.4214`) while keeping a maintained online state of only `49.2` average entries, versus `16770` for `SharedLinUCB`, `16770` for `LinTS`, `22962` for `Ensemble Sampling`, and `17440` for `NeuralUCB`. The corresponding runtime remains practical as well: `1.8907` ms/step for the proposed method, compared with `4.9789` for `SharedLinUCB`, `2.9312` for `LinTS`, `2.6110` for `Ensemble Sampling`, and `0.7496` for `NeuralUCB`.
+
 ## Internal note
 
 Source:
 
-- `out/complexity_registry_rerun/registry_complexity_summary.csv`
+- cluster Slurm job: `503357`
+- cluster output:
+  - `~/scratch/Time_Series_L2D/out/complexity_registry_allbaselines_full/registry_complexity_summary.csv`
+
+## Additional reviewer-requested non-stationary bandit baselines
+
+Objective: answer the reviewer request for comparisons to the cited non-stationary bandit papers, while being explicit about which methods are direct baselines and which ones require contextual adaptation to fit the expert-routing setup.
+
+Compatibility:
+
+- `1909.09146v2` (`D-LinUCB`) is a direct non-stationary linear contextual bandit baseline. We implement it directly as discounted shared linear regression over expert-conditioned features.
+- `1711.03539v2` (`CUSUM-UCB`) is a piecewise-stationary non-contextual MAB algorithm. In our setting, the closest compatible analogue is a contextual LinUCB backbone with per-expert CUSUM-based local resets driven by bounded prediction-error magnitudes.
+- `1908.10402v4` (`GLR-CUCB`) is a piecewise-stationary combinatorial semi-bandit algorithm. In our setting, the closest compatible analogue is a contextual LinUCB backbone with GLR-based global restart and forced exploration, again driven by bounded prediction-error magnitudes.
+
+We therefore treat:
+- `D-LinUCB` as a direct baseline;
+- `CUSUM-LinUCB` and `GLR-LinUCB` as careful contextual adaptations of the change-detection ideas in the other two papers.
+
+We ran all three on Slurm on the same tuned Jena and Melbourne environments already used in the rebuttal. For `D-LinUCB`, we additionally ran a small Slurm sweep over the discount factor and kept the best value for each dataset:
+- Jena: `gamma = 0.95`
+- Melbourne: `gamma = 0.98`
+
+| Method | Jena mean cost | Jena runtime (ms/step) | Melbourne mean cost | Melbourne runtime (ms/step) |
+| --- | ---: | ---: | ---: | ---: |
+| `L2D-SLDS` | `3.6100` | `1.479` | `5.6959` | `1.688` |
+| `NeuralUCB` | `3.9755` | `0.658` | `5.9279` | `0.426` |
+| `D-LinUCB` (tuned gamma) | `5.0490` | `1.011` | `5.9889` | `0.677` |
+| `CUSUM-LinUCB` | `4.6077` | `0.350` | `6.3191` | `0.324` |
+| `GLR-LinUCB` | `5.8584` | `0.453` | `6.2238` | `0.410` |
+
+## Readout
+
+- These additional baselines do not change the ranking on either real dataset.
+- On Jena, the strongest of the three is `CUSUM-LinUCB`, but it remains clearly above both `NeuralUCB` and `L2D-SLDS`.
+- On Melbourne, the strongest of the three is tuned `D-LinUCB`, but it remains above both `NeuralUCB` and `L2D-SLDS`.
+- Runtime remains practical for all three, but none of them closes the performance gap to the tuned `L2D-SLDS`.
+
+## Internal note
+
+Sources:
+
+- cluster Slurm job: `553112`
+  - `out/paper_testing/jena_dlinucb.csv`
+  - `out/paper_testing/jena_cusum_linucb.csv`
+  - `out/paper_testing/jena_glr_linucb.csv`
+  - `out/paper_testing/melbourne_dlinucb.csv`
+  - `out/paper_testing/melbourne_cusum_linucb.csv`
+  - `out/paper_testing/melbourne_glr_linucb.csv`
+- cluster Slurm job: `553123`
+  - `out/paper_testing_dlin_gamma/*.csv`

@@ -1,0 +1,102 @@
+# Ablation: Melbourne, M=1 (no regime switching), d_g=1 (shared factor kept)
+# Purpose: isolate the contribution of regime switching.
+
+plot_shift: 1
+plot_target: "y"
+plot_synth_preview: false
+plot_time_series_pdf: false
+plot_time_series_png: false
+
+transition_log:
+  enabled: false
+
+environment:
+  data_source: merlbourne
+  csv_path: data/daily-minimum-temperatures-in-me.csv
+  target_column: "Daily minimum temperatures in Melbourne, Australia, 1981-1990"
+  T: null
+  seed: 11
+  data_seed: 42
+  num_experts: 5
+  num_regimes: 1
+  state_dim: 8
+  context_lags: [1, 7, 30, 365]
+  include_time_features: true
+  time_features: [dayofweek, month]
+  normalize_context: true
+  normalization_window: 730
+  normalization_eps: 1.0e-6
+  normalization_mode: "zscore"
+  expert_archs: [ar, ar, arima, arima, arima]
+  expert_pred_noise_std: [0.1, 0.1, 0.06, 0.1, 0.06]
+  arima_lags: [1, 7, 30, 365]
+  arima_diff_order: 0
+  unavailable_expert_idx: [2, 3]
+  unavailable_intervals:
+    - [800, 1200]
+    - [500, 1500]
+  rnn_hidden_dim: 6
+  rnn_spectral_radius: 0.9
+  rnn_ridge: 1.0e-3
+  rnn_washout: 7
+  rnn_input_scale: 0.6
+  rnn_share_reservoir: false
+  analysis_window: 365
+
+routers:
+  beta: 0.0
+  staleness_threshold: null
+  lambda_risk: -0.1
+  slds_imm:
+    enabled: false
+  slds_imm_em:
+    enabled: false
+  slds_imm_corr:
+    enabled: false
+  slds_imm_corr_em:
+    enabled: false
+
+  factorized_slds:
+    enabled: true
+    feedback_mode: partial
+    include_no_g: false
+    label_with_g: "M=1, d_g=1"
+    num_regimes: 1
+    shared_dim: 1
+    idiosyncratic_dim: 8
+    delta_max: 2000
+    R_scalar: 0.05
+    A_g:
+      - [[0.98]]
+    Q_g_scales: [0.08]
+    A_u_scale: [0.98]
+    Q_u_scales: [0.05]
+    exploration: ["g"]
+    exploration_mc_samples: 0
+    exploration_diag_enabled: false
+    init_R_mode: empirical_expert
+    init_R_window: 730
+    init_R_use_available: true
+    init_R_floor: 1.0e-4
+    init_R_print: true
+    init_state_from_residuals: u
+    init_state_window: 730
+    init_state_u_scale: 1.0
+    init_state_g_scale: 0.3
+    init_state_print: true
+    em_enabled: false
+    em_online_enabled: false
+    transition_mode: "attention"
+    transition_init: uniform
+    seed: 11
+
+baselines: {}
+
+analysis:
+  baselines_train_from_start: true
+  print_available_only: true
+  print_last_window: true
+  tri_cycle_corr:
+    enabled: false
+  pruning:
+    enabled: false

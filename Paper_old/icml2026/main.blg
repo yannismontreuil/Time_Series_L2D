@@ -1,0 +1,54 @@
+This is BibTeX, Version 0.99d (TeX Live 2022/Debian)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: main.aux
+The style file: icml2026.bst
+Database file #1: biblio.bib
+Warning--entry type for "daily_min_temp_melbourne_kaggle" isn't style-file defined
+--line 88 of file biblio.bib
+Warning--empty booktitle in besson2022efficient
+Warning--can't use both volume and number fields in besson2022efficient
+Warning--there's a number but no series in dani2008stochastic
+Warning--empty journal in kalman1960new
+Warning--empty journal in welch1995introduction
+You've used 54 entries,
+            2773 wiz_defined-function locations,
+            881 strings with 15683 characters,
+and the built_in function-call counts, 26694 in all, are:
+= -- 2237
+> -- 1843
+< -- 30
++ -- 621
+- -- 563
+* -- 2213
+:= -- 4126
+add.period$ -- 181
+call.type$ -- 54
+change.case$ -- 339
+chr.to.int$ -- 50
+cite$ -- 113
+duplicate$ -- 1208
+empty$ -- 2118
+format.name$ -- 635
+if$ -- 5594
+int.to.chr$ -- 5
+int.to.str$ -- 1
+missing$ -- 49
+newline$ -- 289
+num.names$ -- 224
+pop$ -- 740
+preamble$ -- 1
+purify$ -- 286
+quote$ -- 0
+skip$ -- 919
+stack$ -- 0
+substring$ -- 583
+swap$ -- 147
+text.length$ -- 14
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 589
+warning$ -- 5
+while$ -- 201
+width$ -- 0
+write$ -- 716
+(There were 6 warnings)

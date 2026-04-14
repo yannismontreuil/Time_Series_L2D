@@ -166,6 +166,30 @@ baselines:
     include_shared_context: true
     include_arm_bias: true
     include_arm_interactions: true
+  d_linucb:
+    discount_gamma: 0.98
+    lambda_reg: 1.0
+    feedback_mode: partial
+    param_norm_bound: 1.0
+    noise_std: 1.0
+    delta_confidence: 0.05
+  cusum_linucb:
+    alpha_ucb: 5.0
+    lambda_reg: 1.0
+    feedback_mode: partial
+    detector_warmup: 25
+    detector_epsilon: 0.02
+    detector_threshold: 0.25
+    detector_scale: 1.0
+    random_explore_prob: 0.05
+  glr_linucb:
+    alpha_ucb: 5.0
+    lambda_reg: 1.0
+    feedback_mode: partial
+    detector_delta: 0.05
+    detector_min_window: 20
+    detector_scale: 1.0
+    forced_exploration_prob: 0.10
 
 analysis:
   baselines_train_from_start: true
